@@ -5,7 +5,7 @@ Open-Source-Werkzeug für Funkamateure: Eine Gruppe peilt gemeinsam einen Störs
 berechnet live den wahrscheinlichsten Standort des Störers samt Fehlerellipse und verteilt das Ergebnis
 an alle. Lizenz: MIT.
 
-**Stand: Phase 2 (Robustheit und Koordination).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
+**Stand: Phase 3 (Nahpeilung).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
 Konventionen: [CLAUDE.md](CLAUDE.md).
 
 ## Aufbau
@@ -78,6 +78,18 @@ MLE-Punkt und Ellipse, Aussendung starten/stoppen, Ausreißer markieren (Peilung
 - Nachtmodus (rotes Farbschema)
 - Push bei Aussendungsstart: serverseitig fertig (FCM HTTP v1), siehe unten
 
+**Phase 3 (Nahpeilung):**
+- Homing-Screen (Kompass-Symbol in der Kartenleiste): großer Pfeil zum wahrscheinlichsten Standort mit Distanz,
+  Hinweis „im 1σ-Bereich“, Pegelverlauf, farbige Spur nach Feldstärke (blau schwach, rot stark) und Karte
+- Schnelleingabe unten fixiert: S-Meter-Tasten (S1 … S9+60, S9 = −93 dBm, 6 dB je S-Stufe nach IARU für VHF/UHF),
+  dBm-Feld, Dämpfungsglied (aus/10/20/30/40 dB) und „letzten Wert alle 2 s mitschreiben“
+- RSSI-Logging über dieselbe Offline-Queue (`POST /missions/{id}/rssi`, idempotent, nie gelöscht, nur deaktivierbar)
+- RSSI-Fusion in der Engine: Log-Distanz-Pfadverlustmodell mit unbekanntem Exponenten und Referenzpegel
+  (pro Kandidatenpunkt gefittet), Messwerte vorher um die Dämpfung korrigiert, geht als zusätzliche Likelihood ein
+  (`engine_params`: `use_rssi`, `rssi_sigma_db`, `rssi_weight`); Karte, PDF, GPX, KML und JSON enthalten die Spur
+- Funkgeräte-Abstraktion für CAT-S-Meter (Icom CI-V, Kenwood/Yaesu ASCII) mit Kalibrierung; siehe Grenzen
+- Simulator: `uv run tools/simulator/run.py --bearers 2 --outliers 0 --homing`
+
 ## Push-Benachrichtigungen einrichten
 
 Der Server verschickt bei Aussendungsstart einen Push an alle anderen Teilnehmer, sobald
@@ -96,4 +108,13 @@ Paket `firebase_messaging`. Bis dahin gibt es Vibration und Banner nur bei geöf
 - Die automatische Missweisung braucht einmal Netz; danach gilt der zwischengespeicherte Wert.
 - Kartenkacheln kommen von `tile.openstreetmap.org` bzw. `tile.opentopomap.org`. Deren Nutzungsrichtlinien
   verbieten Massen-Downloads; für Produktivbetrieb und Offline-Gebiete wird ein eigener Tile-Server benötigt.
-- Raster-PNG der Engine, QR-Scanner, Nahpeilung (Phase 3) und MQTT (Phase 4) fehlen noch.
+- CAT: Es gibt Protokolle, Kalibrierung, Profile (IC-705, IC-9700, Kenwood, Yaesu FT-991A) und einen
+  Abfrage-Dienst, aber **keinen Transport**. USB-OTG und Bluetooth brauchen je ein Plattform-Plugin und eine
+  Hardware zum Testen; bis dahin tippst du die Werte ein. Die Rohskalen der Geräte sind Näherungen, die
+  Kalibrierung in den Einstellungen gleicht Abweichungen aus.
+- RSSI-Fusion: Das Modell nimmt eine Quelle mit isotroper Abstrahlung und Gauß-Streuung (Standard 6 dB) an;
+  Reflexionen und Abschattung erzeugen Ausreißer, die nur über die Streuung abgefangen werden. Mit weniger als
+  5 Messwerten wird die Spur ignoriert. Die S9-Konvention (−93 dBm) gilt für 70 cm, nicht für KW.
+- Der Pfeil nutzt den GPS-Kurs ab 1,5 m/s und sonst Kompass plus Missweisung; ohne Kompass (Web) zeigt er
+  relativ zu Norden.
+- Raster-PNG der Engine, QR-Scanner, Positionsvorschläge und MQTT (Phase 4) fehlen noch.

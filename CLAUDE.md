@@ -8,7 +8,7 @@ later homing (RSSI). Also used for team coordination (chat, tasks).
 Language: **README and user docs in German; code, comments, commit messages, identifiers in English.**
 
 ## Status
-Phase 0 (planning, `docs/phase0-plan.md`) done; Phase 1 (MVP) and Phase 2 (robustness and coordination) implemented, awaiting user OK for Phase 3. Work strictly phase by phase; stop after each phase, summarize
+Phase 0 (planning, `docs/phase0-plan.md`) done; Phases 1 (MVP), 2 (robustness and coordination) and 3 (homing) implemented, awaiting user OK for Phase 4. Work strictly phase by phase; stop after each phase, summarize
 (what is done, how to start, how to test) and wait for the user's OK. Ask instead of guessing on domain questions
 (DF technique, amateur radio).
 
@@ -48,7 +48,7 @@ Grid in local metric projection (UTM via pyproj), >= 5 km margin, default 50 m c
 (measured azimuth − direction station→cell), kappa from sigma, outlier mixture eps (default 0.1) with uniform;
 cells behind the station (>90°) get eps only. Fusion = sum of log-likelihoods of active bearings, optional age
 decay (half-life) and per-transmission scoping. Output: MLE point, covariance + 1σ/2σ ellipse, contours
-(GeoJSON, 50/80/95 % mass), optional PNG raster. Later: RSSI path-loss fusion (P3), next-bearing suggestion (P4).
+(GeoJSON, 50/80/95 % mass), optional PNG raster. Later: RSSI path-loss fusion (done), next-bearing suggestion (P4).
 Perf budget: 200×200 cells, 50 bearings < 200 ms (vectorised numpy). Tests: exact 3-bearer hit < 20 m, noisy within
 2σ ellipse, gross outlier barely shifts result, parallel bearings -> elongated ellipse, 359°/1° wraparound.
 
@@ -92,3 +92,16 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 - flutter_map_tile_caching is incompatible with flutter_map 8 / latlong2 0.10, so `core/tile_cache.dart` is our own
   small file cache. Bulk download is blocked for public OSM servers (tile usage policy).
 - Provider overrides in tests need `import 'package:flutter_riverpod/misc.dart' show Override;` (Riverpod 3).
+
+## Phase 3 notes
+- Engine RSSI fusion (`foxgrid_engine/rssi.py`): per candidate point a weighted LS fit of
+  `level = p0 - 10 n log10(d)` (n clipped to [1.5, 6]) gives a Gaussian log-likelihood from the residuals. Levels are
+  `rssi_dbm + attenuation_db`. `estimate(bearings, params, rssi=[...])`; fewer than `rssi_min_samples` (5) are ignored;
+  an RSSI-only estimate is allowed. Cost grows with samples, so only the newest `rssi_max_samples` (300) are used.
+- `rssi_samples` table is append-only (delete trigger), samples can be deactivated via PATCH. Both estimate scopes use
+  the samples of the same transmission scope. Estimate `params.rssi_fit` is exposed as `EstimateOut.rssi`.
+- S-meter convention is IARU VHF/UHF (S9 = -93 dBm, 6 dB/S) in `app/lib/core/signal.dart`: one place to change.
+- CAT: `app/lib/core/radio/` has protocol codecs (Icom CI-V, ASCII SM0), `RawScale` calibration and
+  `RadioSignalSource`. No `RadioTransport` implementation exists yet (needs USB/Bluetooth plugins).
+- Homing screen layout: scrolling content plus a pinned `_EntryPanel` so S-meter taps never scroll away.
+- Lazy `ListView` widget tests need a tall viewport (`tester.view.physicalSize`) or controls are not built.
