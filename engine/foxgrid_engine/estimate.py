@@ -1,0 +1,211 @@
+"""Grid based maximum-likelihood fusion of bearings."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from typing import Final
+
+import numpy as np
+import numpy.typing as npt
+from pyproj import Transformer
+
+from foxgrid_engine.likelihood import (
+    bearing_log_likelihood,
+    sigma_to_kappa,
+    wrap_pi,
+)
+from foxgrid_engine.types import Bearing, EllipseGeometry, EngineError, EngineParams, Estimate
+
+FloatArray = npt.NDArray[np.float64]
+
+_RING_POINTS: Final = 72
+_NORTH_PROBE_DEG: Final = 1e-4
+_MIN_CROSS: Final = math.sin(math.radians(15.0))
+
+
+@dataclass(frozen=True, slots=True)
+class _Stations:
+    east: FloatArray
+    north: FloatArray
+    grid_azimuth: FloatArray  # radians, clockwise from grid north
+    kappa: FloatArray
+    weight: FloatArray
+
+
+def utm_epsg_for(lat: float, lon: float) -> int:
+    zone = int((lon + 180.0) // 6.0) % 60 + 1
+    return (32600 if lat >= 0 else 32700) + zone
+
+
+def _prepare(bearings: list[Bearing], fwd: Transformer, params: EngineParams) -> _Stations:
+    lats = np.array([b.lat for b in bearings])
+    lons = np.array([b.lon for b in bearings])
+    east, north = fwd.transform(lons, lats)
+    # Direction of true north in the grid at each station, measured by projecting a probe point.
+    east_n, north_n = fwd.transform(lons, lats + _NORTH_PROBE_DEG)
+    north_in_grid = np.arctan2(east_n - east, north_n - north)
+    az_true = np.radians([b.azimuth_deg for b in bearings])
+    sigma = np.array([b.sigma_deg for b in bearings], dtype=np.float64)
+
+    weight = np.ones(len(bearings))
+    if params.half_life_s is not None:
+        times = [b.measured_at for b in bearings]
+        if params.now is not None and all(t is not None for t in times):
+            age = np.maximum(params.now - np.array(times, dtype=np.float64), 0.0)
+            weight = np.power(0.5, age / params.half_life_s)
+    return _Stations(
+        east=np.asarray(east, dtype=np.float64),
+        north=np.asarray(north, dtype=np.float64),
+        grid_azimuth=np.asarray(az_true + north_in_grid, dtype=np.float64),
+        kappa=sigma_to_kappa(sigma),
+        weight=weight,
+    )
+
+
+def _log_posterior(
+    east: FloatArray, north: FloatArray, st: _Stations, params: EngineParams
+) -> FloatArray:
+    """Unnormalised log posterior at arbitrary points (flat prior)."""
+    dx = east[..., None] - st.east
+    dy = north[..., None] - st.north
+    cell_azimuth = np.arctan2(dx, dy)
+    delta = wrap_pi(cell_azimuth - st.grid_azimuth)
+    ll = bearing_log_likelihood(delta, st.kappa, params.outlier_fraction)
+    return np.asarray(np.sum(ll * st.weight, axis=-1), dtype=np.float64)
+
+
+def _ray_intersections(st: _Stations, params: EngineParams) -> FloatArray:
+    """Intersections of well-conditioned bearing pairs in front of both stations, shape (K, 2)."""
+    d_e, d_n = np.sin(st.grid_azimuth), np.cos(st.grid_azimuth)
+    cross = d_e[:, None] * d_n[None, :] - d_n[:, None] * d_e[None, :]
+    rel_e = st.east[None, :] - st.east[:, None]
+    rel_n = st.north[None, :] - st.north[:, None]
+    ok = np.abs(cross) > _MIN_CROSS
+    safe = np.where(ok, cross, 1.0)
+    t_i = (rel_e * d_n[None, :] - rel_n * d_e[None, :]) / safe
+    t_j = (rel_e * d_n[:, None] - rel_n * d_e[:, None]) / safe
+    ok &= (t_i > 0) & (t_j > 0) & (t_i < params.max_range_m) & (t_j < params.max_range_m)
+    ii, jj = np.nonzero(ok)
+    pts = np.column_stack(
+        [st.east[ii] + t_i[ii, jj] * d_e[ii], st.north[ii] + t_i[ii, jj] * d_n[ii]]
+    )
+    return np.asarray(pts, dtype=np.float64)
+
+
+def _bounds(st: _Stations, params: EngineParams) -> tuple[float, float, float, float]:
+    """Grid extent: stations plus (robustly trimmed) ray intersections, plus the margin."""
+    pts = _ray_intersections(st, params)
+    e_all, n_all = [st.east], [st.north]
+    if len(pts) > 0:
+        lo, hi = (10.0, 90.0) if len(pts) >= 5 else (0.0, 100.0)
+        for axis, bucket in ((0, e_all), (1, n_all)):
+            bucket.append(np.percentile(pts[:, axis], [lo, hi]))
+    e = np.concatenate(e_all)
+    n = np.concatenate(n_all)
+    m = params.margin_m
+    return float(e.min() - m), float(e.max() + m), float(n.min() - m), float(n.max() + m)
+
+
+def _validate(bearings: list[Bearing], params: EngineParams) -> None:
+    if not bearings:
+        raise EngineError("at least one bearing is required")
+    if not 0.0 < params.outlier_fraction < 1.0:
+        raise EngineError("outlier_fraction must be in (0, 1)")
+    if params.resolution_m <= 0 or params.max_cells < 2:
+        raise EngineError("invalid grid configuration")
+    for b in bearings:
+        if not (b.sigma_deg > 0.0 and math.isfinite(b.sigma_deg)):
+            raise EngineError("sigma_deg must be positive")
+        if not (-90.0 <= b.lat <= 90.0 and -180.0 <= b.lon <= 180.0):
+            raise EngineError("bearing position out of range")
+        if not math.isfinite(b.azimuth_deg):
+            raise EngineError("azimuth must be finite")
+
+
+def _ellipse(cov: FloatArray, scale: float) -> tuple[EllipseGeometry, FloatArray]:
+    """Return ellipse geometry and the (east, north) axis vectors scaled by ``scale``."""
+    vals, vecs = np.linalg.eigh(cov)
+    vals = np.maximum(vals, 0.0)
+    major_vec = vecs[:, 1]
+    orientation = math.degrees(math.atan2(major_vec[0], major_vec[1])) % 180.0
+    geometry = EllipseGeometry(
+        semi_major_m=float(scale * math.sqrt(vals[1])),
+        semi_minor_m=float(scale * math.sqrt(vals[0])),
+        orientation_deg=orientation,
+    )
+    axes = vecs * (scale * np.sqrt(vals))
+    return geometry, np.asarray(axes, dtype=np.float64)
+
+
+def _ring(center: FloatArray, axes: FloatArray, inv: Transformer) -> list[tuple[float, float]]:
+    t = np.linspace(0.0, 2.0 * np.pi, _RING_POINTS, endpoint=True)
+    offsets = np.outer(np.cos(t), axes[:, 0]) + np.outer(np.sin(t), axes[:, 1])
+    lon, lat = inv.transform(center[0] + offsets[:, 0], center[1] + offsets[:, 1])
+    return [(float(x), float(y)) for x, y in zip(lon, lat, strict=True)]
+
+
+def estimate(bearings: list[Bearing], params: EngineParams | None = None) -> Estimate:
+    """Fuse bearings into a most-likely emitter position with an error ellipse."""
+    params = params or EngineParams()
+    _validate(bearings, params)
+
+    mean_lat = float(np.mean([b.lat for b in bearings]))
+    mean_lon = float(np.mean([b.lon for b in bearings]))
+    epsg = utm_epsg_for(mean_lat, mean_lon)
+    fwd = Transformer.from_crs(4326, epsg, always_xy=True)
+    inv = Transformer.from_crs(epsg, 4326, always_xy=True)
+    st = _prepare(bearings, fwd, params)
+
+    # Grid: stations and ray intersections plus margin; resolution coarsened to max_cells.
+    e_min, e_max, n_min, n_max = _bounds(st, params)
+    res = max(params.resolution_m, max(e_max - e_min, n_max - n_min) / params.max_cells)
+    xs = np.arange(e_min, e_max + res, res)
+    ys = np.arange(n_min, n_max + res, res)
+    ge, gn = np.meshgrid(xs, ys)
+    lp = _log_posterior(ge, gn, st, params)
+
+    post = np.exp(lp - lp.max())
+    post /= post.sum()
+    mean_e = float(np.sum(post * ge))
+    mean_n = float(np.sum(post * gn))
+    de, dn = ge - mean_e, gn - mean_n
+    quant = res * res / 12.0  # cell quantisation
+    cov = np.array(
+        [
+            [np.sum(post * de * de) + quant, np.sum(post * de * dn)],
+            [np.sum(post * de * dn), np.sum(post * dn * dn) + quant],
+        ]
+    )
+
+    # Refine the maximum with successively finer local grids.
+    iy, ix = np.unravel_index(int(np.argmax(lp)), lp.shape)
+    best_e, best_n = float(xs[ix]), float(ys[iy])
+    half = res
+    for _ in range(params.refine_steps):
+        offs = np.linspace(-half, half, 21)
+        le, ln = np.meshgrid(best_e + offs, best_n + offs)
+        llp = _log_posterior(le, ln, st, params)
+        j, i = np.unravel_index(int(np.argmax(llp)), llp.shape)
+        best_e, best_n = float(le[j, i]), float(ln[j, i])
+        half = 2.0 * half / 20.0
+
+    geom1, axes1 = _ellipse(cov, 1.0)
+    geom2, axes2 = _ellipse(cov, 2.0)
+    center = np.array([best_e, best_n])
+    lon, lat = inv.transform(best_e, best_n)
+    return Estimate(
+        lat=float(lat),
+        lon=float(lon),
+        cov_east_east=float(cov[0, 0]),
+        cov_north_north=float(cov[1, 1]),
+        cov_east_north=float(cov[0, 1]),
+        ellipse_1s=geom1,
+        ellipse_2s=geom2,
+        ellipse_1s_ring=_ring(center, axes1, inv),
+        ellipse_2s_ring=_ring(center, axes2, inv),
+        n_bearings=len(bearings),
+        resolution_m=float(res),
+        grid_cells=(len(xs), len(ys)),
+        utm_epsg=epsg,
+    )
