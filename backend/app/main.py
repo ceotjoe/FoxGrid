@@ -10,10 +10,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
-from app.api import field, missions
+from app.api import coordination, export, field, missions
 from app.config import Settings
 from app.db import make_engine, make_sessionmaker
-from app.services import domain
+from app.services import domain, push
 from app.services.recompute import RecomputeScheduler
 from app.ws import router as ws_router
 
@@ -44,6 +44,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessionmaker = sessionmaker
         app.state.redis = redis
         app.state.recompute = RecomputeScheduler(sessionmaker, redis, settings)
+        app.state.push = push.make_sender(settings)
+        app.state.background = set()
         purge = asyncio.create_task(_purge_loop(app, settings.track_purge_interval_s))
         try:
             yield
@@ -64,6 +66,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(missions.router, prefix="/api/v1")
     app.include_router(field.router, prefix="/api/v1")
+    app.include_router(coordination.router, prefix="/api/v1")
+    app.include_router(coordination.mission_router, prefix="/api/v1")
+    app.include_router(export.router, prefix="/api/v1")
     app.include_router(ws_router.router)
 
     @app.get("/healthz")

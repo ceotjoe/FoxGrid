@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from foxgrid_engine import Bearing as EngineBearing
+from foxgrid_engine import EngineError
+from foxgrid_engine import estimate as run_engine
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -37,8 +43,15 @@ from app.schemas.api import (
     TransmissionStart,
     TransmissionStop,
 )
-from app.services import domain
-from app.services.recompute import RecomputeScheduler
+from app.services import domain, push
+from app.services.recompute import (
+    MIN_BEARINGS,
+    RecomputeScheduler,
+    _input_hash,
+    _to_engine,
+    build_estimate,
+    engine_params_for,
+)
 from app.services.serialize import (
     bearing_out,
     estimate_out,
@@ -101,6 +114,7 @@ async def list_positions(
 
 @router.post("/transmissions/start", response_model=TransmissionOut, status_code=201)
 async def start_transmission(
+    request: Request,
     mission_id: uuid.UUID,
     body: TransmissionStart | None = None,
     actor: Participant = Depends(member),
@@ -108,7 +122,7 @@ async def start_transmission(
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> TransmissionOut:
-    await _active_mission(session, mission_id)
+    mission = await _active_mission(session, mission_id)
     body = body or TransmissionStart()
     seq = (
         await session.scalar(
@@ -137,6 +151,14 @@ async def start_transmission(
     out = transmission_out(tx)
     await events.publish(redis, mission_id, "transmission_started", event_json(out))
     scheduler.schedule(mission_id)
+    app = request.app
+    task = asyncio.create_task(
+        push.notify_transmission_started(
+            app.state.push, app.state.sessionmaker, mission_id, actor.id, mission.name
+        )
+    )
+    app.state.background.add(task)  # keep a reference until done
+    task.add_done_callback(app.state.background.discard)
     return out
 
 
@@ -397,3 +419,42 @@ async def estimate_history(
         )
     ).all()
     return [estimate_out(e) for e in rows]
+
+
+@router.get("/estimate/query", response_model=EstimateOut)
+async def query_estimate(
+    mission_id: uuid.UUID,
+    transmission: list[uuid.UUID] = Query(default=[]),
+    since: datetime | None = None,
+    until: datetime | None = None,
+    half_life_s: float | None = Query(default=None, gt=0),
+    include_outliers: bool = False,
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> EstimateOut:
+    """Ad-hoc estimate for a time window and/or selected transmissions (not stored)."""
+    mission = await session.get(Mission, mission_id)
+    if mission is None:
+        raise HTTPException(404, "mission not found")
+    stmt = select(Bearing).where(Bearing.mission_id == mission_id, Bearing.is_active.is_(True))
+    if not include_outliers:
+        stmt = stmt.where(Bearing.is_outlier.is_(False))
+    if transmission:
+        stmt = stmt.where(Bearing.transmission_id.in_(transmission))
+    if since:
+        stmt = stmt.where(Bearing.measured_at >= since)
+    if until:
+        stmt = stmt.where(Bearing.measured_at <= until)
+    bearings = list((await session.scalars(stmt)).all())
+    if len(bearings) < MIN_BEARINGS:
+        raise HTTPException(404, "fewer than two bearings match the filter")
+    params = engine_params_for(mission, time.time())
+    if half_life_s is not None:
+        params = replace(params, half_life_s=half_life_s)
+    engine_bearings: list[EngineBearing] = [_to_engine(b) for b in bearings]
+    try:
+        result = await asyncio.to_thread(run_engine, engine_bearings, params)
+    except EngineError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    est = build_estimate(mission_id, "all", None, _input_hash(bearings, params), result, params)
+    return estimate_out(est)

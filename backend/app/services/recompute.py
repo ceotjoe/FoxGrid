@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import events
 from app.config import Settings
-from app.models import Bearing, Estimate, Mission, Transmission
+from app.models import Bearing, Estimate, Mission, Transmission, utcnow
 from app.services.serialize import estimate_out, event_json
 
 log = logging.getLogger(__name__)
@@ -69,6 +69,49 @@ def _ellipse_json(geom: Any, ring: list[tuple[float, float]]) -> dict[str, Any]:
         "orientation_deg": geom.orientation_deg,
         "polygon": {"type": "Polygon", "coordinates": [[list(p) for p in ring]]},
     }
+
+
+def contours_json(result: Any) -> dict[str, list[dict[str, Any]]]:
+    return {
+        str(round(mass * 100)): [
+            {"type": "Polygon", "coordinates": [[list(p) for p in ring]]} for ring in rings
+        ]
+        for mass, rings in result.contours.items()
+    }
+
+
+def build_estimate(
+    mission_id: uuid.UUID,
+    scope: str,
+    transmission_id: uuid.UUID | None,
+    digest: str,
+    result: Any,
+    params: EngineParams,
+) -> Estimate:
+    return Estimate(
+        id=uuid.uuid4(),
+        computed_at=utcnow(),
+        mission_id=mission_id,
+        scope=scope,
+        transmission_id=transmission_id,
+        input_hash=digest,
+        n_bearings=result.n_bearings,
+        params={
+            "resolution_m": result.resolution_m,
+            "grid_cells": list(result.grid_cells),
+            "utm_epsg": result.utm_epsg,
+            "outlier_fraction": params.outlier_fraction,
+            "half_life_s": params.half_life_s,
+        },
+        lat=result.lat,
+        lon=result.lon,
+        cov_ee=result.cov_east_east,
+        cov_nn=result.cov_north_north,
+        cov_en=result.cov_east_north,
+        ellipse_1s=_ellipse_json(result.ellipse_1s, result.ellipse_1s_ring),
+        ellipse_2s=_ellipse_json(result.ellipse_2s, result.ellipse_2s_ring),
+        contours=contours_json(result),
+    )
 
 
 async def compute_mission(
@@ -121,27 +164,7 @@ async def compute_mission(
         except EngineError:
             log.exception("engine rejected input for mission %s", mission_id)
             continue
-        est = Estimate(
-            mission_id=mission_id,
-            scope=scope,
-            transmission_id=tx_id,
-            input_hash=digest,
-            n_bearings=result.n_bearings,
-            params={
-                "resolution_m": result.resolution_m,
-                "grid_cells": list(result.grid_cells),
-                "utm_epsg": result.utm_epsg,
-                "outlier_fraction": params.outlier_fraction,
-                "half_life_s": params.half_life_s,
-            },
-            lat=result.lat,
-            lon=result.lon,
-            cov_ee=result.cov_east_east,
-            cov_nn=result.cov_north_north,
-            cov_en=result.cov_east_north,
-            ellipse_1s=_ellipse_json(result.ellipse_1s, result.ellipse_1s_ring),
-            ellipse_2s=_ellipse_json(result.ellipse_2s, result.ellipse_2s_ring),
-        )
+        est = build_estimate(mission_id, scope, tx_id, digest, result, params)
         session.add(est)
         await session.flush()
         created.append(est)

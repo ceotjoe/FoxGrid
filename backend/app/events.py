@@ -23,11 +23,19 @@ EVENT_TYPES = frozenset(
 )
 
 
-def channel(mission_id: uuid.UUID | str) -> str:
-    return f"mission:{mission_id}"
+def channel(mission_id: uuid.UUID | str, team_id: uuid.UUID | str | None = None) -> str:
+    """Mission-wide channel, or the private channel of one team."""
+    base = f"mission:{mission_id}"
+    return base if team_id is None else f"{base}:team:{team_id}"
 
 
-async def publish(redis: Redis, mission_id: uuid.UUID, type_: str, data: dict[str, Any]) -> None:
+async def publish(
+    redis: Redis,
+    mission_id: uuid.UUID,
+    type_: str,
+    data: dict[str, Any],
+    team_id: uuid.UUID | None = None,
+) -> None:
     if type_ not in EVENT_TYPES:
         raise ValueError(f"unknown event type {type_}")
     seq = await redis.incr(f"seq:{mission_id}")
@@ -38,4 +46,4 @@ async def publish(redis: Redis, mission_id: uuid.UUID, type_: str, data: dict[st
         "ts": datetime.now(UTC).isoformat(),
         "data": data,
     }
-    await redis.publish(channel(mission_id), json.dumps(event, default=str))
+    await redis.publish(channel(mission_id, team_id), json.dumps(event, default=str))

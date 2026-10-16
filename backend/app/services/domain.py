@@ -7,12 +7,20 @@ from datetime import UTC, datetime, timedelta
 
 from geoalchemy2 import WKTElement
 from redis.asyncio import Redis
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import ColumnElement, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
 from app.config import Settings
-from app.models import AuditLog, Mission, Participant, PositionSample, Team, Transmission
+from app.models import (
+    AuditLog,
+    Message,
+    Mission,
+    Participant,
+    PositionSample,
+    Team,
+    Transmission,
+)
 from app.schemas.api import PositionIn
 from app.services.serialize import event_json, position_out
 
@@ -169,3 +177,13 @@ async def purge_expired_tracks(session: AsyncSession) -> int:
     )
     await session.commit()
     return result.rowcount or 0  # type: ignore[attr-defined,no-any-return]
+
+
+def visible_messages(actor: Participant) -> ColumnElement[bool]:
+    """Mission-wide messages plus the actor's team channel (leads see every team channel)."""
+    visible: ColumnElement[bool] = Message.team_id.is_(None)
+    if actor.team_id is not None:
+        visible = or_(visible, Message.team_id == actor.team_id)
+    if actor.role == "lead":
+        visible = or_(visible, Message.team_id.is_not(None))
+    return visible

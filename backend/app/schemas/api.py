@@ -232,6 +232,83 @@ class EstimateOut(BaseModel):
     ellipse_1s: EllipseOut
     ellipse_2s: EllipseOut
     resolution_m: float
+    # probability mass in percent ("50", "80", "95") -> closed GeoJSON polygons
+    contours: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
+TaskStatus = Literal["open", "in_progress", "done", "cancelled"]
+PushPlatform = Literal["fcm", "apns", "webpush"]
+
+
+class MessageIn(BaseModel):
+    id: uuid.UUID  # client generated, idempotent
+    body: str = Field(min_length=1, max_length=2000)
+    sent_at: AwareDatetime
+    team_id: uuid.UUID | None = None  # set to post into a team channel
+
+
+class MessageOut(BaseModel):
+    id: uuid.UUID
+    mission_id: uuid.UUID
+    author_id: uuid.UUID
+    author_callsign: str
+    team_id: uuid.UUID | None
+    body: str
+    sent_at: datetime
+    received_at: datetime
+
+
+class TaskIn(BaseModel):
+    id: uuid.UUID  # client generated, idempotent
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    assignee_participant_id: uuid.UUID | None = None
+    assignee_team_id: uuid.UUID | None = None
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+
+
+class TaskPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    status: TaskStatus | None = None
+    assignee_participant_id: uuid.UUID | None = None
+    assignee_team_id: uuid.UUID | None = None
+
+
+class TaskOut(BaseModel):
+    id: uuid.UUID
+    mission_id: uuid.UUID
+    title: str
+    description: str | None
+    status: str
+    assignee_participant_id: uuid.UUID | None
+    assignee_team_id: uuid.UUID | None
+    created_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    lat: float | None
+    lon: float | None
+
+
+class TeamOut(ORM):
+    id: uuid.UUID
+    name: str
+
+
+class PushTokenIn(BaseModel):
+    platform: PushPlatform
+    token: str = Field(min_length=10, max_length=512)
+
+
+class DeclinationOut(BaseModel):
+    lat: float
+    lon: float
+    date: str
+    declination_deg: float  # positive = magnetic north east of true north
+    model: str
 
 
 class SnapshotOut(BaseModel):
@@ -241,3 +318,6 @@ class SnapshotOut(BaseModel):
     bearings: list[BearingOut]
     transmissions: list[TransmissionOut]
     estimates: list[EstimateOut]  # latest per scope
+    messages: list[MessageOut] = Field(default_factory=list)  # visible to the caller
+    tasks: list[TaskOut] = Field(default_factory=list)
+    teams: list[TeamOut] = Field(default_factory=list)

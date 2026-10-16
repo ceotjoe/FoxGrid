@@ -47,6 +47,8 @@ async def mission_socket(
     await ws.accept()
     pubsub = redis.pubsub()
     await pubsub.subscribe(events.channel(mission_id))
+    if participant.team_id is not None:
+        await pubsub.subscribe(events.channel(mission_id, participant.team_id))
     forwarder = asyncio.create_task(_forward(ws, pubsub))
     try:
         while True:

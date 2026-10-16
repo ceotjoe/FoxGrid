@@ -16,9 +16,12 @@ from app.models import (
     Bearing,
     Estimate,
     Invite,
+    Message,
     Mission,
     Participant,
     PositionSample,
+    Task,
+    Team,
     Transmission,
 )
 from app.schemas.api import (
@@ -31,15 +34,18 @@ from app.schemas.api import (
     MissionOut,
     ParticipantOut,
     SnapshotOut,
+    TeamOut,
 )
 from app.security import create_jwt, hash_token, new_invite_token
 from app.services import domain
 from app.services.serialize import (
     bearing_out,
     estimate_out,
+    message_out,
     mission_out,
     participant_out,
     position_out,
+    task_out,
     transmission_out,
 )
 
@@ -242,7 +248,7 @@ async def list_participants(
 @router.get("/missions/{mission_id}/snapshot", response_model=SnapshotOut)
 async def snapshot(
     mission_id: uuid.UUID,
-    _: Participant = Depends(member),
+    actor: Participant = Depends(member),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> SnapshotOut:
@@ -283,6 +289,21 @@ async def snapshot(
         )
         if est is not None:
             estimates.append(estimate_out(est))
+    message_rows = (
+        await session.execute(
+            select(Message, Participant.callsign)
+            .join(Participant, Participant.id == Message.author_id)
+            .where(Message.mission_id == mission_id, domain.visible_messages(actor))
+            .order_by(Message.sent_at.desc())
+            .limit(200)
+        )
+    ).all()
+    tasks = (
+        await session.scalars(
+            select(Task).where(Task.mission_id == mission_id).order_by(Task.created_at)
+        )
+    ).all()
+    teams = (await session.scalars(select(Team).where(Team.mission_id == mission_id))).all()
     return SnapshotOut(
         mission=mission_out(mission, await domain.search_area_ring(session, mission_id)),
         participants=[
@@ -292,4 +313,7 @@ async def snapshot(
         bearings=[bearing_out(b) for b in bearings],
         transmissions=[transmission_out(t) for t in transmissions],
         estimates=estimates,
+        messages=[message_out(m, cs) for m, cs in reversed(message_rows)],
+        tasks=[task_out(t) for t in tasks],
+        teams=[TeamOut.model_validate(t) for t in teams],
     )

@@ -4,13 +4,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models import Bearing, Estimate, Mission, Participant, PositionSample, Transmission
+from app.models import (
+    Bearing,
+    Estimate,
+    Message,
+    Mission,
+    Participant,
+    PositionSample,
+    Task,
+    Transmission,
+)
 from app.schemas.api import (
     BearingOut,
     EstimateOut,
+    MessageOut,
     MissionOut,
     ParticipantOut,
     PositionOut,
+    TaskOut,
     TransmissionOut,
 )
 
@@ -90,6 +101,37 @@ def estimate_out(e: Estimate) -> EstimateOut:
         ellipse_1s=e.ellipse_1s,  # type: ignore[arg-type]
         ellipse_2s=e.ellipse_2s,  # type: ignore[arg-type]
         resolution_m=float(e.params.get("resolution_m", 0.0)),
+        contours=e.contours or {},
+    )
+
+
+def message_out(m: Message, callsign: str) -> MessageOut:
+    return MessageOut(
+        id=m.id,
+        mission_id=m.mission_id,
+        author_id=m.author_id,
+        author_callsign=callsign,
+        team_id=m.team_id,
+        body=m.body,
+        sent_at=m.sent_at,
+        received_at=m.received_at,
+    )
+
+
+def task_out(t: Task) -> TaskOut:
+    return TaskOut(
+        id=t.id,
+        mission_id=t.mission_id,
+        title=t.title,
+        description=t.description,
+        status=t.status,
+        assignee_participant_id=t.assignee_participant_id,
+        assignee_team_id=t.assignee_team_id,
+        created_by=t.created_by,
+        created_at=t.created_at,
+        updated_at=t.updated_at,
+        lat=t.lat,
+        lon=t.lon,
     )
 
 

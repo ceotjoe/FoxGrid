@@ -18,4 +18,7 @@ class Settings(BaseSettings):
     track_purge_interval_s: int = 3600
     # Browser clients (Flutter web) need CORS. Auth is a bearer token (no cookies), so '*' is safe;
     # restrict to your web origin in production.
+    # Push via Firebase Cloud Messaging (HTTP v1). Without credentials pushes are only logged.
+    fcm_project_id: str | None = None
+    fcm_credentials_file: str | None = None
     cors_origins: list[str] = ["*"]

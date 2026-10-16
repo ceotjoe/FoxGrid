@@ -212,6 +212,8 @@ class Estimate(Base):
     cov_en: Mapped[float] = mapped_column(Float)
     ellipse_1s: Mapped[dict[str, Any]] = mapped_column(JSONB)
     ellipse_2s: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    # probability mass ("50"/"80"/"95") -> list of closed GeoJSON polygons
+    contours: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         CheckConstraint("scope in ('current','all')", name="ck_estimate_scope"),
@@ -230,3 +232,71 @@ class AuditLog(Base):
     entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     detail: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True)  # client generated
+    mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"))
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id"))
+    team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    body: Mapped[str] = mapped_column(Text)
+    sent_at: Mapped[datetime] = mapped_column(_TS)
+    received_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+
+    __table_args__ = (Index("ix_message_mission_sent", "mission_id", "sent_at"),)
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True)  # client generated
+    mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(15), default="open")
+    assignee_participant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("participants.id"), nullable=True
+    )
+    assignee_team_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("teams.id"), nullable=True
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id"))
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('open','in_progress','done','cancelled')", name="ck_task_status"
+        ),
+        CheckConstraint(
+            "assignee_participant_id IS NULL OR assignee_team_id IS NULL", name="ck_task_assignee"
+        ),
+    )
+
+
+class TaskEvent(Base):
+    __tablename__ = "task_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"), index=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id"))
+    at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    change: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
+class PushToken(Base):
+    __tablename__ = "push_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True, default=uuid.uuid4)
+    participant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(10))
+    token: Mapped[str] = mapped_column(String(512), unique=True)
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint("platform in ('fcm','apns','webpush')", name="ck_push_platform"),
+    )

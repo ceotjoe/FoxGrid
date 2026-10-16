@@ -16,6 +16,10 @@ dependencies = [
     "pyjwt>=2.9",
     "redis>=5.0",
     "foxgrid-engine",
+    "httpx>=0.28.1",
+    "google-auth>=2.62.0",
+    "pygeomag>=1.1.0",
+    "reportlab>=5.0.1",
 ]
 
 [dependency-groups]
@@ -55,3 +59,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
+
+[[tool.mypy.overrides]]
+module = ["reportlab.*", "pygeomag", "google.*"]
+ignore_missing_imports = true
