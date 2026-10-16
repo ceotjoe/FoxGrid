@@ -1,16 +1,20 @@
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxgrid/core/api.dart';
 import 'package:foxgrid/core/live.dart';
+import 'package:foxgrid/core/models.dart';
 import 'package:foxgrid/core/outbox.dart';
 import 'package:foxgrid/core/sync.dart';
 import 'package:foxgrid/state/providers.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'helpers.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  group('RSSI', rssiTests);
   late TestEnv env;
 
   Future<TestEnv> start({FakeApi? api, MemoryOutboxStore? store}) async {
@@ -319,4 +323,181 @@ void main() {
       isTrue,
     );
   });
+}
+
+void rssiTests() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late TestEnv env;
+
+  Future<void> start({FakeApi? api, MemoryOutboxStore? store}) async {
+    env = await makeEnv(api: api, store: store);
+    addTearDown(env.container.dispose);
+    env.container.read(missionProvider);
+    env.container.read(syncProvider);
+    await env.settle();
+  }
+
+  Map<String, dynamic> rssiJson(String id, double dbm, {double att = 0}) => {
+    'id': id,
+    'participant_id': 'p1',
+    'transmission_id': null,
+    'lat': 48.1,
+    'lon': 11.5,
+    'accuracy_m': 5.0,
+    'rssi_dbm': dbm,
+    's_meter': null,
+    'attenuation_db': att,
+    'measured_at': '2026-01-01T10:00:00Z',
+    'source': 'manual',
+    'is_active': true,
+  };
+
+  test('snapshot brings the RSSI track and the path loss fit', () async {
+    final snap = snapshotJson(
+      estimates: [
+        {
+          ...estimateJson(n: 0),
+          'rssi': {
+            'p0_dbm': -21.5,
+            'exponent': 2.9,
+            'residual_db': 2.4,
+            'n_samples': 12,
+          },
+        },
+      ],
+    )..['rssi'] = [rssiJson('r1', -80), rssiJson('r2', -70, att: 10)];
+    await start(api: FakeApi()..snapshotData = snap);
+    expect(env.state.rssi.map((r) => r.id), ['r1', 'r2']);
+    expect(env.state.rssi.last.correctedDbm, -60);
+    expect(env.state.estimates['all']!.rssi!.exponent, 2.9);
+  });
+
+  test('a reading is shown at once and queued as a batch of one', () async {
+    final api = FakeApi()
+      ..sendResult = const SendResult(SendOutcome.retry, 'offline');
+    await start(api: api);
+    await env.mission.logRssi(
+      rssiDbm: -93,
+      at: PositionFixForTest.at(48.1, 11.5),
+      attenuationDb: 20,
+    );
+    final sample = env.state.rssi.single;
+    expect(sample.rssiDbm, -93);
+    expect(sample.attenuationDb, 20);
+    expect(sample.participantId, 'p1');
+
+    final entry = (await env.store.all()).single;
+    expect(entry.kind, 'rssi');
+    expect(entry.path, '/api/v1/missions/m1/rssi');
+    final body = jsonDecode(entry.bodyJson!) as List;
+    expect(body.single['rssi_dbm'], -93);
+    expect(body.single['attenuation_db'], 20);
+    expect(body.single['source'], 'manual');
+    expect((body.single['id'] as String).length, 36);
+    expect(DateTime.parse(body.single['measured_at'] as String).isUtc, isTrue);
+  });
+
+  test('queued readings survive a restart and are not duplicated by the snapshot', () async {
+    final store = MemoryOutboxStore();
+    final offline = FakeApi()
+      ..sendResult = const SendResult(SendOutcome.retry, 'x');
+    await start(api: offline, store: store);
+    await env.mission.logRssi(
+      rssiDbm: -88,
+      at: PositionFixForTest.at(48.1, 11.5),
+    );
+    final id =
+        (jsonDecode((await store.all()).single.bodyJson!) as List).single['id']
+            as String;
+    env.container.dispose();
+
+    final api = FakeApi()
+      ..snapshotError = ApiException(null, 'offline')
+      ..sendResult = const SendResult(SendOutcome.retry, 'x');
+    await start(api: api, store: store);
+    await env.store.putCached('snapshot:m1', jsonEncode(snapshotJson()));
+    env.container.invalidate(missionProvider);
+    env.container.read(missionProvider);
+    await env.settle();
+    expect(env.state.rssi.single.id, id);
+    expect(env.state.rssi.single.pending, isTrue);
+
+    // once the server has it, the snapshot copy wins and nothing is shown twice
+    api
+      ..snapshotError = null
+      ..snapshotData = (snapshotJson()..['rssi'] = [rssiJson(id, -88)]);
+    env.container.invalidate(missionProvider);
+    env.container.read(missionProvider);
+    await env.settle();
+    expect(env.state.rssi.where((r) => r.id == id), hasLength(1));
+  });
+
+  test('the attenuator setting is persisted', () async {
+    await start();
+    expect(env.container.read(attenuationProvider), 0);
+    await env.container.read(attenuationProvider.notifier).set(30);
+    final prefs = env.container.read(sharedPrefsProvider);
+    final again = ProviderContainer(
+      overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+    );
+    addTearDown(again.dispose);
+    expect(again.read(attenuationProvider), 30);
+  });
+
+  test(
+    'heading: compass plus declination when still, GPS course when moving',
+    () async {
+      await start(api: FakeApi()..snapshotData = snapshotJson());
+      final c = env.container;
+      await c
+          .read(declinationProvider.notifier)
+          .refresh(const LatLngForTest(48, 11).toLatLng());
+      expect(c.read(headingProvider), isNull); // no position, no compass
+
+      final standing = ProviderContainer(
+        overrides: [
+          sharedPrefsProvider.overrideWithValue(c.read(sharedPrefsProvider)),
+          compassProvider.overrideWith((ref) => Stream.value(100.0)),
+          ownPositionProvider.overrideWith(
+            () => FakePosition(
+              PositionFix(
+                participantId: 'p1',
+                point: const LatLng(48, 11),
+                recordedAt: DateTime.utc(2026),
+                headingDeg: 200,
+                speedMps: 0.1,
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(standing.dispose);
+      standing.listen(compassProvider, (_, _) {});
+      await Future<void>.delayed(Duration.zero);
+      // declination 4.5 was cached in prefs by the refresh above
+      expect(standing.read(headingProvider), closeTo(104.5, 1e-9));
+
+      final moving = ProviderContainer(
+        overrides: [
+          sharedPrefsProvider.overrideWithValue(c.read(sharedPrefsProvider)),
+          compassProvider.overrideWith((ref) => Stream.value(100.0)),
+          ownPositionProvider.overrideWith(
+            () => FakePosition(
+              PositionFix(
+                participantId: 'p1',
+                point: const LatLng(48, 11),
+                recordedAt: DateTime.utc(2026),
+                headingDeg: 200,
+                speedMps: 4,
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(moving.dispose);
+      moving.listen(compassProvider, (_, _) {});
+      await Future<void>.delayed(Duration.zero);
+      expect(moving.read(headingProvider), 200);
+    },
+  );
 }

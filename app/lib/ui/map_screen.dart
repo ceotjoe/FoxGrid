@@ -8,16 +8,18 @@ import '../core/geo.dart';
 import '../core/live.dart';
 import '../core/models.dart';
 import '../core/save_file.dart';
-import '../core/tile_cache.dart';
+import '../core/signal.dart';
 import '../core/session.dart';
 import '../state/filter.dart';
 import '../state/providers.dart';
 import '../state/settings.dart';
 import '../state/tiles.dart';
+import 'app_tile_layer.dart';
 import 'bearings_sheet.dart';
 import 'capture_sheet.dart';
 import 'chat_screen.dart';
 import 'filter_sheet.dart';
+import 'homing_screen.dart';
 import 'settings_screen.dart';
 import 'sync_sheet.dart';
 import 'tasks_screen.dart';
@@ -115,7 +117,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final settings = ref.watch(settingsProvider);
     final filter = ref.watch(filterProvider);
     final filtered = ref.watch(filteredEstimateProvider).value;
-    final tileCache = ref.watch(tileCacheProvider).value;
     final liveEstimate =
         state.estimates[scope.name] ??
         state.estimates[scope == EstimateScope.current ? 'all' : 'current'];
@@ -193,20 +194,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               builder: (_) => const FilterSheet(),
             ),
           ),
-          if (session.inviteToken != null)
-            IconButton(
-              tooltip: 'Einladung',
-              icon: const Icon(Icons.person_add_alt),
-              onPressed: () => _showInvite(session),
-            ),
           IconButton(
-            tooltip: 'Peilungen',
-            icon: const Icon(Icons.list_alt),
-            onPressed: () => showModalBottomSheet<void>(
-              context: context,
-              isScrollControlled: true,
-              showDragHandle: true,
-              builder: (_) => const BearingsSheet(),
+            key: const Key('open-homing'),
+            tooltip: 'Nahpeilung',
+            icon: const Icon(Icons.explore),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const HomingScreen()),
             ),
           ),
           PopupMenuButton<String>(
@@ -214,6 +207,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               switch (v) {
                 case 'leave':
                   ref.read(sessionProvider.notifier).leave();
+                case 'invite':
+                  _showInvite(session);
+                case 'bearings':
+                  showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    showDragHandle: true,
+                    builder: (_) => const BearingsSheet(),
+                  );
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -224,13 +226,28 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   _export(v);
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'settings', child: Text('Einstellungen')),
-              PopupMenuItem(value: 'pdf', child: Text('Export: PDF-Protokoll')),
-              PopupMenuItem(value: 'gpx', child: Text('Export: GPX')),
-              PopupMenuItem(value: 'kml', child: Text('Export: KML')),
-              PopupMenuItem(value: 'json', child: Text('Export: JSON')),
-              PopupMenuItem(value: 'leave', child: Text('Einsatz verlassen')),
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'bearings',
+                child: Text('Peilungen (Liste)'),
+              ),
+              if (session.inviteToken != null)
+                const PopupMenuItem(value: 'invite', child: Text('Einladung')),
+              const PopupMenuItem(
+                value: 'settings',
+                child: Text('Einstellungen'),
+              ),
+              const PopupMenuItem(
+                value: 'pdf',
+                child: Text('Export: PDF-Protokoll'),
+              ),
+              const PopupMenuItem(value: 'gpx', child: Text('Export: GPX')),
+              const PopupMenuItem(value: 'kml', child: Text('Export: KML')),
+              const PopupMenuItem(value: 'json', child: Text('Export: JSON')),
+              const PopupMenuItem(
+                value: 'leave',
+                child: Text('Einsatz verlassen'),
+              ),
             ],
           ),
         ],
@@ -256,7 +273,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               },
             ),
             children: [
-              _tileLayer(settings, tileCache),
+              const AppTileLayer(),
               if (state.mission?.searchArea != null)
                 PolygonLayer(
                   polygons: [
@@ -269,6 +286,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ],
                 ),
+              if (state.rssi.isNotEmpty) _rssiDots(state.rssi),
               if (estimate != null && filter.showContours)
                 PolygonLayer(polygons: _contourPolygons(estimate)),
               if (estimate != null)
@@ -396,7 +414,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       child: Text(
                         'Schätzung aus ${estimate.nBearings} Peilungen · '
                         '1σ ${estimate.ellipse1s.semiMajorM.round()} × '
-                        '${estimate.ellipse1s.semiMinorM.round()} m',
+                        '${estimate.ellipse1s.semiMinorM.round()} m'
+                        '${estimate.rssi == null ? '' : ' · n=${estimate.rssi!.exponent.toStringAsFixed(1)}'}',
                         key: const Key('estimate-summary'),
                         style: theme.textTheme.bodyMedium,
                       ),
@@ -487,25 +506,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ref.read(settingsProvider.notifier).setBaseMap(next);
   }
 
-  Widget _tileLayer(AppSettings settings, TileCache? cache) {
-    final layer = TileLayer(
-      urlTemplate: settings.tileUrl,
-      userAgentPackageName: 'de.foxgrid.foxgrid',
-      maxZoom: settings.baseMap == BaseMap.topo ? 17 : 19,
-      tileProvider: cache == null
-          ? NetworkTileProvider()
-          : CachingTileProvider(cache),
-    );
-    if (!settings.nightMode) return layer;
-    // Night mode: dim the map and tint it red to protect night vision.
-    return ColorFiltered(
-      colorFilter: const ColorFilter.matrix(<double>[
-        0.45, 0.45, 0.45, 0, 0, //
-        0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0,
-        0, 0, 0, 1, 0,
-      ]),
-      child: layer,
+  /// The homing track as dots coloured by field strength (blue weak, red strong).
+  Widget _rssiDots(List<RssiSample> samples) {
+    final recent = samples.length > 500
+        ? samples.sublist(samples.length - 500)
+        : samples;
+    final (lo, hi) = levelRange(recent.map((r) => r.correctedDbm));
+    return CircleLayer(
+      circles: [
+        for (final r in recent)
+          CircleMarker(
+            point: r.point,
+            radius: 4,
+            color: rssiColor(r.correctedDbm, min: lo, max: hi),
+            borderColor: Colors.white,
+            borderStrokeWidth: 0.8,
+          ),
+      ],
     );
   }
 

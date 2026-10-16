@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/radio/protocols.dart';
 import '../state/providers.dart';
 import '../state/settings.dart';
 import '../state/tiles.dart';
@@ -140,6 +141,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               padding: const EdgeInsets.only(top: 8),
               child: Text(download.message!),
             ),
+          const Divider(height: 32),
+          Text('Funkgerät (CAT-S-Meter)', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String?>(
+            key: const Key('radio-profile'),
+            initialValue: settings.radioId,
+            decoration: const InputDecoration(
+              labelText: 'Funkgerät',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem(
+                value: null,
+                child: Text('keins (manuelle Eingabe)'),
+              ),
+              for (final p in radioProfiles)
+                DropdownMenuItem(value: p.id, child: Text(p.name)),
+            ],
+            onChanged: notifier.setRadio,
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            key: const Key('radio-offset'),
+            initialValue: settings.radioOffsetDb.toString(),
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+              signed: true,
+            ),
+            decoration: const InputDecoration(
+              labelText: 'Kalibrierung in dB',
+              helperText: 'Wird auf den S-Meter-Pegel des Geräts addiert',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (v) {
+              final d = double.tryParse(v.replaceAll(',', '.'));
+              if (d != null) notifier.setRadioOffset(d);
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Protokolle (Icom CI-V, Kenwood/Yaesu CAT) und Kalibrierung sind vorbereitet. '
+            'Die Verbindung per USB-OTG oder Bluetooth braucht ein Transport-Plugin und ist '
+            'in dieser Version noch nicht enthalten; bis dahin gibst du Werte von Hand ein.',
+            key: const Key('radio-note'),
+            style: theme.textTheme.bodySmall,
+          ),
           const Divider(height: 32),
           Text('Missweisung', style: theme.textTheme.titleMedium),
           Text(

@@ -16,6 +16,8 @@ class AppSettings {
     this.nightMode = false,
     this.customTileUrl = '',
     this.baseMap = BaseMap.osm,
+    this.radioId,
+    this.radioOffsetDb = 0,
   });
 
   /// Red-on-black scheme that keeps night vision in the field.
@@ -24,6 +26,12 @@ class AppSettings {
   /// Own tile server, e.g. `https://tiles.example.org/{z}/{x}/{y}.png`.
   final String customTileUrl;
   final BaseMap baseMap;
+
+  /// Selected radio profile for CAT S-meter readout (see `radioProfiles`), `null` = none.
+  final String? radioId;
+
+  /// Calibration offset added to the radio's S-meter level, in dB.
+  final double radioOffsetDb;
 
   bool get hasCustomTiles => customTileUrl.trim().isNotEmpty;
 
@@ -37,10 +45,15 @@ class AppSettings {
     bool? nightMode,
     String? customTileUrl,
     BaseMap? baseMap,
+    String? radioId,
+    bool clearRadio = false,
+    double? radioOffsetDb,
   }) => AppSettings(
     nightMode: nightMode ?? this.nightMode,
     customTileUrl: customTileUrl ?? this.customTileUrl,
     baseMap: baseMap ?? this.baseMap,
+    radioId: clearRadio ? null : (radioId ?? this.radioId),
+    radioOffsetDb: radioOffsetDb ?? this.radioOffsetDb,
   );
 }
 
@@ -48,6 +61,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const _night = 'foxgrid.night';
   static const _tiles = 'foxgrid.tileUrl';
   static const _base = 'foxgrid.baseMap';
+  static const _radio = 'foxgrid.radio';
+  static const _radioOffset = 'foxgrid.radioOffset';
 
   late SharedPreferences _prefs;
 
@@ -62,6 +77,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
         (b) => b.name == base,
         orElse: () => BaseMap.osm,
       ),
+      radioId: _prefs.getString(_radio),
+      radioOffsetDb: _prefs.getDouble(_radioOffset) ?? 0,
     );
   }
 
@@ -73,6 +90,22 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setCustomTileUrl(String v) async {
     state = state.copyWith(customTileUrl: v.trim());
     await _prefs.setString(_tiles, v.trim());
+  }
+
+  Future<void> setRadio(String? id) async {
+    state = id == null
+        ? state.copyWith(clearRadio: true)
+        : state.copyWith(radioId: id);
+    if (id == null) {
+      await _prefs.remove(_radio);
+    } else {
+      await _prefs.setString(_radio, id);
+    }
+  }
+
+  Future<void> setRadioOffset(double db) async {
+    state = state.copyWith(radioOffsetDb: db);
+    await _prefs.setDouble(_radioOffset, db);
   }
 
   Future<void> setBaseMap(BaseMap b) async {

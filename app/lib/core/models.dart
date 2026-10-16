@@ -59,6 +59,7 @@ class PositionFix {
     required this.recordedAt,
     this.accuracyM,
     this.headingDeg,
+    this.speedMps,
   });
 
   final String participantId;
@@ -66,6 +67,7 @@ class PositionFix {
   final DateTime recordedAt;
   final double? accuracyM;
   final double? headingDeg;
+  final double? speedMps;
 
   factory PositionFix.fromJson(Map<String, dynamic> j) => PositionFix(
     participantId: j['participant_id'] as String,
@@ -153,6 +155,63 @@ class Transmission {
   );
 }
 
+/// Path loss model fitted by the server: `level = p0 - 10 * n * log10(distance_m)`.
+class RssiFit {
+  const RssiFit({
+    required this.p0Dbm,
+    required this.exponent,
+    required this.residualDb,
+    required this.nSamples,
+  });
+
+  final double p0Dbm;
+  final double exponent;
+  final double residualDb;
+  final int nSamples;
+
+  factory RssiFit.fromJson(Map<String, dynamic> j) => RssiFit(
+    p0Dbm: _d(j['p0_dbm'])!,
+    exponent: _d(j['exponent'])!,
+    residualDb: _d(j['residual_db'])!,
+    nSamples: j['n_samples'] as int,
+  );
+}
+
+/// One signal strength reading of the homing track.
+class RssiSample {
+  const RssiSample({
+    required this.id,
+    required this.participantId,
+    required this.point,
+    required this.rssiDbm,
+    required this.measuredAt,
+    this.attenuationDb = 0,
+    this.pending = false,
+  });
+
+  final String id;
+  final String participantId;
+  final LatLng point;
+
+  /// As read from the receiver.
+  final double rssiDbm;
+  final double attenuationDb;
+  final DateTime measuredAt;
+  final bool pending;
+
+  /// Level at the antenna: the attenuator reduced what the receiver saw.
+  double get correctedDbm => rssiDbm + attenuationDb;
+
+  factory RssiSample.fromJson(Map<String, dynamic> j) => RssiSample(
+    id: j['id'] as String,
+    participantId: (j['participant_id'] as String?) ?? '',
+    point: LatLng(_d(j['lat'])!, _d(j['lon'])!),
+    rssiDbm: _d(j['rssi_dbm'])!,
+    attenuationDb: _d(j['attenuation_db']) ?? 0,
+    measuredAt: _time(j['measured_at']),
+  );
+}
+
 class EllipseShape {
   const EllipseShape({
     required this.semiMajorM,
@@ -186,6 +245,7 @@ class Estimate {
     required this.ellipse2s,
     required this.computedAt,
     this.contours = const {},
+    this.rssi,
   });
 
   final String scope;
@@ -198,7 +258,13 @@ class Estimate {
   /// Probability mass in percent ("50", "80", "95") -> closed rings.
   final Map<String, List<List<LatLng>>> contours;
 
+  /// Present when the RSSI track contributed to the estimate.
+  final RssiFit? rssi;
+
   factory Estimate.fromJson(Map<String, dynamic> j) => Estimate(
+    rssi: j['rssi'] == null
+        ? null
+        : RssiFit.fromJson(j['rssi'] as Map<String, dynamic>),
     contours: {
       for (final e in ((j['contours'] as Map?) ?? const {}).entries)
         e.key as String: [

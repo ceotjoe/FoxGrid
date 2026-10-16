@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,6 +12,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../core/api.dart';
 import '../core/database.dart';
+import '../core/homing.dart';
 import '../core/live.dart';
 import '../core/models.dart';
 import '../core/outbox.dart';
@@ -178,6 +180,7 @@ class MissionState {
     this.messages = const [],
     this.tasks = const {},
     this.teams = const [],
+    this.rssi = const [],
     this.connection = LiveStatus.connecting,
     this.error,
     this.loaded = false,
@@ -194,6 +197,9 @@ class MissionState {
   final List<ChatMessage> messages;
   final Map<String, TaskItem> tasks;
   final List<Team> teams;
+
+  /// Signal strength readings of all participants, oldest first.
+  final List<RssiSample> rssi;
   final LiveStatus connection;
   final String? error;
   final bool loaded;
@@ -219,6 +225,7 @@ class MissionState {
     List<ChatMessage>? messages,
     Map<String, TaskItem>? tasks,
     List<Team>? teams,
+    List<RssiSample>? rssi,
     LiveStatus? connection,
     String? error,
     bool clearError = false,
@@ -235,6 +242,7 @@ class MissionState {
     messages: messages ?? this.messages,
     tasks: tasks ?? this.tasks,
     teams: teams ?? this.teams,
+    rssi: rssi ?? this.rssi,
     connection: connection ?? this.connection,
     error: clearError ? null : (error ?? this.error),
     loaded: loaded ?? this.loaded,
@@ -354,6 +362,10 @@ class MissionNotifier extends Notifier<MissionState> {
         for (final t in (s['teams'] as List?) ?? const [])
           Team.fromJson(t as Map<String, dynamic>),
       ],
+      rssi: [
+        for (final r in (s['rssi'] as List?) ?? const [])
+          RssiSample.fromJson(r as Map<String, dynamic>),
+      ],
       loaded: true,
       stale: stale,
       clearError: true,
@@ -370,9 +382,22 @@ class MissionNotifier extends Notifier<MissionState> {
     for (final e in await _store.all()) {
       if (e.missionId != session.missionId) continue;
       try {
-        final body = e.bodyJson == null
+        final decoded = e.bodyJson == null ? null : jsonDecode(e.bodyJson!);
+        if (e.kind == 'rssi') {
+          final known = {for (final r in s.rssi) r.id};
+          s = s.copyWith(
+            rssi: [
+              ...s.rssi,
+              for (final item in decoded as List)
+                if (!known.contains((item as Map<String, dynamic>)['id']))
+                  _rssiFromPayload(item, session),
+            ],
+          );
+          continue;
+        }
+        final body = decoded == null
             ? <String, dynamic>{}
-            : jsonDecode(e.bodyJson!) as Map<String, dynamic>;
+            : decoded as Map<String, dynamic>;
         switch (e.kind) {
           case 'bearing':
             s = _withBearing(s, _bearingFromPayload(body, session));
@@ -541,6 +566,20 @@ class MissionNotifier extends Notifier<MissionState> {
         note: p['note'] as String?,
       );
 
+  static RssiSample _rssiFromPayload(Map<String, dynamic> p, Session s) =>
+      RssiSample(
+        id: p['id'] as String,
+        participantId: s.participantId,
+        point: LatLng(
+          (p['lat'] as num).toDouble(),
+          (p['lon'] as num).toDouble(),
+        ),
+        rssiDbm: (p['rssi_dbm'] as num).toDouble(),
+        attenuationDb: (p['attenuation_db'] as num?)?.toDouble() ?? 0,
+        measuredAt: DateTime.parse(p['measured_at'] as String).toUtc(),
+        pending: true,
+      );
+
   static ChatMessage _messageFromPayload(Map<String, dynamic> p, Session s) =>
       ChatMessage(
         id: p['id'] as String,
@@ -602,7 +641,7 @@ class MissionNotifier extends Notifier<MissionState> {
     required String kind,
     required String method,
     required String path,
-    Map<String, dynamic>? body,
+    Object? body,
   }) async {
     await _store.add(
       missionId: _session.missionId,
@@ -615,6 +654,35 @@ class MissionNotifier extends Notifier<MissionState> {
   }
 
   // --- user actions (all offline-first) ---------------------------------------------------
+
+  /// Logs one signal strength reading of the homing track (offline-first like everything else).
+  Future<void> logRssi({
+    required double rssiDbm,
+    required PositionFix at,
+    double attenuationDb = 0,
+    String source = 'manual',
+    DateTime? when,
+  }) async {
+    final payload = {
+      'id': const Uuid().v4(),
+      'lat': at.point.latitude,
+      'lon': at.point.longitude,
+      'accuracy_m': at.accuracyM,
+      'rssi_dbm': rssiDbm,
+      'attenuation_db': attenuationDb,
+      'measured_at': (when ?? DateTime.now()).toUtc().toIso8601String(),
+      'source': source,
+    };
+    state = state.copyWith(
+      rssi: [...state.rssi, _rssiFromPayload(payload, _session)],
+    );
+    await _enqueue(
+      kind: 'rssi',
+      method: 'POST',
+      path: '$_base/rssi',
+      body: [payload],
+    );
+  }
 
   Future<void> saveBearing(Map<String, dynamic> payload) async {
     state = _withBearing(state, _bearingFromPayload(payload, _session));
@@ -869,3 +937,37 @@ class DeclinationNotifier extends Notifier<double?> {
 final declinationProvider = NotifierProvider<DeclinationNotifier, double?>(
   DeclinationNotifier.new,
 );
+
+/// Attenuator currently in front of the receiver (dB); persisted so it survives restarts.
+class AttenuationNotifier extends Notifier<int> {
+  static const _key = 'foxgrid.attenuation';
+
+  @override
+  int build() => ref.watch(sharedPrefsProvider).getInt(_key) ?? 0;
+
+  Future<void> set(int db) async {
+    state = db;
+    await ref.read(sharedPrefsProvider).setInt(_key, db);
+  }
+}
+
+final attenuationProvider = NotifierProvider<AttenuationNotifier, int>(
+  AttenuationNotifier.new,
+);
+
+/// Magnetic compass heading in degrees; `null` where there is no compass (web, desktop).
+final compassProvider = StreamProvider<double?>((ref) {
+  if (kIsWeb) return Stream.value(null);
+  return FlutterCompass.events?.map((e) => e.heading) ?? Stream.value(null);
+});
+
+/// True heading: GPS course while moving, compass plus declination while standing still.
+final headingProvider = Provider<double?>((ref) {
+  final own = ref.watch(ownPositionProvider);
+  return chooseHeading(
+    gpsCourse: own?.headingDeg,
+    speedMps: own?.speedMps,
+    compassMagnetic: ref.watch(compassProvider).value,
+    declinationDeg: ref.watch(declinationProvider) ?? 0,
+  );
+});

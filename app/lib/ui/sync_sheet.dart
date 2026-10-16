@@ -12,6 +12,7 @@ const _kindLabels = {
   'outlier': 'Ausreißer-Markierung',
   'tx_start': 'Aussendung Start',
   'tx_stop': 'Aussendung Ende',
+  'rssi': 'RSSI-Messwert',
 };
 
 /// Status chip for the app bar: shows whether everything reached the server.
