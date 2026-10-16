@@ -8,7 +8,7 @@ later homing (RSSI). Also used for team coordination (chat, tasks).
 Language: **README and user docs in German; code, comments, commit messages, identifiers in English.**
 
 ## Status
-Phase 0 (planning, `docs/phase0-plan.md`) done; Phase 1 (MVP) implemented, awaiting user OK for Phase 2. Work strictly phase by phase; stop after each phase, summarize
+Phase 0 (planning, `docs/phase0-plan.md`) done; Phase 1 (MVP) and Phase 2 (robustness and coordination) implemented, awaiting user OK for Phase 3. Work strictly phase by phase; stop after each phase, summarize
 (what is done, how to start, how to test) and wait for the user's OK. Ask instead of guessing on domain questions
 (DF technique, amateur radio).
 
@@ -79,3 +79,16 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 - Small, traceable commits with meaningful messages. Only commit when the user asks.
 - Offline-first app: all writes go to local Drift DB first, then a sync queue with retry + exponential backoff;
   sync status always visible.
+
+## Phase 2 notes
+- Engine returns probability-mass contours (marching squares in `foxgrid_engine/contours.py`); the API stores
+  them on `estimates.contours` as GeoJSON polygons keyed "50"/"80"/"95".
+- Team chat messages are published on the Redis channel `mission:{id}:team:{team}`; the WebSocket subscribes to the
+  caller's team channel only. `GET /snapshot` also returns only the messages the caller may see.
+- Push: `app/services/push.py` (FCM HTTP v1 or log-only). The app does not register tokens yet (needs Firebase files).
+- App offline queue: `OutboxStore` (Drift on native, memory on web) + `SyncService` (head-of-line, exponential
+  backoff, 4xx = failed and visible, 409 on tx start/stop = success). All writes go through `MissionNotifier`.
+- `app/lib/core/database.g.dart` is generated (`dart run build_runner build`) and committed.
+- flutter_map_tile_caching is incompatible with flutter_map 8 / latlong2 0.10, so `core/tile_cache.dart` is our own
+  small file cache. Bulk download is blocked for public OSM servers (tile usage policy).
+- Provider overrides in tests need `import 'package:flutter_riverpod/misc.dart' show Override;` (Riverpod 3).

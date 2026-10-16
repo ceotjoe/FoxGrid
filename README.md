@@ -5,7 +5,7 @@ Open-Source-Werkzeug für Funkamateure: Eine Gruppe peilt gemeinsam einen Störs
 berechnet live den wahrscheinlichsten Standort des Störers samt Fehlerellipse und verteilt das Ergebnis
 an alle. Lizenz: MIT.
 
-**Stand: Phase 1 (MVP).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
+**Stand: Phase 2 (Robustheit und Koordination).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
 Konventionen: [CLAUDE.md](CLAUDE.md).
 
 ## Aufbau
@@ -61,12 +61,39 @@ cd backend && uv run ruff check . && uv run pytest     # startet PostGIS + Redis
 cd app     && flutter analyze && flutter test
 ```
 
-## Phase 1: Umfang und bekannte Grenzen
+## Umfang
 
-Enthalten: Einsatz anlegen, Beitritt per Token, Positionsupdates, manuelle Peilung, Strahlenfächer live,
+**Phase 1:** Einsatz anlegen, Beitritt per Token, Positionsupdates, manuelle Peilung, Strahlenfächer live,
 MLE-Punkt und Ellipse, Aussendung starten/stoppen, Ausreißer markieren (Peilungen werden nie gelöscht).
 
-Noch nicht enthalten (spätere Phasen): Drift-Offline-Queue, Offline-Kacheln, Push, automatische
-Missweisung (Phase 1: manuelle Eingabe), Heatmap-Konturen, Chat/Aufgaben, Export, Nahpeilung.
-Die Kartenkacheln kommen direkt von `tile.openstreetmap.org` bzw. `tile.opentopomap.org`; für den
-Produktivbetrieb ist ein eigener Tile-Server nötig (siehe offene Frage 7).
+**Phase 2:**
+- Heatmap-Konturen (50/80/95 % Wahrscheinlichkeitsmasse), Filter nach Aussendung, Zeitfenster und
+  Altersgewichtung (`GET /missions/{id}/estimate/query`)
+- Chat (Einsatz- und Team-Kanal, Team-Nachrichten bleiben privat) und Aufgaben mit Zuweisung an Team oder Teilnehmer
+- Offline-first: Alle Schreibaktionen landen zuerst in der lokalen Drift-Datenbank (Sync-Queue mit Retry und
+  Backoff), der Sync-Status steht oben in der Leiste; der letzte Stand wird für den Offline-Start zwischengespeichert
+- Kachel-Cache (angesehene Kacheln) und gezielter Kartenausschnitt-Download nur mit eigenem Tile-Server
+- Missweisung nach dem World Magnetic Model (`GET /declination`), in der App vorbelegt und überschreibbar
+- Export als GPX, KML, JSON und PDF-Protokoll (Karte, Peilungen, Ergebnis) über das Menü der Karte
+- Nachtmodus (rotes Farbschema)
+- Push bei Aussendungsstart: serverseitig fertig (FCM HTTP v1), siehe unten
+
+## Push-Benachrichtigungen einrichten
+
+Der Server verschickt bei Aussendungsstart einen Push an alle anderen Teilnehmer, sobald
+`FOXGRID_FCM_PROJECT_ID` und `FOXGRID_FCM_CREDENTIALS_FILE` (Service-Account-Schlüssel eines Firebase-Projekts)
+gesetzt sind; ohne Konfiguration wird der Push nur geloggt. Geräte melden ihr Token per
+`POST /api/v1/push-tokens`. **Die App registriert noch kein Token:** dafür braucht sie die
+Firebase-Konfigurationsdateien deines Projekts (`google-services.json`, `GoogleService-Info.plist`) und das
+Paket `firebase_messaging`. Bis dahin gibt es Vibration und Banner nur bei geöffneter App.
+
+## Bekannte Grenzen
+
+- Web: Die Offline-Queue liegt nur im Arbeitsspeicher, weil keine sqlite-WASM-Dateien mitgeliefert werden;
+  auf Android/iOS ist sie persistent (SQLite). Kein Kachel-Cache im Browser (nutzt den HTTP-Cache).
+- Positionsupdates werden nicht nachgesendet, wenn die Verbindung fehlt (nur Peilungen, Chat, Aufgaben,
+  Ausreißer-Markierungen und Aussendungen laufen über die Queue).
+- Die automatische Missweisung braucht einmal Netz; danach gilt der zwischengespeicherte Wert.
+- Kartenkacheln kommen von `tile.openstreetmap.org` bzw. `tile.opentopomap.org`. Deren Nutzungsrichtlinien
+  verbieten Massen-Downloads; für Produktivbetrieb und Offline-Gebiete wird ein eigener Tile-Server benötigt.
+- Raster-PNG der Engine, QR-Scanner, Nahpeilung (Phase 3) und MQTT (Phase 4) fehlen noch.
