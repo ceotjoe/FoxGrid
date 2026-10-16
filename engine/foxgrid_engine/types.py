@@ -90,3 +90,16 @@ class Estimate:
     n_rssi: int = 0
     # probability mass -> closed rings of (lon, lat); see foxgrid_engine.contours
     contours: dict[float, list[list[tuple[float, float]]]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class Suggestion:
+    """A place where one more bearing would shrink the error ellipse the most."""
+
+    lat: float
+    lon: float
+    expected_reduction: float  # fraction of the 1 sigma ellipse area that disappears, 0..1
+    expected_semi_major_m: float
+    expected_semi_minor_m: float
+    azimuth_to_target_deg: float  # true bearing from here to the current estimate
+    distance_to_target_m: float

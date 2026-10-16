@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Final
 
 import numpy as np
@@ -46,6 +47,15 @@ class _Stations:
     grid_azimuth: FloatArray  # radians, clockwise from grid north
     kappa: FloatArray
     weight: FloatArray
+
+
+@lru_cache(maxsize=64)
+def _transformers(epsg: int) -> tuple[Transformer, Transformer]:
+    """Building a Transformer is slow; they are reused across calls (suggestions run hundreds)."""
+    return (
+        Transformer.from_crs(4326, epsg, always_xy=True),
+        Transformer.from_crs(epsg, 4326, always_xy=True),
+    )
 
 
 def utm_epsg_for(lat: float, lon: float) -> int:
@@ -230,8 +240,7 @@ def estimate(
     lats = [b.lat for b in bearings] + [r.lat for r in rssi_samples]
     lons = [b.lon for b in bearings] + [r.lon for r in rssi_samples]
     epsg = utm_epsg_for(float(np.mean(lats)), float(np.mean(lons)))
-    fwd = Transformer.from_crs(4326, epsg, always_xy=True)
-    inv = Transformer.from_crs(epsg, 4326, always_xy=True)
+    fwd, inv = _transformers(epsg)
     st = _prepare(bearings, fwd, params)
     rssi_data = _prepare_rssi(rssi_samples, fwd, params)
     if rssi_data is None and not bearings:  # pragma: no cover - guarded by _validate
