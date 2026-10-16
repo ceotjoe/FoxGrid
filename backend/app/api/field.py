@@ -28,6 +28,7 @@ from app.models import (
     Mission,
     Participant,
     PositionSample,
+    RssiSample,
     Transmission,
 )
 from app.schemas.api import (
@@ -49,8 +50,10 @@ from app.services.recompute import (
     RecomputeScheduler,
     _input_hash,
     _to_engine,
+    _to_engine_rssi,
     build_estimate,
     engine_params_for,
+    uses_rssi,
 )
 from app.services.serialize import (
     bearing_out,
@@ -429,6 +432,7 @@ async def query_estimate(
     until: datetime | None = None,
     half_life_s: float | None = Query(default=None, gt=0),
     include_outliers: bool = False,
+    include_rssi: bool = True,
     _: Participant = Depends(member),
     session: AsyncSession = Depends(get_session),
 ) -> EstimateOut:
@@ -446,15 +450,31 @@ async def query_estimate(
     if until:
         stmt = stmt.where(Bearing.measured_at <= until)
     bearings = list((await session.scalars(stmt)).all())
-    if len(bearings) < MIN_BEARINGS:
-        raise HTTPException(404, "fewer than two bearings match the filter")
+    rssi_rows: list[RssiSample] = []
+    if include_rssi and uses_rssi(mission):
+        rstmt = select(RssiSample).where(
+            RssiSample.mission_id == mission_id, RssiSample.is_active.is_(True)
+        )
+        if transmission:
+            rstmt = rstmt.where(RssiSample.transmission_id.in_(transmission))
+        if since:
+            rstmt = rstmt.where(RssiSample.measured_at >= since)
+        if until:
+            rstmt = rstmt.where(RssiSample.measured_at <= until)
+        rssi_rows = list((await session.scalars(rstmt)).all())
     params = engine_params_for(mission, time.time())
+    if len(bearings) < MIN_BEARINGS and len(rssi_rows) < params.rssi_min_samples:
+        raise HTTPException(404, "too few bearings or RSSI samples match the filter")
     if half_life_s is not None:
         params = replace(params, half_life_s=half_life_s)
     engine_bearings: list[EngineBearing] = [_to_engine(b) for b in bearings]
     try:
-        result = await asyncio.to_thread(run_engine, engine_bearings, params)
+        result = await asyncio.to_thread(
+            run_engine, engine_bearings, params, [_to_engine_rssi(r) for r in rssi_rows]
+        )
     except EngineError as exc:
         raise HTTPException(422, str(exc)) from exc
-    est = build_estimate(mission_id, "all", None, _input_hash(bearings, params), result, params)
+    est = build_estimate(
+        mission_id, "all", None, _input_hash(bearings, params, rssi_rows), result, params
+    )
     return estimate_out(est)

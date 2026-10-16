@@ -11,6 +11,7 @@ from app.models import (
     Mission,
     Participant,
     PositionSample,
+    RssiSample,
     Task,
     Transmission,
 )
@@ -21,6 +22,8 @@ from app.schemas.api import (
     MissionOut,
     ParticipantOut,
     PositionOut,
+    RssiFitOut,
+    RssiOut,
     TaskOut,
     TransmissionOut,
 )
@@ -102,6 +105,7 @@ def estimate_out(e: Estimate) -> EstimateOut:
         ellipse_2s=e.ellipse_2s,  # type: ignore[arg-type]
         resolution_m=float(e.params.get("resolution_m", 0.0)),
         contours=e.contours or {},
+        rssi=RssiFitOut(**e.params["rssi_fit"]) if e.params.get("rssi_fit") else None,
     )
 
 
@@ -137,3 +141,20 @@ def task_out(t: Task) -> TaskOut:
 
 def event_json(model: Any) -> dict[str, Any]:
     return dict(model.model_dump(mode="json"))
+
+
+def rssi_out(r: RssiSample) -> RssiOut:
+    return RssiOut(
+        id=r.id,
+        participant_id=r.participant_id,
+        transmission_id=r.transmission_id,
+        lat=r.lat,
+        lon=r.lon,
+        accuracy_m=r.accuracy_m,
+        rssi_dbm=r.rssi_dbm,
+        s_meter=r.s_meter,
+        attenuation_db=r.attenuation_db,
+        measured_at=r.measured_at,
+        source=r.source,
+        is_active=r.is_active,
+    )

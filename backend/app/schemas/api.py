@@ -35,6 +35,9 @@ class EngineParamsIn(BaseModel):
     outlier_fraction: float | None = Field(default=None, gt=0, lt=1)
     half_life_s: float | None = Field(default=None, gt=0)
     margin_m: float | None = Field(default=None, ge=1000, le=100_000)
+    use_rssi: bool | None = None  # include the homing RSSI track in the estimate (default on)
+    rssi_sigma_db: float | None = Field(default=None, gt=0, le=30)
+    rssi_weight: float | None = Field(default=None, ge=0, le=5)
 
 
 class MissionCreate(BaseModel):
@@ -217,6 +220,13 @@ class EllipseOut(BaseModel):
     polygon: dict[str, Any]  # GeoJSON Polygon
 
 
+class RssiFitOut(BaseModel):
+    p0_dbm: float  # extrapolated level at 1 m
+    exponent: float  # path loss exponent n
+    residual_db: float
+    n_samples: int
+
+
 class EstimateOut(BaseModel):
     id: uuid.UUID
     mission_id: uuid.UUID
@@ -234,6 +244,7 @@ class EstimateOut(BaseModel):
     resolution_m: float
     # probability mass in percent ("50", "80", "95") -> closed GeoJSON polygons
     contours: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    rssi: RssiFitOut | None = None  # path loss fit when an RSSI track contributed
 
 
 TaskStatus = Literal["open", "in_progress", "done", "cancelled"]
@@ -321,3 +332,43 @@ class SnapshotOut(BaseModel):
     messages: list[MessageOut] = Field(default_factory=list)  # visible to the caller
     tasks: list[TaskOut] = Field(default_factory=list)
     teams: list[TeamOut] = Field(default_factory=list)
+    rssi: list[RssiOut] = Field(default_factory=list)  # latest samples, oldest first
+
+
+class RssiIn(BaseModel):
+    id: uuid.UUID  # client generated, idempotent
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, ge=0)
+    rssi_dbm: float = Field(ge=-200, le=20)
+    s_meter: float | None = Field(default=None, ge=0, le=15)
+    attenuation_db: float = Field(default=0.0, ge=0, le=100)
+    measured_at: AwareDatetime
+    source: Literal["manual", "cat", "sensor"] = "manual"
+    transmission_id: uuid.UUID | None = None
+
+
+class RssiPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_active: bool
+
+
+class RssiOut(BaseModel):
+    id: uuid.UUID
+    participant_id: uuid.UUID
+    transmission_id: uuid.UUID | None
+    lat: float
+    lon: float
+    accuracy_m: float | None
+    rssi_dbm: float
+    s_meter: float | None
+    attenuation_db: float
+    measured_at: datetime
+    source: str
+    is_active: bool
+
+
+class RssiBatchResult(BaseModel):
+    stored: int
+    duplicates: int

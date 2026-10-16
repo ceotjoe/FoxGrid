@@ -20,6 +20,7 @@ from app.models import (
     Mission,
     Participant,
     PositionSample,
+    RssiSample,
     Task,
     Team,
     Transmission,
@@ -45,6 +46,7 @@ from app.services.serialize import (
     mission_out,
     participant_out,
     position_out,
+    rssi_out,
     task_out,
     transmission_out,
 )
@@ -304,6 +306,14 @@ async def snapshot(
         )
     ).all()
     teams = (await session.scalars(select(Team).where(Team.mission_id == mission_id))).all()
+    rssi_rows = (
+        await session.scalars(
+            select(RssiSample)
+            .where(RssiSample.mission_id == mission_id)
+            .order_by(RssiSample.measured_at.desc())
+            .limit(1000)
+        )
+    ).all()
     return SnapshotOut(
         mission=mission_out(mission, await domain.search_area_ring(session, mission_id)),
         participants=[
@@ -316,4 +326,5 @@ async def snapshot(
         messages=[message_out(m, cs) for m, cs in reversed(message_rows)],
         tasks=[task_out(t) for t in tasks],
         teams=[TeamOut.model_validate(t) for t in teams],
+        rssi=[rssi_out(r) for r in reversed(rssi_rows)],
     )

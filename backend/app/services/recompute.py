@@ -12,6 +12,7 @@ from typing import Any
 
 from foxgrid_engine import Bearing as EngineBearing
 from foxgrid_engine import EngineError, EngineParams
+from foxgrid_engine import RssiSample as EngineRssi
 from foxgrid_engine import estimate as run_engine
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import events
 from app.config import Settings
-from app.models import Bearing, Estimate, Mission, Transmission, utcnow
+from app.models import Bearing, Estimate, Mission, RssiSample, Transmission, utcnow
 from app.services.serialize import estimate_out, event_json
 
 log = logging.getLogger(__name__)
@@ -29,13 +30,21 @@ MIN_BEARINGS = 2
 
 def engine_params_for(mission: Mission, now: float) -> EngineParams:
     cfg = {k: v for k, v in (mission.engine_params or {}).items() if v is not None}
+    cfg.pop("use_rssi", None)  # not an engine parameter: decides whether samples are passed
     return EngineParams(now=now, **cfg)
 
 
-def _input_hash(bearings: list[Bearing], params: EngineParams) -> str:
+def uses_rssi(mission: Mission) -> bool:
+    return (mission.engine_params or {}).get("use_rssi") is not False
+
+
+def _input_hash(
+    bearings: list[Bearing], params: EngineParams, rssi: list[RssiSample] | None = None
+) -> str:
     rows = sorted(
         [str(b.id), float(b.azimuth_true_deg), float(b.sigma_deg), b.lat, b.lon] for b in bearings
     )
+    rssi_rows = sorted([str(r.id), r.rssi_dbm, r.attenuation_db] for r in rssi or [])
     # `now` only matters for age weighting; bucket it so idle triggers stay cheap.
     now_bucket = int(params.now // 60) if params.half_life_s and params.now else None
     blob = json.dumps(
@@ -46,6 +55,9 @@ def _input_hash(bearings: list[Bearing], params: EngineParams) -> str:
             params.outlier_fraction,
             params.half_life_s,
             now_bucket,
+            rssi_rows,
+            params.rssi_sigma_db,
+            params.rssi_weight,
         ]
     )
     return hashlib.sha256(blob.encode()).hexdigest()
@@ -60,6 +72,28 @@ def _to_engine(b: Bearing) -> EngineBearing:
         measured_at=b.measured_at.timestamp(),
         id=str(b.id),
     )
+
+
+def _to_engine_rssi(r: RssiSample) -> EngineRssi:
+    return EngineRssi(
+        lat=r.lat,
+        lon=r.lon,
+        rssi_dbm=r.rssi_dbm,
+        attenuation_db=r.attenuation_db,
+        measured_at=r.measured_at.timestamp(),
+    )
+
+
+def rssi_fit_json(result: Any) -> dict[str, Any] | None:
+    fit = result.rssi_fit
+    if fit is None:
+        return None
+    return {
+        "p0_dbm": fit.p0_dbm,
+        "exponent": fit.exponent,
+        "residual_db": fit.residual_db,
+        "n_samples": fit.n_samples,
+    }
 
 
 def _ellipse_json(geom: Any, ring: list[tuple[float, float]]) -> dict[str, Any]:
@@ -102,6 +136,8 @@ def build_estimate(
             "utm_epsg": result.utm_epsg,
             "outlier_fraction": params.outlier_fraction,
             "half_life_s": params.half_life_s,
+            "n_rssi": result.n_rssi,
+            "rssi_fit": rssi_fit_json(result),
         },
         lat=result.lat,
         lon=result.lon,
@@ -133,6 +169,17 @@ async def compute_mission(
             )
         )
     ).all()
+    rssi_rows: list[RssiSample] = []
+    if uses_rssi(mission):
+        rssi_rows = list(
+            (
+                await session.scalars(
+                    select(RssiSample).where(
+                        RssiSample.mission_id == mission_id, RssiSample.is_active.is_(True)
+                    )
+                )
+            ).all()
+        )
     current_tx = await session.scalar(
         select(Transmission)
         .where(Transmission.mission_id == mission_id)
@@ -141,15 +188,18 @@ async def compute_mission(
     )
     current_id = current_tx.id if current_tx else None
     scopes = {
-        "current": [b for b in rows if b.transmission_id == current_id],
-        "all": list(rows),
+        "current": (
+            [b for b in rows if b.transmission_id == current_id],
+            [r for r in rssi_rows if r.transmission_id == current_id],
+        ),
+        "all": (list(rows), list(rssi_rows)),
     }
 
     created: list[Estimate] = []
-    for scope, subset in scopes.items():
-        if len(subset) < MIN_BEARINGS:
+    for scope, (subset, rssi_subset) in scopes.items():
+        if len(subset) < MIN_BEARINGS and len(rssi_subset) < params.rssi_min_samples:
             continue
-        digest = _input_hash(subset, params)
+        digest = _input_hash(subset, params, rssi_subset)
         last = await session.scalar(
             select(Estimate)
             .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
@@ -160,7 +210,12 @@ async def compute_mission(
         if last is not None and last.input_hash == digest and last.transmission_id == tx_id:
             continue
         try:
-            result = await asyncio.to_thread(run_engine, [_to_engine(b) for b in subset], params)
+            result = await asyncio.to_thread(
+                run_engine,
+                [_to_engine(b) for b in subset],
+                params,
+                [_to_engine_rssi(r) for r in rssi_subset],
+            )
         except EngineError:
             log.exception("engine rejected input for mission %s", mission_id)
             continue

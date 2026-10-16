@@ -21,6 +21,7 @@ from app.models import (
     Mission,
     Participant,
     PositionSample,
+    RssiSample,
     Transmission,
 )
 from app.schemas.api import RevisionOut
@@ -31,6 +32,7 @@ from app.services.serialize import (
     mission_out,
     participant_out,
     position_out,
+    rssi_out,
     transmission_out,
 )
 
@@ -48,6 +50,7 @@ class MissionData:
     positions: list[PositionSample]
     estimate_all: Estimate | None
     estimate_current: Estimate | None
+    rssi: list[RssiSample] = field(default_factory=list)
     callsigns: dict[uuid.UUID, str] = field(default_factory=dict)
 
     @property
@@ -86,6 +89,11 @@ async def load_mission_data(session: AsyncSession, mission: Mission) -> MissionD
             .order_by(PositionSample.recorded_at)
         )
     )
+    rssi = list(
+        await session.scalars(
+            select(RssiSample).where(RssiSample.mission_id == mid).order_by(RssiSample.measured_at)
+        )
+    )
     estimates: dict[str, Estimate | None] = {}
     for scope in ("all", "current"):
         estimates[scope] = await session.scalar(
@@ -103,6 +111,7 @@ async def load_mission_data(session: AsyncSession, mission: Mission) -> MissionD
         positions=positions,
         estimate_all=estimates["all"],
         estimate_current=estimates["current"],
+        rssi=rssi,
         callsigns={pid: p.callsign for pid, p in participants.items()},
     )
 
@@ -181,6 +190,18 @@ def build_gpx(data: MissionData) -> bytes:
         for s in samples:
             pt = ET.SubElement(seg, "trkpt", {"lat": f"{s.lat:.7f}", "lon": f"{s.lon:.7f}"})
             ET.SubElement(pt, "time").text = _iso(s.recorded_at)
+    by_person: dict[uuid.UUID, list[RssiSample]] = {}
+    for r in data.rssi:
+        by_person.setdefault(r.participant_id, []).append(r)
+    for pid, person_rssi in by_person.items():
+        trk = ET.SubElement(gpx, "trk")
+        ET.SubElement(trk, "name").text = f"RSSI {data.callsigns.get(pid, '?')}"
+        seg = ET.SubElement(trk, "trkseg")
+        for r in person_rssi:
+            pt = ET.SubElement(seg, "trkpt", {"lat": f"{r.lat:.7f}", "lon": f"{r.lon:.7f}"})
+            ET.SubElement(pt, "time").text = _iso(r.measured_at)
+            att = f" (Dämpfung {r.attenuation_db:.0f} dB)" if r.attenuation_db else ""
+            ET.SubElement(pt, "cmt").text = f"{r.rssi_dbm:.1f} dBm{att}"
     ET.indent(gpx)
     return ET.tostring(gpx, encoding="utf-8", xml_declaration=True)
 
@@ -261,6 +282,16 @@ def build_kml(data: MissionData) -> bytes:
         ET.SubElement(pm, "styleUrl").text = "#track"
         line = ET.SubElement(pm, "LineString")
         ET.SubElement(line, "coordinates").text = _coords([(s.lon, s.lat) for s in samples])
+    if data.rssi:
+        folder = ET.SubElement(doc, "Folder")
+        ET.SubElement(folder, "name").text = "RSSI-Spur"
+        for r in data.rssi[-1000:]:
+            pm = ET.SubElement(folder, "Placemark")
+            ET.SubElement(pm, "name").text = f"{r.rssi_dbm:.0f} dBm"
+            ts = ET.SubElement(pm, "TimeStamp")
+            ET.SubElement(ts, "when").text = _iso(r.measured_at)
+            pt = ET.SubElement(pm, "Point")
+            ET.SubElement(pt, "coordinates").text = f"{r.lon:.7f},{r.lat:.7f},0"
     ET.indent(kml)
     return ET.tostring(kml, encoding="utf-8", xml_declaration=True)
 
@@ -280,6 +311,7 @@ def build_json(data: MissionData) -> bytes:
         "bearing_revisions": [event_json(RevisionOut.model_validate(r)) for r in data.revisions],
         "estimates": [event_json(estimate_out(e)) for e in estimates],
         "positions": [event_json(position_out(p)) for p in data.positions],
+        "rssi_samples": [event_json(rssi_out(r)) for r in data.rssi],
     }
     return json.dumps(doc, indent=2, ensure_ascii=False).encode()
 
@@ -325,6 +357,7 @@ def _map_drawing(data: MissionData, width: float, height: float) -> Any:
 
     est = data.best_estimate
     points: list[tuple[float, float]] = [(b.lon, b.lat) for b in data.bearings]
+    points += [(r.lon, r.lat) for r in data.rssi[-500:]]
     if est:
         points.append((est.lon, est.lat))
         points += [(p[0], p[1]) for p in est.ellipse_2s["polygon"]["coordinates"][0]]
@@ -373,6 +406,14 @@ def _map_drawing(data: MissionData, width: float, height: float) -> Any:
             for pg in (est.contours or {}).get(mass, []):
                 draw_poly(pg["coordinates"][0], fill, colors.Color(0.8, 0.1, 0.1, 0.7))
         draw_poly(est.ellipse_1s["polygon"]["coordinates"][0], None, colors.HexColor("#b00020"))
+
+    if data.rssi:
+        levels = [r.rssi_dbm + r.attenuation_db for r in data.rssi]
+        lo, hi = min(levels), max(levels)
+        for r, lvl in zip(data.rssi[-500:], levels[-500:], strict=True):
+            t = 0.5 if hi == lo else (lvl - lo) / (hi - lo)  # blue = weak, red = strong
+            x, y = to_px(r.lon, r.lat)
+            d.add(Circle(x, y, 1.6, fillColor=colors.Color(t, 0.2, 1 - t), strokeColor=None))
 
     palette = [
         colors.HexColor(c)
@@ -486,13 +527,22 @@ def build_pdf(data: MissionData) -> bytes:
         story.append(
             Paragraph("Noch keine Schätzung (mindestens zwei Peilungen nötig).", styles["Normal"])
         )
+    if data.rssi:
+        fit = (est.params or {}).get("rssi_fit") if est else None
+        text = f"RSSI-Spur (Nahpeilung): {len(data.rssi)} Messwerte"
+        if fit:
+            text += (
+                f"; Pegelmodell n = {fit['exponent']:.2f}, P0 = {fit['p0_dbm']:.0f} dBm bei 1 m, "
+                f"Restfehler {fit['residual_db']:.1f} dB"
+            )
+        story.append(Paragraph(text + ".", styles["Normal"]))
     story += [
         Spacer(1, 4 * mm),
         Paragraph("Karte (schematisch, Norden oben)", styles["Heading2"]),
         _map_drawing(data, 180 * mm, 120 * mm),
         Paragraph(
             "Rot: Wahrscheinlichkeitsmasse 50/80/95 % und 1σ-Ellipse · "
-            "gestrichelt: Ausreißer/inaktiv",
+            "gestrichelt: Ausreißer/inaktiv · Punkte: RSSI (blau schwach, rot stark)",
             styles["Italic"],
         ),
         Spacer(1, 6 * mm),

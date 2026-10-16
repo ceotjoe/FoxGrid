@@ -300,3 +300,32 @@ class PushToken(Base):
     __table_args__ = (
         CheckConstraint("platform in ('fcm','apns','webpush')", name="ck_push_platform"),
     )
+
+
+class RssiSample(Base):
+    """One signal strength reading of the homing track. Append-only like bearings."""
+
+    __tablename__ = "rssi_samples"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True)  # client generated
+    mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"), index=True)
+    participant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id"))
+    transmission_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("transmissions.id"), nullable=True
+    )
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rssi_dbm: Mapped[float] = mapped_column(Float)
+    s_meter: Mapped[float | None] = mapped_column(Float, nullable=True)  # informational
+    attenuation_db: Mapped[float] = mapped_column(Float, default=0.0)
+    measured_at: Mapped[datetime] = mapped_column(_TS)
+    received_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    source: Mapped[str] = mapped_column(String(10), default="manual")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    __table_args__ = (
+        CheckConstraint("source in ('manual','cat','sensor')", name="ck_rssi_source"),
+        CheckConstraint("attenuation_db >= 0", name="ck_rssi_attenuation"),
+        Index("ix_rssi_mission_measured", "mission_id", "measured_at"),
+    )
