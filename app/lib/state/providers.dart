@@ -971,3 +971,36 @@ final headingProvider = Provider<double?>((ref) {
     declinationDeg: ref.watch(declinationProvider) ?? 0,
   );
 });
+
+/// Whether the map shows the suggested bearing positions (fetched only while on).
+class ShowSuggestionsNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  // ignore: use_setters_to_change_properties
+  void set(bool on) => state = on;
+}
+
+final showSuggestionsProvider = NotifierProvider<ShowSuggestionsNotifier, bool>(
+  ShowSuggestionsNotifier.new,
+);
+
+/// The best places for the next bearing. Refreshes whenever the estimate changes.
+final suggestionsProvider = FutureProvider.autoDispose<List<Suggestion>>((
+  ref,
+) async {
+  if (!ref.watch(showSuggestionsProvider)) return const [];
+  final scope = ref.watch(estimateScopeProvider);
+  ref.watch(
+    missionProvider.select(
+      (s) =>
+          s.estimates[scope.name]?.computedAt ?? s.estimates['all']?.computedAt,
+    ),
+  );
+  return ref.read(apiProvider).suggestions(scope: scope.name);
+});
+
+/// Registered sensors of the mission (lead screen).
+final sensorsProvider = FutureProvider.autoDispose<List<SensorInfo>>(
+  (ref) => ref.watch(apiProvider).listSensors(),
+);

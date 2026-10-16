@@ -49,6 +49,24 @@ abstract class FoxGridApi {
   });
 
   Future<List<int>> exportBytes(String format);
+
+  /// Where one more bearing helps most; empty while there are no bearings.
+  Future<List<Suggestion>> suggestions({
+    required String scope,
+    double sigmaDeg = 10,
+  });
+
+  Future<List<SensorInfo>> listSensors();
+
+  /// Registers a station or repeater hook; the result carries the API key once.
+  Future<SensorInfo> createSensor({
+    required String name,
+    required String kind,
+    double? lat,
+    double? lon,
+  });
+
+  Future<SensorInfo> setSensorActive(String id, {required bool active});
 }
 
 class DioFoxGridApi implements FoxGridApi {
@@ -200,6 +218,60 @@ class DioFoxGridApi implements FoxGridApi {
       if (e.statusCode == 404) return null;
       rethrow;
     }
+  }
+
+  @override
+  Future<List<Suggestion>> suggestions({
+    required String scope,
+    double sigmaDeg = 10,
+  }) async {
+    try {
+      final r = await _call(
+        'GET',
+        '$_mission/suggestions?scope=$scope&sigma_deg=$sigmaDeg',
+      );
+      return [
+        for (final s in (r.data as Map<String, dynamic>)['suggestions'] as List)
+          Suggestion.fromJson(s as Map<String, dynamic>),
+      ];
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return const [];
+      rethrow;
+    }
+  }
+
+  @override
+  Future<List<SensorInfo>> listSensors() async {
+    final r = await _call('GET', '$_mission/sensors');
+    return [
+      for (final s in r.data as List)
+        SensorInfo.fromJson(s as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<SensorInfo> createSensor({
+    required String name,
+    required String kind,
+    double? lat,
+    double? lon,
+  }) async {
+    final r = await _call(
+      'POST',
+      '$_mission/sensors',
+      data: {'name': name, 'kind': kind, 'lat': lat, 'lon': lon},
+    );
+    return SensorInfo.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<SensorInfo> setSensorActive(String id, {required bool active}) async {
+    final r = await _call(
+      'PATCH',
+      '$_mission/sensors/$id',
+      data: {'is_active': active},
+    );
+    return SensorInfo.fromJson(r.data as Map<String, dynamic>);
   }
 
   @override

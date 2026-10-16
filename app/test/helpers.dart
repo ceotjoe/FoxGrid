@@ -150,6 +150,48 @@ class FakeApi implements FoxGridApi {
   @override
   Future<List<int>> exportBytes(String format) async => [1, 2, 3];
 
+  List<Suggestion> suggestionList = const [];
+  Object? suggestionsError;
+  final suggestionCalls = <String>[];
+
+  @override
+  Future<List<Suggestion>> suggestions({
+    required String scope,
+    double sigmaDeg = 10,
+  }) async {
+    suggestionCalls.add(scope);
+    if (suggestionsError != null) throw suggestionsError!;
+    return suggestionList;
+  }
+
+  List<SensorInfo> sensorList = [];
+  Object? createSensorError;
+  final createdSensors = <Map<String, Object?>>[];
+  final toggled = <(String, bool)>[];
+
+  @override
+  Future<List<SensorInfo>> listSensors() async => List.of(sensorList);
+
+  @override
+  Future<SensorInfo> createSensor({
+    required String name,
+    required String kind,
+    double? lat,
+    double? lon,
+  }) async {
+    if (createSensorError != null) throw createSensorError!;
+    createdSensors.add({'name': name, 'kind': kind, 'lat': lat, 'lon': lon});
+    final s = sensorInfo(name: name, kind: kind, apiKey: 'fgs_secret_key');
+    sensorList = [...sensorList, s];
+    return s;
+  }
+
+  @override
+  Future<SensorInfo> setSensorActive(String id, {required bool active}) async {
+    toggled.add((id, active));
+    return sensorList.firstWhere((s) => s.id == id);
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -340,3 +382,34 @@ Future<WidgetEnv> pumpWith(
   );
   return WidgetEnv(fakeApi, store, channel);
 }
+
+SensorInfo sensorInfo({
+  String name = 'Station Nord',
+  String kind = 'station',
+  bool online = false,
+  bool active = true,
+  String? apiKey,
+}) => SensorInfo(
+  id: 'sensor-$name',
+  name: name,
+  kind: kind,
+  callsign: name.toUpperCase().replaceAll(' ', ''),
+  isActive: active,
+  online: online,
+  topicPrefix: 'foxgrid/m1/sensor-$name',
+  lastSeenAt: online ? DateTime.utc(2026, 1, 1, 10, 0, 5) : null,
+  apiKey: apiKey,
+);
+
+Suggestion suggestion(
+  double reduction, {
+  double az = 180,
+  double dist = 1500,
+}) => Suggestion(
+  point: const LatLng(48.12, 11.57),
+  expectedReduction: reduction,
+  expectedSemiMajorM: 210,
+  expectedSemiMinorM: 120,
+  azimuthToTargetDeg: az,
+  distanceToTargetM: dist,
+);

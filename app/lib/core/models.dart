@@ -379,3 +379,83 @@ class TaskItem {
     assigneeTeamId: j['assignee_team_id'] as String?,
   );
 }
+
+/// A place where one more bearing would shrink the error ellipse the most.
+class Suggestion {
+  const Suggestion({
+    required this.point,
+    required this.expectedReduction,
+    required this.expectedSemiMajorM,
+    required this.expectedSemiMinorM,
+    required this.azimuthToTargetDeg,
+    required this.distanceToTargetM,
+  });
+
+  final LatLng point;
+
+  /// Share of the 1 sigma ellipse area that goes away, 0..1.
+  final double expectedReduction;
+  final double expectedSemiMajorM;
+  final double expectedSemiMinorM;
+
+  /// True bearing from that place to the current estimate.
+  final double azimuthToTargetDeg;
+  final double distanceToTargetM;
+
+  factory Suggestion.fromJson(Map<String, dynamic> j) => Suggestion(
+    point: LatLng(_d(j['lat'])!, _d(j['lon'])!),
+    expectedReduction: _d(j['expected_reduction'])!,
+    expectedSemiMajorM: _d(j['expected_semi_major_m'])!,
+    expectedSemiMinorM: _d(j['expected_semi_minor_m'])!,
+    azimuthToTargetDeg: _d(j['azimuth_to_target_deg'])!,
+    distanceToTargetM: _d(j['distance_to_target_m'])!,
+  );
+}
+
+/// An automatic station or repeater hook registered for the mission.
+class SensorInfo {
+  const SensorInfo({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.callsign,
+    required this.isActive,
+    required this.online,
+    required this.topicPrefix,
+    this.lastSeenAt,
+    this.point,
+    this.apiKey,
+  });
+
+  final String id;
+  final String name;
+
+  /// `station` or `relay`.
+  final String kind;
+  final String callsign;
+  final bool isActive;
+  final bool online;
+  final String topicPrefix;
+  final DateTime? lastSeenAt;
+  final LatLng? point;
+
+  /// Only present right after creation: it is never shown again.
+  final String? apiKey;
+
+  bool get isRelay => kind == 'relay';
+
+  factory SensorInfo.fromJson(Map<String, dynamic> j) => SensorInfo(
+    id: j['id'] as String,
+    name: j['name'] as String,
+    kind: j['kind'] as String,
+    callsign: j['callsign'] as String,
+    isActive: j['is_active'] as bool,
+    online: j['online'] as bool,
+    topicPrefix: j['topic_prefix'] as String,
+    lastSeenAt: j['last_seen_at'] == null ? null : _time(j['last_seen_at']),
+    point: j['lat'] == null || j['lon'] == null
+        ? null
+        : LatLng(_d(j['lat'])!, _d(j['lon'])!),
+    apiKey: j['api_key'] as String?,
+  );
+}

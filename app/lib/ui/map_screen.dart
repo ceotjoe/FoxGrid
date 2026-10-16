@@ -21,6 +21,8 @@ import 'chat_screen.dart';
 import 'filter_sheet.dart';
 import 'homing_screen.dart';
 import 'settings_screen.dart';
+import 'sensors_screen.dart';
+import 'suggestions_sheet.dart';
 import 'sync_sheet.dart';
 import 'tasks_screen.dart';
 
@@ -70,6 +72,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  void _openSuggestions() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const SuggestionsSheet(),
+    );
+  }
+
   void _openCapture() {
     showModalBottomSheet<bool>(
       context: context,
@@ -116,6 +127,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ); // keeps the offline queue running while the map is open
     final settings = ref.watch(settingsProvider);
     final filter = ref.watch(filterProvider);
+    final showSuggestions = ref.watch(showSuggestionsProvider);
+    final suggestions = showSuggestions
+        ? (ref.watch(suggestionsProvider).value ?? const <Suggestion>[])
+        : const <Suggestion>[];
     final filtered = ref.watch(filteredEstimateProvider).value;
     final liveEstimate =
         state.estimates[scope.name] ??
@@ -216,6 +231,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     showDragHandle: true,
                     builder: (_) => const BearingsSheet(),
                   );
+                case 'sensors':
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SensorsScreen(),
+                    ),
+                  );
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -233,6 +254,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
               if (session.inviteToken != null)
                 const PopupMenuItem(value: 'invite', child: Text('Einladung')),
+              if (session.isLead)
+                const PopupMenuItem(value: 'sensors', child: Text('Sensoren')),
               const PopupMenuItem(
                 value: 'settings',
                 child: Text('Einstellungen'),
@@ -321,6 +344,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
               MarkerLayer(
                 markers: [
+                  for (final (i, sg) in suggestions.indexed)
+                    Marker(
+                      point: sg.point,
+                      width: 40,
+                      height: 40,
+                      child: GestureDetector(
+                        key: Key('suggestion-marker-${i + 1}'),
+                        onTap: _openSuggestions,
+                        child: CircleAvatar(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          child: Text('${i + 1}'),
+                        ),
+                      ),
+                    ),
                   if (estimate != null)
                     Marker(
                       point: estimate.point,
@@ -389,6 +427,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             .select(s.first),
                       ),
                       const Spacer(),
+                      IconButton.filledTonal(
+                        key: const Key('toggle-suggestions'),
+                        tooltip: 'Wo als Nächstes peilen?',
+                        isSelected: showSuggestions,
+                        icon: const Icon(Icons.tips_and_updates_outlined),
+                        selectedIcon: const Icon(Icons.tips_and_updates),
+                        onPressed: () {
+                          ref
+                              .read(showSuggestionsProvider.notifier)
+                              .set(!showSuggestions);
+                          if (!showSuggestions) _openSuggestions();
+                        },
+                      ),
+                      const SizedBox(width: 8),
                       IconButton.filledTonal(
                         key: const Key('fit-all'),
                         tooltip: 'Alles zeigen',
