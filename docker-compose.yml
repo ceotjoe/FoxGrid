@@ -1,0 +1,48 @@
+services:
+  db:
+    image: ${FOXGRID_POSTGIS_IMAGE:-postgis/postgis:16-3.4}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-foxgrid}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-foxgrid}
+    ports:
+      - "${FOXGRID_DB_PORT:-5432}:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      # TCP check: the temporary init server of the image only listens on a unix socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-foxgrid} -d ${POSTGRES_DB:-foxgrid}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${FOXGRID_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      FOXGRID_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-foxgrid}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-foxgrid}
+      FOXGRID_REDIS_URL: redis://redis:6379/0
+      FOXGRID_JWT_SECRET: ${FOXGRID_JWT_SECRET:?set FOXGRID_JWT_SECRET in .env}
+      FOXGRID_JWT_TTL_HOURS: ${FOXGRID_JWT_TTL_HOURS:-72}
+    restart: on-failure
+    ports:
+      - "${FOXGRID_API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  dbdata:
