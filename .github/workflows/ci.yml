@@ -27,8 +27,17 @@ jobs:
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run mypy app
-      # Integration tests start PostGIS and Redis via testcontainers (Docker is available).
+      # Integration tests start PostGIS, Redis and Mosquitto via testcontainers (Docker is available).
       - run: uv run pytest
+
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv run --python 3.12 --with pytest --with aiomqtt pytest tools/relay_hook
+      - run: uv run --python 3.12 --with pytest --with aiomqtt --with pyproj pytest tools/sensor_client
 
   app:
     runs-on: ubuntu-latest
