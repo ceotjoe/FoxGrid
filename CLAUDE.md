@@ -8,7 +8,7 @@ later homing (RSSI). Also used for team coordination (chat, tasks).
 Language: **README and user docs in German; code, comments, commit messages, identifiers in English.**
 
 ## Status
-Phase 0 (planning, `docs/phase0-plan.md`) done; Phases 1 (MVP), 2 (robustness and coordination) and 3 (homing) implemented, awaiting user OK for Phase 4. Work strictly phase by phase; stop after each phase, summarize
+Phase 0 (planning, `docs/phase0-plan.md`) done; All four phases implemented (MVP, robustness and coordination, homing, automation). Work strictly phase by phase; stop after each phase, summarize
 (what is done, how to start, how to test) and wait for the user's OK. Ask instead of guessing on domain questions
 (DF technique, amateur radio).
 
@@ -111,3 +111,20 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   change the SVGs and run `python3 tools/branding/generate_icons.py` (needs `rsvg-convert` and `magick`).
 - iOS icons must stay full-bleed and without alpha (the system masks them); Android has adaptive foreground,
   background colour and monochrome layers in `mipmap-anydpi-v26`.
+- App ID (Android `applicationId`/`namespace`, iOS bundle id): `com.itwebservice.foxgrid`. Firebase, APNs and store
+  listings are tied to it, so do not change it once they exist.
+
+## Phase 4 notes
+- MQTT ingest is its own process (`python -m app.mqtt_ingest`, compose profile `mqtt`), never inside the API workers
+  (they would process every message N times). Handlers live in `app/services/ingest.py` and are called directly in
+  tests; `tests/test_ingest.py` also runs the real service against a Mosquitto testcontainer.
+- A sensor owns a virtual participant (role `fixed`, callsign from its name) so bearings keep their participant FK;
+  `POST /join` refuses sensor callsigns. API keys: `fgs_` + token, only the SHA-256 is stored, shown once.
+- Transmission start/stop logic is shared (`app/services/transmissions.py`) by REST and the relay path
+  (`source = 'relay'`). A repeated start/stop from a relay is a harmless `duplicate`.
+- Position suggestions (`foxgrid_engine/suggest.py`) use analytic Fisher information, deliberately not the grid
+  posterior: its outlier-mixture tails make a good extra bearing look like it grows the ellipse.
+- Suggestions are computed per request (milliseconds), nothing is stored; no `suggestions` table exists.
+- Mosquitto password file is rebuilt at every start (`entrypoint` in `docker-compose.yml`); the MQTT password
+  is optional in `.env` so plain `docker compose up` keeps working, only the broker refuses to start without it.
+- `tools/relay_hook` and `tools/sensor_client` have their own tests: `uv run --with pytest --with aiomqtt pytest tools/relay_hook`.

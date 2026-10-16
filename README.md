@@ -5,7 +5,7 @@ Open-Source-Werkzeug für Funkamateure: Eine Gruppe peilt gemeinsam einen Störs
 berechnet live den wahrscheinlichsten Standort des Störers samt Fehlerellipse und verteilt das Ergebnis
 an alle. Lizenz: MIT.
 
-**Stand: Phase 3 (Nahpeilung).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
+**Stand: Phase 4 (Automatisierung).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
 Konventionen: [CLAUDE.md](CLAUDE.md).
 
 ## Aufbau
@@ -96,6 +96,21 @@ MLE-Punkt und Ellipse, Aussendung starten/stoppen, Ausreißer markieren (Peilung
 - Funkgeräte-Abstraktion für CAT-S-Meter (Icom CI-V, Kenwood/Yaesu ASCII) mit Kalibrierung; siehe Grenzen
 - Simulator: `uv run tools/simulator/run.py --bearers 2 --outliers 0 --homing`
 
+**Phase 4 (Automatisierung):**
+- MQTT-Ingest für automatische Peilstationen (Mosquitto und ein eigener Ingest-Dienst, Compose-Profil `mqtt`),
+  Schema, Sicherheitsmodell und Beispielclient: [docs/mqtt.md](docs/mqtt.md). Jede Station ist ein Sensor mit
+  eigenem API-Schlüssel und erscheint als eigener Teilnehmer; Leads legen sie in der App unter *Sensoren* an
+- Relais-Hook (`tools/relay_hook/hook.py`): meldet „Squelch offen ohne CTCSS“ als Aussendung der Quelle `relay`
+  (Banner, Push, Zuordnung der Peilungen), entprellt und mit `--simulate` ohne Hardware testbar
+- Positionsvorschläge: Die Karte zeigt auf Wunsch (Glühbirnen-Symbol) die drei besten Orte für die nächste
+  Peilung mit dem erwarteten Flächengewinn. Reine Anzeige, es wird niemand losgeschickt.
+
+```bash
+docker compose --profile mqtt up -d            # zusätzlich Mosquitto und Ingest-Dienst
+uv run tools/sensor_client/station.py --help   # Beispielclient für eine Peilstation
+uv run tools/relay_hook/hook.py --help         # Relais-Hook
+```
+
 ## Push-Benachrichtigungen einrichten
 
 Der Server verschickt bei Aussendungsstart einen Push an alle anderen Teilnehmer, sobald
@@ -123,4 +138,10 @@ Paket `firebase_messaging`. Bis dahin gibt es Vibration und Banner nur bei geöf
   5 Messwerten wird die Spur ignoriert. Die S9-Konvention (−93 dBm) gilt für 70 cm, nicht für KW.
 - Der Pfeil nutzt den GPS-Kurs ab 1,5 m/s und sonst Kompass plus Missweisung; ohne Kompass (Web) zeigt er
   relativ zu Norden.
-- Raster-PNG der Engine, QR-Scanner, Positionsvorschläge und MQTT (Phase 4) fehlen noch.
+- Positionsvorschläge rechnen mit der Fisher-Information der Peilungen (Gauß-Näherung ohne Ausreißeranteil und
+  ohne RSSI) und bevorzugen bei gleicher Winkelgenauigkeit Orte nahe am Ziel. Gelände, Straßen und Erreichbarkeit
+  kennt die Engine nicht; nur das Suchgebiet des Einsatzes schränkt die Kandidaten ein.
+- Der MQTT-Schlüssel steckt in jeder Nachricht: ohne TLS am Broker ist er mitlesbar (siehe docs/mqtt.md).
+  Der Relais-Hook und die Peilstationen sind nur gegen Simulation und einen Testbroker geprüft, nicht an echter
+  Hardware. Der Controller des Relais muss seinen Zustand als `{"squelch": …, "ctcss": …}` per MQTT melden.
+- Raster-PNG der Engine und der QR-Scanner fehlen noch.
