@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: engine } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run mypy --strict foxgrid_engine
+      - run: uv run pytest
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run mypy app
+      # Integration tests start PostGIS and Redis via testcontainers (Docker is available).
+      - run: uv run pytest
+
+  app:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
