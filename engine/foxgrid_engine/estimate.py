@@ -16,7 +16,21 @@ from foxgrid_engine.likelihood import (
     sigma_to_kappa,
     wrap_pi,
 )
-from foxgrid_engine.types import Bearing, EllipseGeometry, EngineError, EngineParams, Estimate
+from foxgrid_engine.rssi import (
+    RssiData,
+    corrected_level,
+    fit_at,
+    rssi_log_likelihood,
+    select_recent,
+)
+from foxgrid_engine.types import (
+    Bearing,
+    EllipseGeometry,
+    EngineError,
+    EngineParams,
+    Estimate,
+    RssiSample,
+)
 
 FloatArray = npt.NDArray[np.float64]
 
@@ -40,6 +54,9 @@ def utm_epsg_for(lat: float, lon: float) -> int:
 
 
 def _prepare(bearings: list[Bearing], fwd: Transformer, params: EngineParams) -> _Stations:
+    if not bearings:
+        empty = np.zeros(0)
+        return _Stations(empty, empty, empty, empty, empty)
     lats = np.array([b.lat for b in bearings])
     lons = np.array([b.lon for b in bearings])
     east, north = fwd.transform(lons, lats)
@@ -65,15 +82,24 @@ def _prepare(bearings: list[Bearing], fwd: Transformer, params: EngineParams) ->
 
 
 def _log_posterior(
-    east: FloatArray, north: FloatArray, st: _Stations, params: EngineParams
+    east: FloatArray,
+    north: FloatArray,
+    st: _Stations,
+    params: EngineParams,
+    rssi: RssiData | None = None,
 ) -> FloatArray:
     """Unnormalised log posterior at arbitrary points (flat prior)."""
-    dx = east[..., None] - st.east
-    dy = north[..., None] - st.north
-    cell_azimuth = np.arctan2(dx, dy)
-    delta = wrap_pi(cell_azimuth - st.grid_azimuth)
-    ll = bearing_log_likelihood(delta, st.kappa, params.outlier_fraction)
-    return np.asarray(np.sum(ll * st.weight, axis=-1), dtype=np.float64)
+    total = np.zeros(east.shape, dtype=np.float64)
+    if len(st.east) > 0:
+        dx = east[..., None] - st.east
+        dy = north[..., None] - st.north
+        cell_azimuth = np.arctan2(dx, dy)
+        delta = wrap_pi(cell_azimuth - st.grid_azimuth)
+        ll = bearing_log_likelihood(delta, st.kappa, params.outlier_fraction)
+        total += np.sum(ll * st.weight, axis=-1)
+    if rssi is not None:
+        total += params.rssi_weight * rssi_log_likelihood(east, north, rssi, params)
+    return total
 
 
 def _ray_intersections(st: _Stations, params: EngineParams) -> FloatArray:
@@ -94,10 +120,15 @@ def _ray_intersections(st: _Stations, params: EngineParams) -> FloatArray:
     return np.asarray(pts, dtype=np.float64)
 
 
-def _bounds(st: _Stations, params: EngineParams) -> tuple[float, float, float, float]:
-    """Grid extent: stations plus (robustly trimmed) ray intersections, plus the margin."""
-    pts = _ray_intersections(st, params)
+def _bounds(
+    st: _Stations, params: EngineParams, rssi: RssiData | None
+) -> tuple[float, float, float, float]:
+    """Grid extent: stations, RSSI track and (trimmed) ray intersections, plus the margin."""
+    pts = _ray_intersections(st, params) if len(st.east) > 1 else np.zeros((0, 2))
     e_all, n_all = [st.east], [st.north]
+    if rssi is not None:
+        e_all.append(rssi.east)
+        n_all.append(rssi.north)
     if len(pts) > 0:
         lo, hi = (10.0, 90.0) if len(pts) >= 5 else (0.0, 100.0)
         for axis, bucket in ((0, e_all), (1, n_all)):
@@ -108,9 +139,22 @@ def _bounds(st: _Stations, params: EngineParams) -> tuple[float, float, float, f
     return float(e.min() - m), float(e.max() + m), float(n.min() - m), float(n.max() + m)
 
 
-def _validate(bearings: list[Bearing], params: EngineParams) -> None:
-    if not bearings:
-        raise EngineError("at least one bearing is required")
+def _validate(bearings: list[Bearing], rssi: list[RssiSample], params: EngineParams) -> None:
+    usable_rssi = len(rssi) >= params.rssi_min_samples
+    if not bearings and not usable_rssi:
+        raise EngineError(
+            f"at least one bearing or {params.rssi_min_samples} RSSI samples are required"
+        )
+    if params.rssi_sigma_db <= 0 or params.rssi_weight < 0:
+        raise EngineError("invalid RSSI configuration")
+    lo, hi = params.rssi_exponent_bounds
+    if not 0 < lo <= hi:
+        raise EngineError("invalid RSSI exponent bounds")
+    for r in rssi:
+        if not (math.isfinite(r.rssi_dbm) and math.isfinite(r.attenuation_db)):
+            raise EngineError("RSSI values must be finite")
+        if not (-90.0 <= r.lat <= 90.0 and -180.0 <= r.lon <= 180.0):
+            raise EngineError("RSSI position out of range")
     if not 0.0 < params.outlier_fraction < 1.0:
         raise EngineError("outlier_fraction must be in (0, 1)")
     if params.resolution_m <= 0 or params.max_cells < 2:
@@ -152,25 +196,54 @@ def _ring(center: FloatArray, axes: FloatArray, inv: Transformer) -> list[tuple[
     return [(float(x), float(y)) for x, y in zip(lon, lat, strict=True)]
 
 
-def estimate(bearings: list[Bearing], params: EngineParams | None = None) -> Estimate:
-    """Fuse bearings into a most-likely emitter position with an error ellipse."""
-    params = params or EngineParams()
-    _validate(bearings, params)
+def _prepare_rssi(
+    samples: list[RssiSample], fwd: Transformer, params: EngineParams
+) -> RssiData | None:
+    if len(samples) < params.rssi_min_samples:
+        return None  # too few readings to say anything about a trend
+    samples = select_recent(samples, params.rssi_max_samples)
+    east, north = fwd.transform([s.lon for s in samples], [s.lat for s in samples])
+    weight = np.ones(len(samples))
+    if params.half_life_s is not None and params.now is not None:
+        times = [s.measured_at for s in samples]
+        if all(t is not None for t in times):
+            age = np.maximum(params.now - np.array(times, dtype=np.float64), 0.0)
+            weight = np.power(0.5, age / params.half_life_s)
+    return RssiData(
+        east=np.asarray(east, dtype=np.float64),
+        north=np.asarray(north, dtype=np.float64),
+        level=np.array([corrected_level(s) for s in samples], dtype=np.float64),
+        weight=weight,
+    )
 
-    mean_lat = float(np.mean([b.lat for b in bearings]))
-    mean_lon = float(np.mean([b.lon for b in bearings]))
-    epsg = utm_epsg_for(mean_lat, mean_lon)
+
+def estimate(
+    bearings: list[Bearing],
+    params: EngineParams | None = None,
+    rssi: list[RssiSample] | None = None,
+) -> Estimate:
+    """Fuse bearings (and optionally an RSSI track) into an emitter position with error ellipse."""
+    params = params or EngineParams()
+    rssi_samples = rssi or []
+    _validate(bearings, rssi_samples, params)
+
+    lats = [b.lat for b in bearings] + [r.lat for r in rssi_samples]
+    lons = [b.lon for b in bearings] + [r.lon for r in rssi_samples]
+    epsg = utm_epsg_for(float(np.mean(lats)), float(np.mean(lons)))
     fwd = Transformer.from_crs(4326, epsg, always_xy=True)
     inv = Transformer.from_crs(epsg, 4326, always_xy=True)
     st = _prepare(bearings, fwd, params)
+    rssi_data = _prepare_rssi(rssi_samples, fwd, params)
+    if rssi_data is None and not bearings:  # pragma: no cover - guarded by _validate
+        raise EngineError("no usable input")
 
     # Grid: stations and ray intersections plus margin; resolution coarsened to max_cells.
-    e_min, e_max, n_min, n_max = _bounds(st, params)
+    e_min, e_max, n_min, n_max = _bounds(st, params, rssi_data)
     res = max(params.resolution_m, max(e_max - e_min, n_max - n_min) / params.max_cells)
     xs = np.arange(e_min, e_max + res, res)
     ys = np.arange(n_min, n_max + res, res)
     ge, gn = np.meshgrid(xs, ys)
-    lp = _log_posterior(ge, gn, st, params)
+    lp = _log_posterior(ge, gn, st, params, rssi_data)
 
     post = np.exp(lp - lp.max())
     post /= post.sum()
@@ -192,7 +265,7 @@ def estimate(bearings: list[Bearing], params: EngineParams | None = None) -> Est
     for _ in range(params.refine_steps):
         offs = np.linspace(-half, half, 21)
         le, ln = np.meshgrid(best_e + offs, best_n + offs)
-        llp = _log_posterior(le, ln, st, params)
+        llp = _log_posterior(le, ln, st, params, rssi_data)
         j, i = np.unravel_index(int(np.argmax(llp)), llp.shape)
         best_e, best_n = float(le[j, i]), float(ln[j, i])
         half = 2.0 * half / 20.0
@@ -217,6 +290,8 @@ def estimate(bearings: list[Bearing], params: EngineParams | None = None) -> Est
         ellipse_1s_ring=_ring(center, axes1, inv),
         ellipse_2s_ring=_ring(center, axes2, inv),
         n_bearings=len(bearings),
+        n_rssi=0 if rssi_data is None else len(rssi_data.level),
+        rssi_fit=None if rssi_data is None else fit_at(best_e, best_n, rssi_data, params),
         resolution_m=float(res),
         grid_cells=(len(xs), len(ys)),
         utm_epsg=epsg,

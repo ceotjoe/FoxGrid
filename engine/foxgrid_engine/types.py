@@ -22,6 +22,27 @@ class Bearing:
 
 
 @dataclass(frozen=True, slots=True)
+class RssiSample:
+    """One signal strength reading taken at a known position (homing track)."""
+
+    lat: float
+    lon: float
+    rssi_dbm: float  # as read from the receiver
+    attenuation_db: float = 0.0  # attenuator in front of the receiver; added back before fitting
+    measured_at: float | None = None  # POSIX seconds (UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class RssiFit:
+    """Log-distance path loss ``level = p0 - 10 * n * log10(distance_m)`` at the best point."""
+
+    p0_dbm: float  # extrapolated level at 1 m
+    exponent: float  # path loss exponent n
+    residual_db: float  # rms residual of the fit
+    n_samples: int
+
+
+@dataclass(frozen=True, slots=True)
 class EngineParams:
     resolution_m: float = 50.0
     margin_m: float = 5000.0
@@ -32,6 +53,13 @@ class EngineParams:
     now: float | None = None  # POSIX seconds used as "now" for age weighting
     refine_steps: int = 2
     contour_levels: tuple[float, ...] = (0.5, 0.8, 0.95)  # probability mass; () disables
+    # RSSI fusion (homing): path loss model with unknown exponent and reference level
+    rssi_sigma_db: float = 6.0  # fading/measurement scatter around the model
+    rssi_weight: float = 1.0  # scales the RSSI log-likelihood against the bearings
+    rssi_exponent_bounds: tuple[float, float] = (1.5, 6.0)
+    rssi_min_distance_m: float = 10.0  # distances are floored to keep log10 finite
+    rssi_max_samples: int = 300  # only the most recent samples are used
+    rssi_min_samples: int = 5  # fewer samples are ignored; needed for an RSSI-only estimate
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,5 +86,7 @@ class Estimate:
     resolution_m: float = 0.0
     grid_cells: tuple[int, int] = (0, 0)
     utm_epsg: int = 0
+    rssi_fit: RssiFit | None = None
+    n_rssi: int = 0
     # probability mass -> closed rings of (lon, lat); see foxgrid_engine.contours
     contours: dict[float, list[list[tuple[float, float]]]] = field(default_factory=dict)
