@@ -1,0 +1,399 @@
+"""Positions, bearings, transmissions and estimates."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from redis.asyncio import Redis
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import events
+from app.api.deps import get_redis, get_scheduler, get_settings, member
+from app.config import Settings
+from app.db import get_session
+from app.models import (
+    Bearing,
+    BearingRevision,
+    Estimate,
+    Mission,
+    Participant,
+    PositionSample,
+    Transmission,
+)
+from app.schemas.api import (
+    BearingIn,
+    BearingOut,
+    BearingPatch,
+    EstimateOut,
+    PositionIn,
+    PositionOut,
+    RevisionOut,
+    Scope,
+    TransmissionOut,
+    TransmissionStart,
+    TransmissionStop,
+)
+from app.services import domain
+from app.services.recompute import RecomputeScheduler
+from app.services.serialize import (
+    bearing_out,
+    estimate_out,
+    event_json,
+    position_out,
+    transmission_out,
+)
+
+router = APIRouter(prefix="/missions/{mission_id}")
+
+
+async def _active_mission(session: AsyncSession, mission_id: uuid.UUID) -> Mission:
+    mission = await session.get(Mission, mission_id)
+    if mission is None:
+        raise HTTPException(404, "mission not found")
+    if mission.status != "active":
+        raise HTTPException(409, "mission has ended")
+    return mission
+
+
+# --- positions ---------------------------------------------------------------------------
+
+
+@router.post("/positions", status_code=202)
+async def post_positions(
+    mission_id: uuid.UUID,
+    body: list[PositionIn],
+    actor: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, int]:
+    if len(body) > 500:
+        raise HTTPException(422, "at most 500 samples per request")
+    await _active_mission(session, mission_id)
+    stored = await domain.record_positions(session, redis, settings, actor, body, store_all=True)
+    return {"stored": stored}
+
+
+@router.get("/positions", response_model=list[PositionOut])
+async def list_positions(
+    mission_id: uuid.UUID,
+    participant: uuid.UUID | None = None,
+    since: datetime | None = None,
+    limit: int = Query(default=2000, le=10_000),
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> list[PositionOut]:
+    stmt = select(PositionSample).where(PositionSample.mission_id == mission_id)
+    if participant:
+        stmt = stmt.where(PositionSample.participant_id == participant)
+    if since:
+        stmt = stmt.where(PositionSample.recorded_at >= since)
+    rows = (await session.scalars(stmt.order_by(PositionSample.recorded_at).limit(limit))).all()
+    return [position_out(r) for r in rows]
+
+
+# --- transmissions -----------------------------------------------------------------------
+
+
+@router.post("/transmissions/start", response_model=TransmissionOut, status_code=201)
+async def start_transmission(
+    mission_id: uuid.UUID,
+    body: TransmissionStart | None = None,
+    actor: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> TransmissionOut:
+    await _active_mission(session, mission_id)
+    body = body or TransmissionStart()
+    seq = (
+        await session.scalar(
+            select(Transmission.seq)
+            .where(Transmission.mission_id == mission_id)
+            .order_by(Transmission.seq.desc())
+            .limit(1)
+        )
+        or 0
+    ) + 1
+    tx = Transmission(
+        mission_id=mission_id,
+        seq=seq,
+        started_at=body.at or datetime.now(UTC),
+        started_by=actor.id,
+        note=body.note,
+    )
+    session.add(tx)
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(409, "a transmission is already running") from exc
+    await domain.audit(session, mission_id, actor.id, "start", "transmission", tx.id, seq=seq)
+    await session.commit()
+    out = transmission_out(tx)
+    await events.publish(redis, mission_id, "transmission_started", event_json(out))
+    scheduler.schedule(mission_id)
+    return out
+
+
+@router.post("/transmissions/stop", response_model=TransmissionOut)
+async def stop_transmission(
+    mission_id: uuid.UUID,
+    body: TransmissionStop | None = None,
+    actor: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> TransmissionOut:
+    await _active_mission(session, mission_id)
+    tx = await session.scalar(
+        select(Transmission)
+        .where(Transmission.mission_id == mission_id, Transmission.ended_at.is_(None))
+        .with_for_update()
+    )
+    if tx is None:
+        raise HTTPException(409, "no transmission is running")
+    ended = (body.at if body and body.at else None) or datetime.now(UTC)
+    tx.ended_at = max(ended, tx.started_at)
+    tx.ended_by = actor.id
+    await domain.audit(session, mission_id, actor.id, "stop", "transmission", tx.id)
+    await session.commit()
+    out = transmission_out(tx)
+    await events.publish(redis, mission_id, "transmission_ended", event_json(out))
+    scheduler.schedule(mission_id)
+    return out
+
+
+@router.get("/transmissions", response_model=list[TransmissionOut])
+async def list_transmissions(
+    mission_id: uuid.UUID,
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> list[TransmissionOut]:
+    rows = (
+        await session.scalars(
+            select(Transmission)
+            .where(Transmission.mission_id == mission_id)
+            .order_by(Transmission.seq)
+        )
+    ).all()
+    return [transmission_out(t) for t in rows]
+
+
+# --- bearings ----------------------------------------------------------------------------
+
+
+def _same_bearing(existing: Bearing, body: BearingIn, actor: Participant) -> bool:
+    return (
+        existing.participant_id == actor.id
+        and round(float(existing.azimuth_true_deg), 2) == round(body.azimuth_true_deg, 2)
+        and round(float(existing.sigma_deg), 2) == round(body.sigma_deg, 2)
+        and abs(existing.lat - body.lat) < 1e-9
+        and abs(existing.lon - body.lon) < 1e-9
+        and existing.measured_at == body.measured_at
+    )
+
+
+@router.post("/bearings", response_model=BearingOut, status_code=201)
+async def create_bearing(
+    mission_id: uuid.UUID,
+    body: BearingIn,
+    response: Response,
+    actor: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> BearingOut:
+    """Idempotent on the client UUID: a retry returns 200 with the stored bearing."""
+    existing = await session.get(Bearing, body.id)
+    if existing is not None:
+        return _duplicate(existing, body, actor, mission_id, response)
+
+    if await session.get(Mission, mission_id) is None:
+        raise HTTPException(404, "mission not found")
+    tx_id = body.transmission_id
+    if tx_id is not None:
+        tx = await session.get(Transmission, tx_id)
+        if tx is None or tx.mission_id != mission_id:
+            raise HTTPException(422, "unknown transmission")
+    else:
+        tx_id = await domain.assign_transmission(session, mission_id, body.measured_at)
+
+    bearing = Bearing(
+        id=body.id,
+        mission_id=mission_id,
+        participant_id=actor.id,
+        transmission_id=tx_id,
+        lat=body.lat,
+        lon=body.lon,
+        station_accuracy_m=body.station_accuracy_m,
+        azimuth_true_deg=body.azimuth_true_deg,
+        azimuth_input_ref=body.azimuth_input_ref,
+        declination_deg_applied=body.declination_deg_applied,
+        sigma_deg=body.sigma_deg,
+        rssi_dbm=body.rssi_dbm,
+        s_meter=body.s_meter,
+        attenuation_db=body.attenuation_db,
+        polarization=body.polarization,
+        measured_at=body.measured_at,
+        note=body.note,
+    )
+    session.add(bearing)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        existing = await session.get(Bearing, body.id)
+        if existing is None:
+            raise
+        return _duplicate(existing, body, actor, mission_id, response)
+    out = bearing_out(bearing)
+    await events.publish(redis, mission_id, "bearing_created", event_json(out))
+    scheduler.schedule(mission_id)
+    return out
+
+
+def _duplicate(
+    existing: Bearing,
+    body: BearingIn,
+    actor: Participant,
+    mission_id: uuid.UUID,
+    response: Response,
+) -> BearingOut:
+    if existing.mission_id != mission_id or not _same_bearing(existing, body, actor):
+        raise HTTPException(409, "bearing id already used with different content")
+    response.status_code = 200
+    return bearing_out(existing)
+
+
+@router.get("/bearings", response_model=list[BearingOut])
+async def list_bearings(
+    mission_id: uuid.UUID,
+    transmission: uuid.UUID | None = None,
+    since: datetime | None = None,
+    include_inactive: bool = True,
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> list[BearingOut]:
+    stmt = select(Bearing).where(Bearing.mission_id == mission_id)
+    if transmission:
+        stmt = stmt.where(Bearing.transmission_id == transmission)
+    if since:
+        stmt = stmt.where(Bearing.received_at >= since)
+    if not include_inactive:
+        stmt = stmt.where(Bearing.is_active.is_(True))
+    rows = (await session.scalars(stmt.order_by(Bearing.measured_at))).all()
+    return [bearing_out(b) for b in rows]
+
+
+async def _bearing_or_404(session: AsyncSession, mission_id: uuid.UUID, bid: uuid.UUID) -> Bearing:
+    bearing = await session.get(Bearing, bid)
+    if bearing is None or bearing.mission_id != mission_id:
+        raise HTTPException(404, "bearing not found")
+    return bearing
+
+
+@router.get("/bearings/{bearing_id}", response_model=BearingOut)
+async def get_bearing(
+    mission_id: uuid.UUID,
+    bearing_id: uuid.UUID,
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> BearingOut:
+    return bearing_out(await _bearing_or_404(session, mission_id, bearing_id))
+
+
+@router.get("/bearings/{bearing_id}/revisions", response_model=list[RevisionOut])
+async def bearing_revisions(
+    mission_id: uuid.UUID,
+    bearing_id: uuid.UUID,
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> list[RevisionOut]:
+    await _bearing_or_404(session, mission_id, bearing_id)
+    rows = (
+        await session.scalars(
+            select(BearingRevision)
+            .where(BearingRevision.bearing_id == bearing_id)
+            .order_by(BearingRevision.id)
+        )
+    ).all()
+    return [RevisionOut.model_validate(r) for r in rows]
+
+
+@router.patch("/bearings/{bearing_id}", response_model=BearingOut)
+async def patch_bearing(
+    mission_id: uuid.UUID,
+    bearing_id: uuid.UUID,
+    body: BearingPatch,
+    actor: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> BearingOut:
+    """Flag/deactivate a bearing or edit its note. Bearings can never be deleted."""
+    bearing = await _bearing_or_404(session, mission_id, bearing_id)
+    if actor.role != "lead" and bearing.participant_id != actor.id:
+        raise HTTPException(403, "only the owner or a lead may change this bearing")
+    changes: dict[str, dict[str, object]] = {}
+    for field, value in body.model_dump(exclude_unset=True).items():
+        old = getattr(bearing, field)
+        if old != value:
+            changes[field] = {"from": old, "to": value}
+            setattr(bearing, field, value)
+    if changes:
+        session.add(BearingRevision(bearing_id=bearing_id, changed_by=actor.id, changes=changes))
+        await domain.audit(
+            session, mission_id, actor.id, "update", "bearing", bearing_id, **changes
+        )
+        await session.commit()
+        out = bearing_out(bearing)
+        await events.publish(redis, mission_id, "bearing_updated", event_json(out))
+        if "is_outlier" in changes or "is_active" in changes:
+            scheduler.schedule(mission_id)
+        return out
+    return bearing_out(bearing)
+
+
+# --- estimates ---------------------------------------------------------------------------
+
+
+@router.get("/estimate", response_model=EstimateOut)
+async def get_estimate(
+    mission_id: uuid.UUID,
+    scope: Scope = "current",
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> EstimateOut:
+    est = await session.scalar(
+        select(Estimate)
+        .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
+        .order_by(Estimate.computed_at.desc())
+        .limit(1)
+    )
+    if est is None:
+        raise HTTPException(404, "no estimate yet (needs at least two usable bearings)")
+    return estimate_out(est)
+
+
+@router.get("/estimate/history", response_model=list[EstimateOut])
+async def estimate_history(
+    mission_id: uuid.UUID,
+    scope: Scope = "all",
+    limit: int = Query(default=100, le=1000),
+    _: Participant = Depends(member),
+    session: AsyncSession = Depends(get_session),
+) -> list[EstimateOut]:
+    rows = (
+        await session.scalars(
+            select(Estimate)
+            .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
+            .order_by(Estimate.computed_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [estimate_out(e) for e in rows]
