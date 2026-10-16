@@ -31,6 +31,7 @@ class EngineParams:
     half_life_s: float | None = None  # age weighting; None disables it
     now: float | None = None  # POSIX seconds used as "now" for age weighting
     refine_steps: int = 2
+    contour_levels: tuple[float, ...] = (0.5, 0.8, 0.95)  # probability mass; () disables
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,3 +58,5 @@ class Estimate:
     resolution_m: float = 0.0
     grid_cells: tuple[int, int] = (0, 0)
     utm_epsg: int = 0
+    # probability mass -> closed rings of (lon, lat); see foxgrid_engine.contours
+    contours: dict[float, list[list[tuple[float, float]]]] = field(default_factory=dict)

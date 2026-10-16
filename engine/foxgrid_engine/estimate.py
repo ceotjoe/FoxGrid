@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 from pyproj import Transformer
 
+from foxgrid_engine.contours import contour_rings, mass_threshold
 from foxgrid_engine.likelihood import (
     bearing_log_likelihood,
     sigma_to_kappa,
@@ -138,6 +139,12 @@ def _ellipse(cov: FloatArray, scale: float) -> tuple[EllipseGeometry, FloatArray
     return geometry, np.asarray(axes, dtype=np.float64)
 
 
+def _to_lonlat(ring: list[tuple[float, float]], inv: Transformer) -> list[tuple[float, float]]:
+    xs, ys = zip(*ring, strict=True)
+    lon, lat = inv.transform(list(xs), list(ys))
+    return [(float(a), float(b)) for a, b in zip(lon, lat, strict=True)]
+
+
 def _ring(center: FloatArray, axes: FloatArray, inv: Transformer) -> list[tuple[float, float]]:
     t = np.linspace(0.0, 2.0 * np.pi, _RING_POINTS, endpoint=True)
     offsets = np.outer(np.cos(t), axes[:, 0]) + np.outer(np.sin(t), axes[:, 1])
@@ -190,6 +197,11 @@ def estimate(bearings: list[Bearing], params: EngineParams | None = None) -> Est
         best_e, best_n = float(le[j, i]), float(ln[j, i])
         half = 2.0 * half / 20.0
 
+    contours: dict[float, list[list[tuple[float, float]]]] = {}
+    for mass in params.contour_levels:
+        level = mass_threshold(post, mass)
+        contours[mass] = [_to_lonlat(r, inv) for r in contour_rings(xs, ys, post, level)]
+
     geom1, axes1 = _ellipse(cov, 1.0)
     geom2, axes2 = _ellipse(cov, 2.0)
     center = np.array([best_e, best_n])
@@ -208,4 +220,5 @@ def estimate(bearings: list[Bearing], params: EngineParams | None = None) -> Est
         resolution_m=float(res),
         grid_cells=(len(xs), len(ys)),
         utm_epsg=epsg,
+        contours=contours,
     )

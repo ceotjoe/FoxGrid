@@ -199,3 +199,63 @@ def test_likelihood_helpers():
     assert log_bessel_i0(np.array([1000.0]))[0] == pytest.approx(
         1000 - 0.5 * math.log(2 * math.pi * 1000), abs=1e-2
     )
+
+
+def _inside(point, ring):  # type: ignore[no-untyped-def]
+    x, y = point
+    hit = False
+    for (x0, y0), (x1, y1) in zip(ring, ring[1:], strict=False):
+        if (y0 > y) != (y1 > y) and x < (x1 - x0) * (y - y0) / (y1 - y0) + x0:
+            hit = not hit
+    return hit
+
+
+def _area(ring):  # type: ignore[no-untyped-def]
+    return (
+        abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(ring, ring[1:], strict=False))) / 2
+    )
+
+
+def test_contours_are_nested_and_contain_truth(target, triangle_stations):  # type: ignore[no-untyped-def]
+    est = estimate(make_bearings(target, triangle_stations))
+    assert set(est.contours) == {0.5, 0.8, 0.95}
+    biggest = {m: max(est.contours[m], key=_area) for m in est.contours}
+    assert _area(biggest[0.5]) < _area(biggest[0.8]) < _area(biggest[0.95])
+    truth = (target[1], target[0])  # (lon, lat)
+    assert _inside(truth, biggest[0.95])
+    assert all(ring[0] == ring[-1] for rings in est.contours.values() for ring in rings)
+
+
+def test_contours_can_be_disabled(target, triangle_stations):  # type: ignore[no-untyped-def]
+    est = estimate(make_bearings(target, triangle_stations), EngineParams(contour_levels=()))
+    assert est.contours == {}
+
+
+def test_contour_mass_matches_level():
+    from foxgrid_engine.contours import contour_rings, mass_threshold
+
+    xs = np.arange(-50.0, 51.0)
+    ys = np.arange(-50.0, 51.0)
+    gx, gy = np.meshgrid(xs, ys)
+    sigma = 10.0
+    post = np.exp(-(gx**2 + gy**2) / (2 * sigma**2))
+    post /= post.sum()
+    for mass in (0.5, 0.8, 0.95):
+        ring = max(contour_rings(xs, ys, post, mass_threshold(post, mass)), key=_area)
+        radius = sigma * math.sqrt(-2.0 * math.log(1.0 - mass))
+        assert _area(ring) == pytest.approx(math.pi * radius**2, rel=0.05)
+
+
+def test_contours_two_blobs_saddle_cases():
+    from foxgrid_engine.contours import contour_rings
+
+    xs = np.arange(0.0, 40.0)
+    ys = np.arange(0.0, 40.0)
+    gx, gy = np.meshgrid(xs, ys)
+    z = np.exp(-((gx - 10) ** 2 + (gy - 10) ** 2) / 30) + np.exp(
+        -((gx - 28) ** 2 + (gy - 28) ** 2) / 30
+    )
+    assert len(contour_rings(xs, ys, z, 0.5)) == 2
+    # checkerboard forces the ambiguous saddle branches
+    chk = ((gx + gy) % 2).astype(float)
+    assert contour_rings(xs, ys, chk, 0.5)
