@@ -38,6 +38,75 @@ def error_m(a: tuple[float, float], b: tuple[float, float]) -> float:
     return float(GEOD.inv(a[1], a[0], b[1], b[0])[2])
 
 
+def homing_walk(
+    http: httpx.Client,
+    base: str,
+    headers: dict[str, str],
+    truth: tuple[float, float],
+    args: argparse.Namespace,
+    rng: random.Random,
+) -> dict | None:
+    """Spiral in on the emitter and log RSSI like a mobile with a handheld would.
+
+    A 20 dB attenuator is switched in when the signal gets strong, and the reading is reduced
+    accordingly: the server has to add it back (attenuation_db) for the path loss fit to hold.
+    """
+    print("\nhoming: mobile closes in, logging signal strength")
+    n_total = args.rssi_samples
+    batch: list[dict] = []
+    last_est: dict | None = None
+    sent = 0
+    for i in range(n_total):
+        frac = i / max(n_total - 1, 1)
+        radius = 5000.0 * (1 - frac) + 400.0 * frac
+        angle = 270.0 * frac + rng.uniform(-10, 10)
+        lat, lon = offset(*truth, angle, radius)
+        dist = max(error_m((lat, lon), truth), 1.0)
+        level = args.rssi_p0_dbm - 10.0 * args.path_loss_n * math.log10(dist)
+        level += rng.gauss(0.0, args.rssi_noise_db)
+        attenuation = 20.0 if level > -75.0 else 0.0
+        batch.append(
+            {
+                "id": str(uuid.uuid4()),
+                "lat": lat,
+                "lon": lon,
+                "rssi_dbm": round(level - attenuation, 1),
+                "attenuation_db": attenuation,
+                "measured_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        if len(batch) == 5 or i == n_total - 1:
+            http.post(f"{base}/rssi", json=batch, headers=headers).raise_for_status()
+            sent += len(batch)
+            batch = []
+            est = wait_for_rssi_estimate(http, base, headers, sent)
+            if est:
+                last_est = est
+                fit = est["rssi"]
+                print(
+                    f"homing {sent:3d}/{n_total} samples: error "
+                    f"{error_m((est['lat'], est['lon']), truth):6.0f} m, n={fit['exponent']:.2f}, "
+                    f"1s ellipse {est['ellipse_1s']['semi_major_m']:.0f}x"
+                    f"{est['ellipse_1s']['semi_minor_m']:.0f} m"
+                )
+            time.sleep(args.interval_s)
+    return last_est
+
+
+def wait_for_rssi_estimate(
+    http: httpx.Client, base: str, headers: dict[str, str], n: int
+) -> dict | None:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        r = http.get(f"{base}/estimate?scope=all", headers=headers)
+        if r.status_code == 200:
+            est = r.json()
+            if est.get("rssi") and est["rssi"]["n_samples"] == n:
+                return est
+        time.sleep(0.1)
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--base-url", default="http://localhost:8000")
@@ -51,6 +120,15 @@ def main() -> int:
     ap.add_argument("--max-error-m", type=float, default=600.0)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--mission-name", default="Simulated hunt")
+    ap.add_argument(
+        "--homing",
+        action="store_true",
+        help="after the bearings, a mobile walks a spiral towards the emitter logging RSSI",
+    )
+    ap.add_argument("--rssi-samples", type=int, default=40)
+    ap.add_argument("--rssi-noise-db", type=float, default=3.0, help="fading scatter (1 sigma)")
+    ap.add_argument("--path-loss-n", type=float, default=3.0, help="true path loss exponent")
+    ap.add_argument("--rssi-p0-dbm", type=float, default=-20.0, help="true level at 1 m")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
@@ -135,6 +213,9 @@ def main() -> int:
             else:
                 print(f"bearing {i + 1}/{args.bearers} SIM{i + 1}{tag}: no estimate yet")
             time.sleep(args.interval_s)
+
+        if args.homing:
+            last = homing_walk(http, base, hdr(0), truth, args, rng) or last
 
         http.post(f"{base}/transmissions/stop", headers=hdr(0)).raise_for_status()
         if last is None:
