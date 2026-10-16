@@ -4,9 +4,7 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import '../core/api.dart';
 import '../core/geo.dart';
-import '../core/models.dart';
 import '../state/providers.dart';
 
 enum AzimuthRef { trueNorth, magnetic }
@@ -77,12 +75,23 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
         : magneticToTrue(v, _declinationValue);
   }
 
+  bool _declinationTouched = false;
+
+  /// Pre-fill the cached WMM declination unless the user typed their own value.
+  void _fillDeclination() {
+    final d = ref.read(declinationProvider);
+    if (d != null && !_declinationTouched) {
+      _declination.text = d.toStringAsFixed(1);
+    }
+  }
+
   void _useCompass() {
     final h = _liveHeading;
     if (h == null) return;
     setState(() {
       _azimuth.text = normalizeAzimuth(h).round().toString();
       _ref = AzimuthRef.magnetic;
+      _fillDeclination();
     });
   }
 
@@ -101,7 +110,6 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
       _saving = true;
       _error = null;
     });
-    final session = ref.read(sessionProvider)!;
     final payload = <String, dynamic>{
       'id': const Uuid().v4(),
       'lat': fix.point.latitude,
@@ -122,29 +130,9 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
             double.tryParse(_attenuation.text.trim().replaceAll(',', '.')) ?? 0,
       if (_note.text.trim().isNotEmpty) 'note': _note.text.trim(),
     };
-    try {
-      await ref.read(apiProvider).postBearing(payload);
-      ref
-          .read(missionProvider.notifier)
-          .addLocalBearing(
-            Bearing(
-              id: payload['id'] as String,
-              participantId: session.participantId,
-              station: fix.point,
-              azimuthTrueDeg: payload['azimuth_true_deg'] as double,
-              sigmaDeg: _sigma,
-              measuredAt: DateTime.parse(payload['measured_at'] as String),
-              isOutlier: false,
-              isActive: true,
-            ),
-          );
-      if (mounted) Navigator.of(context).pop(true);
-    } on ApiException catch (e) {
-      setState(() {
-        _saving = false;
-        _error = e.message;
-      });
-    }
+    // Always succeeds locally; the sync queue delivers it (also when offline).
+    await ref.read(missionProvider.notifier).saveBearing(payload);
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -232,7 +220,10 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                       ),
                     ],
                     selected: {_ref},
-                    onSelectionChanged: (s) => setState(() => _ref = s.first),
+                    onSelectionChanged: (s) => setState(() {
+                      _ref = s.first;
+                      _fillDeclination();
+                    }),
                   ),
                   if (_ref == AzimuthRef.magnetic) ...[
                     const SizedBox(height: 8),
@@ -245,10 +236,11 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                       ),
                       decoration: const InputDecoration(
                         labelText: 'Missweisung in ° (Ost positiv)',
-                        helperText: 'Automatische Missweisung folgt in Phase 2',
+                        helperText: 'WMM-Wert vorbelegt, überschreibbar',
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) =>
+                          setState(() => _declinationTouched = true),
                     ),
                   ],
                   if (az != null && _ref == AzimuthRef.magnetic)

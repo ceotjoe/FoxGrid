@@ -124,12 +124,24 @@ class Transmission {
     required this.seq,
     required this.startedAt,
     this.endedAt,
+    this.local = false,
   });
 
   final String id;
   final int seq;
   final DateTime startedAt;
   final DateTime? endedAt;
+
+  /// Created on this device and not yet confirmed by the server.
+  final bool local;
+
+  Transmission copyWith({DateTime? endedAt}) => Transmission(
+    id: id,
+    seq: seq,
+    startedAt: startedAt,
+    endedAt: endedAt ?? this.endedAt,
+    local: local,
+  );
 
   bool get isRunning => endedAt == null;
 
@@ -173,6 +185,7 @@ class Estimate {
     required this.ellipse1s,
     required this.ellipse2s,
     required this.computedAt,
+    this.contours = const {},
   });
 
   final String scope;
@@ -182,12 +195,121 @@ class Estimate {
   final EllipseShape ellipse2s;
   final DateTime computedAt;
 
+  /// Probability mass in percent ("50", "80", "95") -> closed rings.
+  final Map<String, List<List<LatLng>>> contours;
+
   factory Estimate.fromJson(Map<String, dynamic> j) => Estimate(
+    contours: {
+      for (final e in ((j['contours'] as Map?) ?? const {}).entries)
+        e.key as String: [
+          for (final poly in e.value as List)
+            [
+              for (final p
+                  in ((poly as Map)['coordinates'] as List).first as List)
+                LatLng(_d((p as List)[1])!, _d(p[0])!),
+            ],
+        ],
+    },
     scope: j['scope'] as String,
     nBearings: j['n_bearings'] as int,
     point: LatLng(_d(j['lat'])!, _d(j['lon'])!),
     ellipse1s: EllipseShape.fromJson(j['ellipse_1s'] as Map<String, dynamic>),
     ellipse2s: EllipseShape.fromJson(j['ellipse_2s'] as Map<String, dynamic>),
     computedAt: _time(j['computed_at']),
+  );
+}
+
+class Team {
+  const Team({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  factory Team.fromJson(Map<String, dynamic> j) =>
+      Team(id: j['id'] as String, name: j['name'] as String);
+}
+
+class ChatMessage {
+  const ChatMessage({
+    required this.id,
+    required this.authorId,
+    required this.authorCallsign,
+    required this.body,
+    required this.sentAt,
+    this.teamId,
+    this.pending = false,
+  });
+
+  final String id;
+  final String authorId;
+  final String authorCallsign;
+  final String? teamId;
+  final String body;
+  final DateTime sentAt;
+
+  /// Still in the offline queue.
+  final bool pending;
+
+  factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
+    id: j['id'] as String,
+    authorId: j['author_id'] as String,
+    authorCallsign: j['author_callsign'] as String,
+    teamId: j['team_id'] as String?,
+    body: j['body'] as String,
+    sentAt: _time(j['sent_at']),
+  );
+}
+
+class TaskItem {
+  const TaskItem({
+    required this.id,
+    required this.title,
+    required this.status,
+    required this.createdBy,
+    this.description,
+    this.assigneeParticipantId,
+    this.assigneeTeamId,
+    this.pending = false,
+  });
+
+  final String id;
+  final String title;
+  final String? description;
+  final String status;
+  final String createdBy;
+  final String? assigneeParticipantId;
+  final String? assigneeTeamId;
+  final bool pending;
+
+  TaskItem copyWith({
+    String? title,
+    String? status,
+    String? assigneeParticipantId,
+    String? assigneeTeamId,
+    bool clearAssignee = false,
+    bool? pending,
+  }) => TaskItem(
+    id: id,
+    title: title ?? this.title,
+    description: description,
+    status: status ?? this.status,
+    createdBy: createdBy,
+    assigneeParticipantId: clearAssignee
+        ? assigneeParticipantId
+        : (assigneeParticipantId ?? this.assigneeParticipantId),
+    assigneeTeamId: clearAssignee
+        ? assigneeTeamId
+        : (assigneeTeamId ?? this.assigneeTeamId),
+    pending: pending ?? this.pending,
+  );
+
+  factory TaskItem.fromJson(Map<String, dynamic> j) => TaskItem(
+    id: j['id'] as String,
+    title: j['title'] as String,
+    description: j['description'] as String?,
+    status: j['status'] as String,
+    createdBy: j['created_by'] as String,
+    assigneeParticipantId: j['assignee_participant_id'] as String?,
+    assigneeTeamId: j['assignee_team_id'] as String?,
   );
 }

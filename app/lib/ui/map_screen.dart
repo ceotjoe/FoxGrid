@@ -7,10 +7,20 @@ import 'package:latlong2/latlong.dart';
 import '../core/geo.dart';
 import '../core/live.dart';
 import '../core/models.dart';
+import '../core/save_file.dart';
+import '../core/tile_cache.dart';
 import '../core/session.dart';
+import '../state/filter.dart';
 import '../state/providers.dart';
+import '../state/settings.dart';
+import '../state/tiles.dart';
 import 'bearings_sheet.dart';
 import 'capture_sheet.dart';
+import 'chat_screen.dart';
+import 'filter_sheet.dart';
+import 'settings_screen.dart';
+import 'sync_sheet.dart';
+import 'tasks_screen.dart';
 
 const _rayLengthM = 25000.0;
 const _palette = [
@@ -27,8 +37,6 @@ const _palette = [
 Color participantColor(String id) =>
     _palette[id.hashCode.abs() % _palette.length];
 
-enum BaseMap { osm, topo }
-
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
 
@@ -38,9 +46,9 @@ class MapScreen extends ConsumerStatefulWidget {
 
 class _MapScreenState extends ConsumerState<MapScreen> {
   final _controller = MapController();
-  BaseMap _base = BaseMap.osm;
   bool _centered = false;
   bool _fitted = false;
+  bool _declinationRequested = false;
 
   /// Everything worth showing: estimate area, bearing stations and participants.
   List<LatLng> _interestingPoints(MissionState state, Estimate? estimate) => [
@@ -101,9 +109,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final scope = ref.watch(estimateScopeProvider);
     final theme = Theme.of(context);
     final running = state.running;
-    final estimate =
+    ref.watch(
+      syncProvider,
+    ); // keeps the offline queue running while the map is open
+    final settings = ref.watch(settingsProvider);
+    final filter = ref.watch(filterProvider);
+    final filtered = ref.watch(filteredEstimateProvider).value;
+    final tileCache = ref.watch(tileCacheProvider).value;
+    final liveEstimate =
         state.estimates[scope.name] ??
         state.estimates[scope == EstimateScope.current ? 'all' : 'current'];
+    final estimate = filter.needsQuery ? filtered : liveEstimate;
 
     ref.listen<String?>(missionProvider.select((s) => s.error), (_, error) {
       if (error != null) {
@@ -120,6 +136,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _fit(interesting);
       });
+    }
+    if (own != null && !_declinationRequested) {
+      _declinationRequested = true;
+      Future.microtask(
+        () => ref.read(declinationProvider.notifier).refresh(own.point),
+      );
     }
     if (own != null && !_centered && state.loaded) {
       _centered = true;
@@ -140,6 +162,37 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
         actions: [
           _ConnectionDot(status: state.connection),
+          const SyncChip(),
+          IconButton(
+            key: const Key('open-chat'),
+            tooltip: 'Chat',
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute<void>(builder: (_) => const ChatScreen())),
+          ),
+          IconButton(
+            key: const Key('open-tasks'),
+            tooltip: 'Aufgaben',
+            icon: const Icon(Icons.checklist),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const TasksScreen()),
+            ),
+          ),
+          IconButton(
+            key: const Key('open-filter'),
+            tooltip: 'Filter',
+            icon: Badge(
+              isLabelVisible: filter.needsQuery || filter.hideOutliers,
+              child: const Icon(Icons.filter_alt_outlined),
+            ),
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              showDragHandle: true,
+              builder: (_) => const FilterSheet(),
+            ),
+          ),
           if (session.inviteToken != null)
             IconButton(
               tooltip: 'Einladung',
@@ -158,9 +211,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'leave') ref.read(sessionProvider.notifier).leave();
+              switch (v) {
+                case 'leave':
+                  ref.read(sessionProvider.notifier).leave();
+                case 'settings':
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SettingsScreen(),
+                    ),
+                  );
+                default:
+                  _export(v);
+              }
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'settings', child: Text('Einstellungen')),
+              PopupMenuItem(value: 'pdf', child: Text('Export: PDF-Protokoll')),
+              PopupMenuItem(value: 'gpx', child: Text('Export: GPX')),
+              PopupMenuItem(value: 'kml', child: Text('Export: KML')),
+              PopupMenuItem(value: 'json', child: Text('Export: JSON')),
               PopupMenuItem(value: 'leave', child: Text('Einsatz verlassen')),
             ],
           ),
@@ -177,15 +246,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
+              onPositionChanged: (camera, _) {
+                final b = camera.visibleBounds;
+                Future.microtask(
+                  () => ref
+                      .read(mapViewProvider.notifier)
+                      .update(MapView(b.southWest, b.northEast, camera.zoom)),
+                );
+              },
             ),
             children: [
-              TileLayer(
-                urlTemplate: _base == BaseMap.osm
-                    ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-                    : 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'de.foxgrid.foxgrid',
-                maxZoom: _base == BaseMap.osm ? 19 : 17,
-              ),
+              _tileLayer(settings, tileCache),
               if (state.mission?.searchArea != null)
                 PolygonLayer(
                   polygons: [
@@ -198,6 +269,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ],
                 ),
+              if (estimate != null && filter.showContours)
+                PolygonLayer(polygons: _contourPolygons(estimate)),
               if (estimate != null)
                 PolygonLayer(
                   polygons: [
@@ -215,8 +288,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ],
                 ),
-              PolygonLayer(polygons: _fans(state, now)),
-              PolylineLayer(polylines: _rays(state, now)),
+              PolygonLayer(polygons: _fans(state, filter, now)),
+              PolylineLayer(polylines: _rays(state, filter, now)),
               PolylineLayer(
                 polylines: [
                   for (final e in state.trails.entries)
@@ -308,11 +381,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       IconButton.filledTonal(
                         tooltip: 'Kartenstil',
                         icon: const Icon(Icons.layers),
-                        onPressed: () => setState(
-                          () => _base = _base == BaseMap.osm
-                              ? BaseMap.topo
-                              : BaseMap.osm,
-                        ),
+                        onPressed: () => _cycleBaseMap(settings),
                       ),
                     ],
                   ),
@@ -408,25 +477,98 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return (1 - ageMin / 120).clamp(0.25, 1.0);
   }
 
-  Iterable<Bearing> _visible(MissionState state) =>
-      state.bearings.values.where((b) => b.isActive);
+  void _cycleBaseMap(AppSettings settings) {
+    final order = [
+      BaseMap.osm,
+      BaseMap.topo,
+      if (settings.hasCustomTiles) BaseMap.custom,
+    ];
+    final next = order[(order.indexOf(settings.baseMap) + 1) % order.length];
+    ref.read(settingsProvider.notifier).setBaseMap(next);
+  }
 
-  List<Polygon> _fans(MissionState state, DateTime now) => [
-    for (final b in _visible(state))
-      Polygon(
-        points: fanPolygon(
-          b.station,
-          b.azimuthTrueDeg,
-          b.sigmaDeg,
-          _rayLengthM,
+  Widget _tileLayer(AppSettings settings, TileCache? cache) {
+    final layer = TileLayer(
+      urlTemplate: settings.tileUrl,
+      userAgentPackageName: 'de.foxgrid.foxgrid',
+      maxZoom: settings.baseMap == BaseMap.topo ? 17 : 19,
+      tileProvider: cache == null
+          ? NetworkTileProvider()
+          : CachingTileProvider(cache),
+    );
+    if (!settings.nightMode) return layer;
+    // Night mode: dim the map and tint it red to protect night vision.
+    return ColorFiltered(
+      colorFilter: const ColorFilter.matrix(<double>[
+        0.45, 0.45, 0.45, 0, 0, //
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0,
+      ]),
+      child: layer,
+    );
+  }
+
+  List<Polygon> _contourPolygons(Estimate e) => [
+    for (final entry in const [('95', 0.10), ('80', 0.16), ('50', 0.24)])
+      for (final ring in e.contours[entry.$1] ?? const <List<LatLng>>[])
+        Polygon(
+          points: ring,
+          color: Colors.deepOrange.withValues(alpha: entry.$2),
+          borderColor: Colors.deepOrange.withValues(alpha: 0.7),
+          borderStrokeWidth: 1,
         ),
-        color: participantColor(b.participantId)
-            .withValues(alpha: 0.10 * _alpha(b, now)),
-      ),
   ];
 
-  List<Polyline> _rays(MissionState state, DateTime now) => [
-    for (final b in _visible(state))
+  Future<void> _export(String format) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = await ref.read(apiProvider).exportBytes(format);
+      final mission = ref.read(missionProvider).mission;
+      final name =
+          'foxgrid_${(mission?.name ?? 'einsatz').replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')}.$format';
+      const mimes = {
+        'pdf': 'application/pdf',
+        'gpx': 'application/gpx+xml',
+        'kml': 'application/vnd.google-earth.kml+xml',
+        'json': 'application/json',
+      };
+      final where = await saveBytes(name, bytes, mimes[format]!);
+      messenger.showSnackBar(SnackBar(content: Text('Gespeichert: $where')));
+    } on Object catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Export fehlgeschlagen: $e')),
+      );
+    }
+  }
+
+  Iterable<Bearing> _visible(
+    MissionState state,
+    BearingFilter filter,
+    DateTime now,
+  ) => state.bearings.values.where((b) => b.isActive && filter.allows(b, now));
+
+  List<Polygon> _fans(MissionState state, BearingFilter filter, DateTime now) =>
+      [
+        for (final b in _visible(state, filter, now))
+          Polygon(
+            points: fanPolygon(
+              b.station,
+              b.azimuthTrueDeg,
+              b.sigmaDeg,
+              _rayLengthM,
+            ),
+            color: participantColor(b.participantId)
+                .withValues(alpha: 0.10 * _alpha(b, now)),
+          ),
+      ];
+
+  List<Polyline> _rays(
+    MissionState state,
+    BearingFilter filter,
+    DateTime now,
+  ) => [
+    for (final b in _visible(state, filter, now))
       Polyline(
         points: [
           b.station,

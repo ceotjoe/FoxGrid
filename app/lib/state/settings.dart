@@ -1,0 +1,90 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const osmTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const topoTileUrl = 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
+
+bool isPublicTileServer(String url) =>
+    url.contains('tile.openstreetmap.org') ||
+    url.contains('opentopomap.org') ||
+    url.contains('tile.osm.org');
+
+enum BaseMap { osm, topo, custom }
+
+class AppSettings {
+  const AppSettings({
+    this.nightMode = false,
+    this.customTileUrl = '',
+    this.baseMap = BaseMap.osm,
+  });
+
+  /// Red-on-black scheme that keeps night vision in the field.
+  final bool nightMode;
+
+  /// Own tile server, e.g. `https://tiles.example.org/{z}/{x}/{y}.png`.
+  final String customTileUrl;
+  final BaseMap baseMap;
+
+  bool get hasCustomTiles => customTileUrl.trim().isNotEmpty;
+
+  String get tileUrl => switch (baseMap) {
+    BaseMap.osm => osmTileUrl,
+    BaseMap.topo => topoTileUrl,
+    BaseMap.custom => hasCustomTiles ? customTileUrl.trim() : osmTileUrl,
+  };
+
+  AppSettings copyWith({
+    bool? nightMode,
+    String? customTileUrl,
+    BaseMap? baseMap,
+  }) => AppSettings(
+    nightMode: nightMode ?? this.nightMode,
+    customTileUrl: customTileUrl ?? this.customTileUrl,
+    baseMap: baseMap ?? this.baseMap,
+  );
+}
+
+class SettingsNotifier extends Notifier<AppSettings> {
+  static const _night = 'foxgrid.night';
+  static const _tiles = 'foxgrid.tileUrl';
+  static const _base = 'foxgrid.baseMap';
+
+  late SharedPreferences _prefs;
+
+  @override
+  AppSettings build() {
+    _prefs = ref.watch(sharedPrefsProvider);
+    final base = _prefs.getString(_base);
+    return AppSettings(
+      nightMode: _prefs.getBool(_night) ?? false,
+      customTileUrl: _prefs.getString(_tiles) ?? '',
+      baseMap: BaseMap.values.firstWhere(
+        (b) => b.name == base,
+        orElse: () => BaseMap.osm,
+      ),
+    );
+  }
+
+  Future<void> setNight(bool v) async {
+    state = state.copyWith(nightMode: v);
+    await _prefs.setBool(_night, v);
+  }
+
+  Future<void> setCustomTileUrl(String v) async {
+    state = state.copyWith(customTileUrl: v.trim());
+    await _prefs.setString(_tiles, v.trim());
+  }
+
+  Future<void> setBaseMap(BaseMap b) async {
+    state = state.copyWith(baseMap: b);
+    await _prefs.setString(_base, b.name);
+  }
+}
+
+final sharedPrefsProvider = Provider<SharedPreferences>(
+  (ref) => throw UnimplementedError('override in main()'),
+);
+
+final settingsProvider = NotifierProvider<SettingsNotifier, AppSettings>(
+  SettingsNotifier.new,
+);

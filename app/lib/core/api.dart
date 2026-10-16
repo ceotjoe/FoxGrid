@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import 'models.dart';
+import 'outbox.dart';
 import 'session.dart';
+import 'sync.dart';
 
 class ApiException implements Exception {
   ApiException(this.statusCode, this.message);
@@ -31,16 +35,20 @@ abstract class FoxGridApi {
 
   Future<Map<String, dynamic>> snapshot();
 
-  /// Returns normally for 200 and 201 (idempotent retry).
-  Future<void> postBearing(Map<String, dynamic> payload);
+  /// Delivers one queued write and classifies the result for the sync service.
+  Future<SendResult> sendQueued(OutboxEntry entry);
 
-  Future<void> startTransmission();
+  /// Magnetic declination (positive = magnetic north east of true north).
+  Future<double> declination(double lat, double lon);
 
-  Future<void> stopTransmission();
+  /// Ad-hoc estimate for a filter; `null` if fewer than two bearings match.
+  Future<Estimate?> queryEstimate({
+    List<String> transmissions = const [],
+    DateTime? since,
+    double? halfLifeS,
+  });
 
-  Future<void> setBearingOutlier(String id, {required bool outlier});
-
-  Future<void> postPositions(List<Map<String, dynamic>> positions);
+  Future<List<int>> exportBytes(String format);
 }
 
 class DioFoxGridApi implements FoxGridApi {
@@ -139,24 +147,76 @@ class DioFoxGridApi implements FoxGridApi {
   }
 
   @override
-  Future<void> postBearing(Map<String, dynamic> payload) =>
-      _call('POST', '$_mission/bearings', data: payload);
+  Future<SendResult> sendQueued(OutboxEntry e) async {
+    try {
+      await _call(
+        e.method,
+        e.path,
+        data: e.bodyJson == null ? null : jsonDecode(e.bodyJson!),
+      );
+      return const SendResult(SendOutcome.ok);
+    } on ApiException catch (ex) {
+      final code = ex.statusCode;
+      // Starting/stopping a transmission twice is not an error: the state is already right.
+      if (code == 409 && (e.kind == 'tx_start' || e.kind == 'tx_stop')) {
+        return const SendResult(SendOutcome.ok);
+      }
+      if (code == null || code >= 500 || code == 408 || code == 429) {
+        return SendResult(SendOutcome.retry, ex.message);
+      }
+      if (code == 401 || code == 403) {
+        return SendResult(
+          SendOutcome.retry,
+          'Anmeldung abgelaufen: ${ex.message}',
+        );
+      }
+      return SendResult(SendOutcome.rejected, ex.message);
+    }
+  }
 
   @override
-  Future<void> startTransmission() =>
-      _call('POST', '$_mission/transmissions/start', data: <String, dynamic>{});
+  Future<double> declination(double lat, double lon) async {
+    final r = await _call('GET', '/api/v1/declination?lat=$lat&lon=$lon');
+    return ((r.data as Map<String, dynamic>)['declination_deg'] as num)
+        .toDouble();
+  }
 
   @override
-  Future<void> stopTransmission() =>
-      _call('POST', '$_mission/transmissions/stop', data: <String, dynamic>{});
+  Future<Estimate?> queryEstimate({
+    List<String> transmissions = const [],
+    DateTime? since,
+    double? halfLifeS,
+  }) async {
+    final query = <String>[
+      for (final t in transmissions) 'transmission=$t',
+      if (since != null)
+        'since=${Uri.encodeQueryComponent(since.toUtc().toIso8601String())}',
+      if (halfLifeS != null) 'half_life_s=$halfLifeS',
+    ].join('&');
+    try {
+      final r = await _call('GET', '$_mission/estimate/query?$query');
+      return Estimate.fromJson(r.data as Map<String, dynamic>);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
 
   @override
-  Future<void> setBearingOutlier(String id, {required bool outlier}) =>
-      _call('PATCH', '$_mission/bearings/$id', data: {'is_outlier': outlier});
-
-  @override
-  Future<void> postPositions(List<Map<String, dynamic>> positions) =>
-      _call('POST', '$_mission/positions', data: positions);
+  Future<List<int>> exportBytes(String format) async {
+    try {
+      final r = await _dio.get<List<int>>(
+        '${_session!.baseUrl}$_mission/export.$format',
+        options: Options(
+          responseType: ResponseType.bytes,
+          headers: {'Authorization': 'Bearer ${_session.token}'},
+        ),
+      );
+      return r.data!;
+    } on DioException catch (e) {
+      throw ApiException(e.response?.statusCode, e.message ?? 'Netzwerkfehler');
+    }
+  }
 }
 
 Mission missionFromSnapshot(Map<String, dynamic> s) =>

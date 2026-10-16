@@ -1,20 +1,24 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../core/api.dart';
+import '../core/database.dart';
 import '../core/live.dart';
 import '../core/models.dart';
+import '../core/outbox.dart';
 import '../core/session.dart';
+import '../core/sync.dart';
+import 'settings.dart';
 
-final sharedPrefsProvider = Provider<SharedPreferences>(
-  (ref) => throw UnimplementedError('override in main()'),
-);
+export 'settings.dart' show sharedPrefsProvider, settingsProvider;
 
 /// Current login; `null` means show the join screen.
 class SessionNotifier extends Notifier<Session?> {
@@ -41,6 +45,127 @@ final apiProvider = Provider<FoxGridApi>(
   (ref) => DioFoxGridApi(session: ref.watch(sessionProvider)),
 );
 
+/// Persistent offline queue. The web build keeps it in memory (no sqlite wasm bundled yet).
+final outboxStoreProvider = Provider<OutboxStore>((ref) {
+  if (kIsWeb) return MemoryOutboxStore();
+  final db = AppDatabase();
+  ref.onDispose(db.close);
+  return DriftOutboxStore(db);
+});
+
+/// Creates the WebSocket connection; replaced in tests.
+final channelFactoryProvider = Provider<ChannelFactory>(
+  (ref) => WebSocketChannel.connect,
+);
+
+// --- sync queue -----------------------------------------------------------------------
+
+class SyncStatus {
+  const SyncStatus({
+    this.pending = 0,
+    this.failed = 0,
+    this.syncing = false,
+    this.lastSuccess,
+    this.lastError,
+  });
+
+  final int pending;
+  final int failed;
+  final bool syncing;
+  final DateTime? lastSuccess;
+  final String? lastError;
+
+  bool get allSynced => pending == 0 && failed == 0;
+
+  SyncStatus copyWith({
+    int? pending,
+    int? failed,
+    bool? syncing,
+    DateTime? lastSuccess,
+    String? lastError,
+    bool clearError = false,
+  }) => SyncStatus(
+    pending: pending ?? this.pending,
+    failed: failed ?? this.failed,
+    syncing: syncing ?? this.syncing,
+    lastSuccess: lastSuccess ?? this.lastSuccess,
+    lastError: clearError ? null : (lastError ?? this.lastError),
+  );
+}
+
+class SyncNotifier extends Notifier<SyncStatus> {
+  SyncService? _service;
+  StreamSubscription<List<OutboxEntry>>? _sub;
+  Timer? _timer;
+  bool _disposed = false;
+
+  @override
+  SyncStatus build() {
+    _disposed = false;
+    final store = ref.watch(outboxStoreProvider);
+    final api = ref.watch(apiProvider);
+    _service = SyncService(store: store, send: api.sendQueued);
+    _sub = store.watch().listen(_onEntries);
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => kick());
+    ref.onDispose(() {
+      _disposed = true;
+      _sub?.cancel();
+      _timer?.cancel();
+    });
+    return const SyncStatus();
+  }
+
+  void _onEntries(List<OutboxEntry> entries) {
+    if (_disposed) return;
+    final failed = entries.where((e) => e.isFailed).toList();
+    final pending = entries.where((e) => !e.isFailed).toList();
+    final err = pending.map((e) => e.lastError).whereType<String>().firstOrNull;
+    state = SyncStatus(
+      pending: pending.length,
+      failed: failed.length,
+      syncing: state.syncing,
+      lastSuccess: state.lastSuccess,
+      lastError:
+          err ?? failed.map((e) => e.lastError).whereType<String>().firstOrNull,
+    );
+  }
+
+  /// Try to deliver the queue now (called after every write and when back online).
+  Future<void> kick() async {
+    final session = ref.read(sessionProvider);
+    if (_disposed || session == null || state.syncing) return;
+    state = state.copyWith(syncing: true);
+    try {
+      final delivered = await _service!.run(missionId: session.missionId);
+      if (_disposed) return;
+      state = state.copyWith(
+        syncing: false,
+        lastSuccess: delivered > 0 ? DateTime.now() : null,
+      );
+    } on Object catch (e) {
+      if (!_disposed) state = state.copyWith(syncing: false, lastError: '$e');
+    }
+  }
+
+  Future<void> retry(OutboxEntry e) async {
+    await _service!.retry(e);
+    unawaited(kick());
+  }
+
+  Future<void> discard(OutboxEntry e) => _service!.discard(e);
+}
+
+final syncProvider = NotifierProvider<SyncNotifier, SyncStatus>(
+  SyncNotifier.new,
+);
+
+/// All queue entries for the sync sheet.
+final outboxEntriesProvider = StreamProvider.autoDispose<List<OutboxEntry>>(
+  (ref) => ref.watch(outboxStoreProvider).watch(),
+);
+
+// --- mission state ----------------------------------------------------------------------
+
 class MissionState {
   const MissionState({
     this.mission,
@@ -50,9 +175,13 @@ class MissionState {
     this.bearings = const {},
     this.transmissions = const [],
     this.estimates = const {},
+    this.messages = const [],
+    this.tasks = const {},
+    this.teams = const [],
     this.connection = LiveStatus.connecting,
     this.error,
     this.loaded = false,
+    this.stale = false,
   });
 
   final Mission? mission;
@@ -62,9 +191,15 @@ class MissionState {
   final Map<String, Bearing> bearings;
   final List<Transmission> transmissions;
   final Map<String, Estimate> estimates;
+  final List<ChatMessage> messages;
+  final Map<String, TaskItem> tasks;
+  final List<Team> teams;
   final LiveStatus connection;
   final String? error;
   final bool loaded;
+
+  /// Showing the cached snapshot because the server could not be reached yet.
+  final bool stale;
 
   Transmission? get running {
     for (final t in transmissions.reversed) {
@@ -81,10 +216,14 @@ class MissionState {
     Map<String, Bearing>? bearings,
     List<Transmission>? transmissions,
     Map<String, Estimate>? estimates,
+    List<ChatMessage>? messages,
+    Map<String, TaskItem>? tasks,
+    List<Team>? teams,
     LiveStatus? connection,
     String? error,
     bool clearError = false,
     bool? loaded,
+    bool? stale,
   }) => MissionState(
     mission: mission ?? this.mission,
     participants: participants ?? this.participants,
@@ -93,18 +232,31 @@ class MissionState {
     bearings: bearings ?? this.bearings,
     transmissions: transmissions ?? this.transmissions,
     estimates: estimates ?? this.estimates,
+    messages: messages ?? this.messages,
+    tasks: tasks ?? this.tasks,
+    teams: teams ?? this.teams,
     connection: connection ?? this.connection,
     error: clearError ? null : (error ?? this.error),
     loaded: loaded ?? this.loaded,
+    stale: stale ?? this.stale,
   );
 }
 
 const _maxTrail = 60;
 
 /// Holds the live state of the joined mission: snapshot + WebSocket events.
+///
+/// Every write goes to the outbox first and is applied to the state optimistically, so the
+/// app keeps working offline; [SyncNotifier] delivers the queue.
 class MissionNotifier extends Notifier<MissionState> {
   LiveClient? _live;
   bool _disposed = false;
+
+  Session get _session => ref.read(sessionProvider)!;
+
+  String get _base => '/api/v1/missions/${_session.missionId}';
+
+  OutboxStore get _store => ref.read(outboxStoreProvider);
 
   @override
   MissionState build() {
@@ -120,71 +272,170 @@ class MissionNotifier extends Notifier<MissionState> {
       uri: session.wsUri,
       onEvent: _onEvent,
       onStatus: _onStatus,
+      connect: ref.read(channelFactoryProvider),
     );
     _live = live;
-    // Start after build() returned: both calls update `state`.
-    Future.microtask(() {
+    // Start after build() returned: these calls update `state`.
+    Future.microtask(() async {
       if (_disposed) return;
       live.start();
-      unawaited(_loadSnapshot(api));
+      await _loadCached(session.missionId);
+      await _loadSnapshot(api);
     });
     return const MissionState();
+  }
+
+  String _cacheKey(String missionId) => 'snapshot:$missionId';
+
+  Future<void> _loadCached(String missionId) async {
+    final raw = await _store.getCached(_cacheKey(missionId));
+    if (raw == null || _disposed) return;
+    try {
+      await _apply(jsonDecode(raw) as Map<String, dynamic>, stale: true);
+    } on Object {
+      // a broken cache must never block the app
+    }
   }
 
   Future<void> _loadSnapshot(FoxGridApi api) async {
     try {
       final s = await api.snapshot();
       if (_disposed) return;
-      final participants = {
-        for (final p in s['participants'] as List)
-          (p as Map<String, dynamic>)['id'] as String: Participant.fromJson(p),
-      };
-      final positions = {
-        for (final p in s['positions'] as List)
-          (p as Map<String, dynamic>)['participant_id'] as String:
-              PositionFix.fromJson(p),
-      };
-      final estimates = {
-        for (final e in s['estimates'] as List)
-          (e as Map<String, dynamic>)['scope'] as String: Estimate.fromJson(e),
-      };
-      state = state.copyWith(
-        mission: missionFromSnapshot(s),
-        participants: participants,
-        positions: positions,
-        trails: {
-          for (final e in positions.entries) e.key: [e.value.point],
-        },
-        bearings: {
-          for (final b in s['bearings'] as List)
-            (b as Map<String, dynamic>)['id'] as String: Bearing.fromJson(b),
-        },
-        transmissions: [
-          for (final t in s['transmissions'] as List)
-            Transmission.fromJson(t as Map<String, dynamic>),
-        ],
-        estimates: estimates,
-        loaded: true,
-        clearError: true,
-      );
+      unawaited(_store.putCached(_cacheKey(_session.missionId), jsonEncode(s)));
+      await _apply(s, stale: false);
     } on ApiException catch (e) {
       if (e.statusCode == 401 || e.statusCode == 403) {
         await ref.read(sessionProvider.notifier).leave();
         return;
       }
-      state = state.copyWith(error: e.message);
+      // Offline: keep the cached state and stay usable.
+      if (!state.loaded) state = state.copyWith(error: e.message);
     }
+  }
+
+  Future<void> _apply(Map<String, dynamic> s, {required bool stale}) async {
+    final participants = {
+      for (final p in s['participants'] as List)
+        (p as Map<String, dynamic>)['id'] as String: Participant.fromJson(p),
+    };
+    final positions = {
+      for (final p in s['positions'] as List)
+        (p as Map<String, dynamic>)['participant_id'] as String:
+            PositionFix.fromJson(p),
+    };
+    var next = state.copyWith(
+      mission: missionFromSnapshot(s),
+      participants: participants,
+      positions: positions,
+      trails: {
+        for (final e in positions.entries) e.key: [e.value.point],
+      },
+      bearings: {
+        for (final b in s['bearings'] as List)
+          (b as Map<String, dynamic>)['id'] as String: Bearing.fromJson(b),
+      },
+      transmissions: [
+        for (final t in s['transmissions'] as List)
+          Transmission.fromJson(t as Map<String, dynamic>),
+      ],
+      estimates: {
+        for (final e in s['estimates'] as List)
+          (e as Map<String, dynamic>)['scope'] as String: Estimate.fromJson(e),
+      },
+      messages: [
+        for (final m in (s['messages'] as List?) ?? const [])
+          ChatMessage.fromJson(m as Map<String, dynamic>),
+      ],
+      tasks: {
+        for (final t in (s['tasks'] as List?) ?? const [])
+          (t as Map<String, dynamic>)['id'] as String: TaskItem.fromJson(t),
+      },
+      teams: [
+        for (final t in (s['teams'] as List?) ?? const [])
+          Team.fromJson(t as Map<String, dynamic>),
+      ],
+      loaded: true,
+      stale: stale,
+      clearError: true,
+    );
+    next = await _overlayPending(next);
+    if (!_disposed) state = next;
+  }
+
+  /// Re-applies writes that are still queued, so they stay visible after a reload.
+  Future<MissionState> _overlayPending(MissionState base) async {
+    var s = base;
+    final session = ref.read(sessionProvider);
+    if (session == null) return s;
+    for (final e in await _store.all()) {
+      if (e.missionId != session.missionId) continue;
+      try {
+        final body = e.bodyJson == null
+            ? <String, dynamic>{}
+            : jsonDecode(e.bodyJson!) as Map<String, dynamic>;
+        switch (e.kind) {
+          case 'bearing':
+            s = _withBearing(s, _bearingFromPayload(body, session));
+          case 'message':
+            if (!s.messages.any((m) => m.id == body['id'])) {
+              s = s.copyWith(
+                messages: [...s.messages, _messageFromPayload(body, session)],
+              );
+            }
+          case 'task_create':
+            s = s.copyWith(
+              tasks: {
+                ...s.tasks,
+                body['id'] as String:
+                    s.tasks[body['id']] ?? _taskFromPayload(body, session),
+              },
+            );
+          case 'task_patch':
+            final id = e.path.split('/').last;
+            final t = s.tasks[id];
+            if (t != null) {
+              s = s.copyWith(tasks: {...s.tasks, id: _patchTask(t, body)});
+            }
+          case 'outlier':
+            final id = e.path.split('/').last;
+            final b = s.bearings[id];
+            if (b != null) {
+              s = s.copyWith(
+                bearings: {
+                  ...s.bearings,
+                  id: _withOutlier(b, body['is_outlier'] as bool),
+                },
+              );
+            }
+          case 'tx_start':
+            if (s.running == null) {
+              s = s.copyWith(
+                transmissions: [
+                  ...s.transmissions,
+                  _localTransmission(s, body),
+                ],
+              );
+            }
+          case 'tx_stop':
+            s = _endRunning(s, DateTime.parse(body['at'] as String).toUtc());
+        }
+      } on Object {
+        continue; // a malformed queue entry must never break the app
+      }
+    }
+    return s;
   }
 
   void _onStatus(LiveStatus status) {
     if (_disposed) return;
     final previous = state.connection;
     state = state.copyWith(connection: status);
-    // Events may have been missed while disconnected: resync from the snapshot.
-    if (status == LiveStatus.connected &&
-        previous == LiveStatus.reconnecting &&
-        ref.exists(sessionProvider)) {
-      unawaited(_loadSnapshot(ref.read(apiProvider)));
+    if (status == LiveStatus.connected) {
+      // Back online: deliver queued writes and resync what may have been missed.
+      unawaited(ref.read(syncProvider.notifier).kick());
+      if (previous == LiveStatus.reconnecting) {
+        unawaited(_loadSnapshot(ref.read(apiProvider)));
+      }
     }
   }
 
@@ -211,16 +462,34 @@ class MissionNotifier extends Notifier<MissionState> {
           unawaited(_loadSnapshot(ref.read(apiProvider)));
         }
       case 'bearing_created' || 'bearing_updated':
-        final b = Bearing.fromJson(data);
-        state = state.copyWith(bearings: {...state.bearings, b.id: b});
+        state = _withBearing(state, Bearing.fromJson(data));
       case 'transmission_started':
+        // The server copy replaces our optimistic local one.
+        state = state.copyWith(
+          transmissions: [
+            for (final t in state.transmissions)
+              if (!(t.local && t.isRunning)) t,
+          ],
+        );
         _upsertTransmission(Transmission.fromJson(data));
-        unawaited(HapticFeedback.heavyImpact());
+        // Not every platform can vibrate; an alert must never throw.
+        unawaited(HapticFeedback.heavyImpact().catchError((Object _) {}));
       case 'transmission_ended':
         _upsertTransmission(Transmission.fromJson(data));
       case 'estimate_updated':
         final e = Estimate.fromJson(data);
         state = state.copyWith(estimates: {...state.estimates, e.scope: e});
+      case 'message':
+        final m = ChatMessage.fromJson(data);
+        final list = [
+          for (final x in state.messages)
+            if (x.id != m.id) x,
+          m,
+        ]..sort((a, b) => a.sentAt.compareTo(b.sentAt));
+        state = state.copyWith(messages: list);
+      case 'task_updated':
+        final t = TaskItem.fromJson(data);
+        state = state.copyWith(tasks: {...state.tasks, t.id: t});
     }
   }
 
@@ -236,28 +505,234 @@ class MissionNotifier extends Notifier<MissionState> {
     state = state.copyWith(transmissions: list);
   }
 
-  Future<void> toggleTransmission() async {
-    final api = ref.read(apiProvider);
-    try {
-      if (state.running == null) {
-        await api.startTransmission();
-      } else {
-        await api.stopTransmission();
-      }
-    } on ApiException catch (e) {
-      state = state.copyWith(error: e.message);
+  // --- optimistic helpers -------------------------------------------------------------
+
+  static MissionState _withBearing(MissionState s, Bearing b) =>
+      s.copyWith(bearings: {...s.bearings, b.id: b});
+
+  static Bearing _withOutlier(Bearing b, bool outlier) => Bearing(
+    id: b.id,
+    participantId: b.participantId,
+    station: b.station,
+    azimuthTrueDeg: b.azimuthTrueDeg,
+    sigmaDeg: b.sigmaDeg,
+    measuredAt: b.measuredAt,
+    isOutlier: outlier,
+    isActive: b.isActive,
+    transmissionId: b.transmissionId,
+    rssiDbm: b.rssiDbm,
+    note: b.note,
+  );
+
+  static Bearing _bearingFromPayload(Map<String, dynamic> p, Session s) =>
+      Bearing(
+        id: p['id'] as String,
+        participantId: s.participantId,
+        station: LatLng(
+          (p['lat'] as num).toDouble(),
+          (p['lon'] as num).toDouble(),
+        ),
+        azimuthTrueDeg: (p['azimuth_true_deg'] as num).toDouble(),
+        sigmaDeg: (p['sigma_deg'] as num).toDouble(),
+        measuredAt: DateTime.parse(p['measured_at'] as String).toUtc(),
+        isOutlier: false,
+        isActive: true,
+        rssiDbm: (p['rssi_dbm'] as num?)?.toDouble(),
+        note: p['note'] as String?,
+      );
+
+  static ChatMessage _messageFromPayload(Map<String, dynamic> p, Session s) =>
+      ChatMessage(
+        id: p['id'] as String,
+        authorId: s.participantId,
+        authorCallsign: s.callsign,
+        teamId: p['team_id'] as String?,
+        body: p['body'] as String,
+        sentAt: DateTime.parse(p['sent_at'] as String).toUtc(),
+        pending: true,
+      );
+
+  static TaskItem _taskFromPayload(Map<String, dynamic> p, Session s) =>
+      TaskItem(
+        id: p['id'] as String,
+        title: p['title'] as String,
+        description: p['description'] as String?,
+        status: 'open',
+        createdBy: s.participantId,
+        assigneeParticipantId: p['assignee_participant_id'] as String?,
+        assigneeTeamId: p['assignee_team_id'] as String?,
+        pending: true,
+      );
+
+  static TaskItem _patchTask(TaskItem t, Map<String, dynamic> changes) {
+    var out = t.copyWith(
+      title: changes['title'] as String?,
+      status: changes['status'] as String?,
+      pending: true,
+    );
+    if (changes.containsKey('assignee_participant_id') ||
+        changes.containsKey('assignee_team_id')) {
+      out = out.copyWith(
+        clearAssignee: true,
+        assigneeParticipantId: changes['assignee_participant_id'] as String?,
+        assigneeTeamId: changes['assignee_team_id'] as String?,
+      );
     }
+    return out;
+  }
+
+  static Transmission _localTransmission(
+    MissionState s,
+    Map<String, dynamic> body,
+  ) => Transmission(
+    id: 'local-${body['at']}',
+    seq: s.transmissions.fold(0, (m, t) => t.seq > m ? t.seq : m) + 1,
+    startedAt: DateTime.parse(body['at'] as String).toUtc(),
+    local: true,
+  );
+
+  static MissionState _endRunning(MissionState s, DateTime at) => s.copyWith(
+    transmissions: [
+      for (final t in s.transmissions)
+        t.isRunning ? t.copyWith(endedAt: at) : t,
+    ],
+  );
+
+  Future<void> _enqueue({
+    required String kind,
+    required String method,
+    required String path,
+    Map<String, dynamic>? body,
+  }) async {
+    await _store.add(
+      missionId: _session.missionId,
+      kind: kind,
+      method: method,
+      path: path,
+      bodyJson: body == null ? null : jsonEncode(body),
+    );
+    unawaited(ref.read(syncProvider.notifier).kick());
+  }
+
+  // --- user actions (all offline-first) ---------------------------------------------------
+
+  Future<void> saveBearing(Map<String, dynamic> payload) async {
+    state = _withBearing(state, _bearingFromPayload(payload, _session));
+    await _enqueue(
+      kind: 'bearing',
+      method: 'POST',
+      path: '$_base/bearings',
+      body: payload,
+    );
+  }
+
+  Future<void> sendMessage(
+    String body, {
+    String? teamId,
+    String? id,
+    DateTime? at,
+  }) async {
+    final payload = {
+      'id': id ?? _newId(),
+      'body': body,
+      'sent_at': (at ?? DateTime.now()).toUtc().toIso8601String(),
+      'team_id': teamId,
+    };
+    state = state.copyWith(
+      messages: [...state.messages, _messageFromPayload(payload, _session)],
+    );
+    await _enqueue(
+      kind: 'message',
+      method: 'POST',
+      path: '$_base/messages',
+      body: payload,
+    );
+  }
+
+  Future<void> createTask({
+    required String title,
+    String? description,
+    String? participantId,
+    String? teamId,
+    String? id,
+  }) async {
+    final payload = {
+      'id': id ?? _newId(),
+      'title': title,
+      'description': description,
+      'assignee_participant_id': participantId,
+      'assignee_team_id': teamId,
+    };
+    state = state.copyWith(
+      tasks: {
+        ...state.tasks,
+        payload['id']!: _taskFromPayload(payload, _session),
+      },
+    );
+    await _enqueue(
+      kind: 'task_create',
+      method: 'POST',
+      path: '$_base/tasks',
+      body: payload,
+    );
+  }
+
+  Future<void> patchTask(String id, Map<String, dynamic> changes) async {
+    final t = state.tasks[id];
+    if (t != null) {
+      state = state.copyWith(
+        tasks: {...state.tasks, id: _patchTask(t, changes)},
+      );
+    }
+    await _enqueue(
+      kind: 'task_patch',
+      method: 'PATCH',
+      path: '$_base/tasks/$id',
+      body: changes,
+    );
   }
 
   Future<void> setOutlier(String bearingId, {required bool outlier}) async {
-    try {
-      await ref
-          .read(apiProvider)
-          .setBearingOutlier(bearingId, outlier: outlier);
-    } on ApiException catch (e) {
-      state = state.copyWith(error: e.message);
+    final b = state.bearings[bearingId];
+    if (b != null) {
+      state = _withBearing(state, _withOutlier(b, outlier));
+    }
+    await _enqueue(
+      kind: 'outlier',
+      method: 'PATCH',
+      path: '$_base/bearings/$bearingId',
+      body: {'is_outlier': outlier},
+    );
+  }
+
+  Future<void> toggleTransmission() async {
+    final at = DateTime.now().toUtc();
+    final body = {'at': at.toIso8601String()};
+    if (state.running == null) {
+      state = state.copyWith(
+        transmissions: [
+          ...state.transmissions,
+          _localTransmission(state, body),
+        ],
+      );
+      await _enqueue(
+        kind: 'tx_start',
+        method: 'POST',
+        path: '$_base/transmissions/start',
+        body: body,
+      );
+    } else {
+      state = _endRunning(state, at);
+      await _enqueue(
+        kind: 'tx_stop',
+        method: 'POST',
+        path: '$_base/transmissions/stop',
+        body: body,
+      );
     }
   }
+
+  static String _newId() => const Uuid().v4();
 
   void sendPosition(PositionFix fix) {
     _live?.send({
@@ -270,11 +745,6 @@ class MissionNotifier extends Notifier<MissionState> {
         'recorded_at': fix.recordedAt.toUtc().toIso8601String(),
       },
     });
-  }
-
-  /// Add a bearing that this device just saved so it shows up at once.
-  void addLocalBearing(Bearing b) {
-    state = state.copyWith(bearings: {...state.bearings, b.id: b});
   }
 
   void clearError() => state = state.copyWith(clearError: true);
@@ -339,10 +809,9 @@ final ownPositionProvider = NotifierProvider<OwnPositionNotifier, PositionFix?>(
   OwnPositionNotifier.new,
 );
 
-/// Sends the own position to the server every [interval] while it is moving or stale.
+/// Sends the own position to the server every few seconds (the server throttles to >= 5 s).
 final positionReporterProvider = Provider<void>((ref) {
-  const interval = Duration(seconds: 7);
-  final timer = Timer.periodic(interval, (_) {
+  final timer = Timer.periodic(const Duration(seconds: 7), (_) {
     final fix = ref.read(ownPositionProvider);
     if (fix != null) {
       ref
@@ -374,4 +843,29 @@ class ScopeNotifier extends Notifier<EstimateScope> {
 
 final estimateScopeProvider = NotifierProvider<ScopeNotifier, EstimateScope>(
   ScopeNotifier.new,
+);
+
+/// Latest known magnetic declination, cached so it works offline.
+class DeclinationNotifier extends Notifier<double?> {
+  static const _key = 'foxgrid.declination';
+
+  @override
+  double? build() => ref.watch(sharedPrefsProvider).getDouble(_key);
+
+  /// Fetch for a position; silently keeps the cached value when offline.
+  Future<void> refresh(LatLng at) async {
+    try {
+      final d = await ref
+          .read(apiProvider)
+          .declination(at.latitude, at.longitude);
+      state = d;
+      await ref.read(sharedPrefsProvider).setDouble(_key, d);
+    } on ApiException {
+      // offline: keep the cached value
+    }
+  }
+}
+
+final declinationProvider = NotifierProvider<DeclinationNotifier, double?>(
+  DeclinationNotifier.new,
 );
