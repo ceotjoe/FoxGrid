@@ -44,5 +44,49 @@ services:
       redis:
         condition: service_healthy
 
+  # MQTT for automatic stations and the repeater hook: docker compose --profile mqtt up -d
+  mosquitto:
+    profiles: ["mqtt"]
+    image: eclipse-mosquitto:2
+    environment:
+      MQTT_USERNAME: ${FOXGRID_MQTT_USERNAME:-foxgrid}
+      MQTT_PASSWORD: ${FOXGRID_MQTT_PASSWORD:-}
+    # The password file is rebuilt on every start (a restarted container keeps /tmp) and must
+    # belong to the user mosquitto drops privileges to.
+    entrypoint: >
+      sh -c '[ -n "$$MQTT_PASSWORD" ] || { echo "FOXGRID_MQTT_PASSWORD is not set in .env" >&2; exit 1; } &&
+      rm -f /tmp/passwd &&
+      mosquitto_passwd -c -b /tmp/passwd "$$MQTT_USERNAME" "$$MQTT_PASSWORD" &&
+      chown mosquitto:mosquitto /tmp/passwd && chmod 600 /tmp/passwd &&
+      exec mosquitto -c /mosquitto/config/mosquitto.conf'
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqttdata:/mosquitto/data
+    ports:
+      - "127.0.0.1:${FOXGRID_MQTT_PORT:-1883}:1883"
+    restart: unless-stopped
+
+  # One instance only: it consumes the sensor topics and writes bearings, RSSI and transmissions.
+  ingest:
+    profiles: ["mqtt"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.mqtt_ingest"]
+    environment:
+      FOXGRID_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-foxgrid}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-foxgrid}
+      FOXGRID_REDIS_URL: redis://redis:6379/0
+      FOXGRID_JWT_SECRET: ${FOXGRID_JWT_SECRET:?set FOXGRID_JWT_SECRET in .env}
+      FOXGRID_MQTT_HOST: mosquitto
+      FOXGRID_MQTT_USERNAME: ${FOXGRID_MQTT_USERNAME:-foxgrid}
+      FOXGRID_MQTT_PASSWORD: ${FOXGRID_MQTT_PASSWORD:-}
+    depends_on:
+      api:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   dbdata:
+  mqttdata:
