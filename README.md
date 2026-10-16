@@ -53,6 +53,12 @@ startet eine Aussendung und meldet nach jeder Peilung den Abstand der Schätzung
 ausgegebene Einladung kann in der App eingegeben werden, um live zuzusehen. Exit-Code ≠ 0, wenn der Fehler
 größer als `--max-error-m` (Standard 600 m) ist.
 
+## App-Icon
+
+Das Icon (Fadenkreuz-Fuchs) liegt als SVG-Ebenen in [docs/branding](docs/branding) und wird mit
+`python3 tools/branding/generate_icons.py` für iOS, Android (adaptiv, Themed Icons) und Web erzeugt.
+Dort steht auch, wie daraus in Icon Composer ein Liquid-Glass-Icon für iOS 26 entsteht.
+
 ## Tests
 
 ```bash

@@ -105,3 +105,9 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   `RadioSignalSource`. No `RadioTransport` implementation exists yet (needs USB/Bluetooth plugins).
 - Homing screen layout: scrolling content plus a pinned `_EntryPanel` so S-meter taps never scroll away.
 - Lazy `ListView` widget tests need a tall viewport (`tester.view.physicalSize`) or controls are not built.
+
+## Branding
+- App icon: "Fadenkreuz-Fuchs", SVG layers in `docs/branding/fadenkreuz-fuchs/`. Do not edit the generated PNGs by hand:
+  change the SVGs and run `python3 tools/branding/generate_icons.py` (needs `rsvg-convert` and `magick`).
+- iOS icons must stay full-bleed and without alpha (the system masks them); Android has adaptive foreground,
+  background colour and monochrome layers in `mipmap-anydpi-v26`.
