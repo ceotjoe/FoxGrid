@@ -1,0 +1,517 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
+
+import '../core/geo.dart';
+import '../core/live.dart';
+import '../core/models.dart';
+import '../core/session.dart';
+import '../state/providers.dart';
+import 'bearings_sheet.dart';
+import 'capture_sheet.dart';
+
+const _rayLengthM = 25000.0;
+const _palette = [
+  Colors.indigo,
+  Colors.teal,
+  Colors.deepOrange,
+  Colors.purple,
+  Colors.brown,
+  Colors.blueGrey,
+  Colors.pink,
+  Colors.green,
+];
+
+Color participantColor(String id) =>
+    _palette[id.hashCode.abs() % _palette.length];
+
+enum BaseMap { osm, topo }
+
+class MapScreen extends ConsumerStatefulWidget {
+  const MapScreen({super.key});
+
+  @override
+  ConsumerState<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends ConsumerState<MapScreen> {
+  final _controller = MapController();
+  BaseMap _base = BaseMap.osm;
+  bool _centered = false;
+  bool _fitted = false;
+
+  /// Everything worth showing: estimate area, bearing stations and participants.
+  List<LatLng> _interestingPoints(MissionState state, Estimate? estimate) => [
+    if (estimate != null) ...estimate.ellipse2s.ring,
+    for (final b in state.bearings.values) b.station,
+    for (final p in state.positions.values) p.point,
+  ];
+
+  void _fit(List<LatLng> points) {
+    if (points.length < 2) return;
+    _controller.fitCamera(
+      CameraFit.coordinates(
+        coordinates: points,
+        padding: const EdgeInsets.fromLTRB(48, 160, 48, 120),
+        maxZoom: 16,
+      ),
+    );
+  }
+
+  void _openCapture() {
+    showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const CaptureSheet(),
+    );
+  }
+
+  void _showInvite(Session session) {
+    final token = session.inviteToken;
+    if (token == null) return;
+    final link = inviteLink(session.baseUrl, token);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Einladung'),
+        content: SelectableText('Token: $token\n\nLink: $link'),
+        actions: [
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: link)),
+            child: const Text('Link kopieren'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Schließen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(positionReporterProvider);
+    final session = ref.watch(sessionProvider)!;
+    final state = ref.watch(missionProvider);
+    final own = ref.watch(ownPositionProvider);
+    final scope = ref.watch(estimateScopeProvider);
+    final theme = Theme.of(context);
+    final running = state.running;
+    final estimate =
+        state.estimates[scope.name] ??
+        state.estimates[scope == EstimateScope.current ? 'all' : 'current'];
+
+    ref.listen<String?>(missionProvider.select((s) => s.error), (_, error) {
+      if (error != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error)));
+        ref.read(missionProvider.notifier).clearError();
+      }
+    });
+
+    final interesting = _interestingPoints(state, estimate);
+    if (!_fitted && state.loaded && interesting.length >= 2) {
+      _fitted = true;
+      _centered = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fit(interesting);
+      });
+    }
+    if (own != null && !_centered && state.loaded) {
+      _centered = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _controller.move(own.point, 13);
+      });
+    }
+
+    final now = DateTime.now().toUtc();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          state.mission == null
+              ? 'FoxGrid'
+              : '${state.mission!.name} · '
+                    '${state.mission!.frequencyMhz.toStringAsFixed(3)} MHz',
+        ),
+        actions: [
+          _ConnectionDot(status: state.connection),
+          if (session.inviteToken != null)
+            IconButton(
+              tooltip: 'Einladung',
+              icon: const Icon(Icons.person_add_alt),
+              onPressed: () => _showInvite(session),
+            ),
+          IconButton(
+            tooltip: 'Peilungen',
+            icon: const Icon(Icons.list_alt),
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              showDragHandle: true,
+              builder: (_) => const BearingsSheet(),
+            ),
+          ),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'leave') ref.read(sessionProvider.notifier).leave();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'leave', child: Text('Einsatz verlassen')),
+            ],
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _controller,
+            options: MapOptions(
+              initialCenter:
+                  state.mission?.searchArea?.first ?? const LatLng(51.0, 10.0),
+              initialZoom: state.mission?.searchArea != null ? 11 : 6,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: _base == BaseMap.osm
+                    ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+                    : 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'de.foxgrid.foxgrid',
+                maxZoom: _base == BaseMap.osm ? 19 : 17,
+              ),
+              if (state.mission?.searchArea != null)
+                PolygonLayer(
+                  polygons: [
+                    Polygon(
+                      points: state.mission!.searchArea!,
+                      color: Colors.transparent,
+                      borderColor: Colors.black54,
+                      borderStrokeWidth: 2,
+                      pattern: StrokePattern.dashed(segments: const [10, 8]),
+                    ),
+                  ],
+                ),
+              if (estimate != null)
+                PolygonLayer(
+                  polygons: [
+                    Polygon(
+                      points: estimate.ellipse2s.ring,
+                      color: Colors.red.withValues(alpha: 0.08),
+                      borderColor: Colors.red.withValues(alpha: 0.6),
+                      borderStrokeWidth: 1.5,
+                    ),
+                    Polygon(
+                      points: estimate.ellipse1s.ring,
+                      color: Colors.red.withValues(alpha: 0.18),
+                      borderColor: Colors.red,
+                      borderStrokeWidth: 2,
+                    ),
+                  ],
+                ),
+              PolygonLayer(polygons: _fans(state, now)),
+              PolylineLayer(polylines: _rays(state, now)),
+              PolylineLayer(
+                polylines: [
+                  for (final e in state.trails.entries)
+                    if (e.value.length > 1)
+                      Polyline(
+                        points: e.value,
+                        strokeWidth: 3,
+                        color: participantColor(e.key).withValues(alpha: 0.6),
+                      ),
+                ],
+              ),
+              MarkerLayer(
+                markers: [
+                  if (estimate != null)
+                    Marker(
+                      point: estimate.point,
+                      width: 44,
+                      height: 44,
+                      child: const Icon(
+                        Icons.gps_fixed,
+                        color: Colors.red,
+                        size: 40,
+                        key: Key('mle-marker'),
+                      ),
+                    ),
+                  for (final e in state.positions.entries)
+                    if (e.key != session.participantId)
+                      _participantMarker(
+                        e.value.point,
+                        state.participants[e.key]?.callsign ?? '?',
+                        participantColor(e.key),
+                      ),
+                  if (own != null)
+                    _participantMarker(
+                      own.point,
+                      session.callsign,
+                      Colors.blue,
+                      self: true,
+                    ),
+                ],
+              ),
+              const RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution('© OpenStreetMap-Mitwirkende'),
+                  TextSourceAttribution('OpenTopoMap (CC-BY-SA)'),
+                ],
+              ),
+            ],
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Column(
+              children: [
+                if (running != null) const _TransmissionBanner(),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Row(
+                    children: [
+                      SegmentedButton<EstimateScope>(
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        segments: const [
+                          ButtonSegment(
+                            value: EstimateScope.current,
+                            label: Text('Aussendung'),
+                          ),
+                          ButtonSegment(
+                            value: EstimateScope.all,
+                            label: Text('Alle'),
+                          ),
+                        ],
+                        selected: {scope},
+                        onSelectionChanged: (s) => ref
+                            .read(estimateScopeProvider.notifier)
+                            .select(s.first),
+                      ),
+                      const Spacer(),
+                      IconButton.filledTonal(
+                        key: const Key('fit-all'),
+                        tooltip: 'Alles zeigen',
+                        icon: const Icon(Icons.center_focus_strong),
+                        onPressed: () => _fit(interesting),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: 'Kartenstil',
+                        icon: const Icon(Icons.layers),
+                        onPressed: () => setState(
+                          () => _base = _base == BaseMap.osm
+                              ? BaseMap.topo
+                              : BaseMap.osm,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (estimate != null)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      child: Text(
+                        'Schätzung aus ${estimate.nBearings} Peilungen · '
+                        '1σ ${estimate.ellipse1s.semiMajorM.round()} × '
+                        '${estimate.ellipse1s.semiMinorM.round()} m',
+                        key: const Key('estimate-summary'),
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.extended(
+            key: const Key('toggle-transmission'),
+            heroTag: 'tx',
+            backgroundColor: running != null
+                ? Colors.red
+                : theme.colorScheme.secondaryContainer,
+            foregroundColor: running != null
+                ? Colors.white
+                : theme.colorScheme.onSecondaryContainer,
+            onPressed: state.mission?.isActive ?? false
+                ? ref.read(missionProvider.notifier).toggleTransmission
+                : null,
+            icon: Icon(running != null ? Icons.stop : Icons.podcasts),
+            label: Text(
+              running != null ? 'Aussendung Ende' : 'Aussendung Start',
+            ),
+          ),
+          const SizedBox(width: 12),
+          FloatingActionButton.large(
+            key: const Key('open-capture'),
+            heroTag: 'capture',
+            onPressed: _openCapture,
+            child: const Icon(Icons.my_location),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Marker _participantMarker(
+    LatLng point,
+    String callsign,
+    Color color, {
+    bool self = false,
+  }) => Marker(
+    point: point,
+    width: 96,
+    height: 56,
+    child: Column(
+      children: [
+        Icon(
+          self ? Icons.navigation : Icons.person_pin_circle,
+          color: color,
+          size: 28,
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            callsign,
+            style: const TextStyle(fontSize: 11, color: Colors.black),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// Older bearings fade out over two hours but never disappear completely.
+  double _alpha(Bearing b, DateTime now) {
+    final ageMin = now.difference(b.measuredAt).inMinutes;
+    return (1 - ageMin / 120).clamp(0.25, 1.0);
+  }
+
+  Iterable<Bearing> _visible(MissionState state) =>
+      state.bearings.values.where((b) => b.isActive);
+
+  List<Polygon> _fans(MissionState state, DateTime now) => [
+    for (final b in _visible(state))
+      Polygon(
+        points: fanPolygon(
+          b.station,
+          b.azimuthTrueDeg,
+          b.sigmaDeg,
+          _rayLengthM,
+        ),
+        color: participantColor(b.participantId)
+            .withValues(alpha: 0.10 * _alpha(b, now)),
+      ),
+  ];
+
+  List<Polyline> _rays(MissionState state, DateTime now) => [
+    for (final b in _visible(state))
+      Polyline(
+        points: [
+          b.station,
+          destination(b.station, b.azimuthTrueDeg, _rayLengthM),
+        ],
+        strokeWidth: 2.5,
+        color: participantColor(b.participantId)
+            .withValues(alpha: (b.isOutlier ? 0.7 : 1) * _alpha(b, now)),
+        pattern: b.isOutlier
+            ? StrokePattern.dashed(segments: const [8, 8])
+            : const StrokePattern.solid(),
+      ),
+  ];
+}
+
+class _ConnectionDot extends StatelessWidget {
+  const _ConnectionDot({required this.status});
+
+  final LiveStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, text) = switch (status) {
+      LiveStatus.connected => (Colors.green, 'live'),
+      LiveStatus.connecting => (Colors.orange, 'verbinde'),
+      LiveStatus.reconnecting => (Colors.red, 'offline'),
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        key: const Key('connection'),
+        children: [
+          Icon(Icons.circle, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(text, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransmissionBanner extends StatefulWidget {
+  const _TransmissionBanner();
+
+  @override
+  State<_TransmissionBanner> createState() => _TransmissionBannerState();
+}
+
+class _TransmissionBannerState extends State<_TransmissionBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (_, _) => Container(
+        key: const Key('tx-banner'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        color: Color.lerp(
+          Colors.red.shade700,
+          Colors.red.shade400,
+          _pulse.value,
+        ),
+        child: const Text(
+          'STÖRER SENDET',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
+            letterSpacing: 2,
+          ),
+        ),
+      ),
+    );
+  }
+}
