@@ -21,4 +21,10 @@ class Settings(BaseSettings):
     # Push via Firebase Cloud Messaging (HTTP v1). Without credentials pushes are only logged.
     fcm_project_id: str | None = None
     fcm_credentials_file: str | None = None
+    # MQTT ingest (separate process: python -m app.mqtt_ingest)
+    mqtt_host: str = "localhost"
+    mqtt_port: int = 1883
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
+    mqtt_max_msgs_per_s: int = 30  # per sensor; floods are dropped
     cors_origins: list[str] = ["*"]

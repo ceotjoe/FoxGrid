@@ -372,3 +372,57 @@ class RssiOut(BaseModel):
 class RssiBatchResult(BaseModel):
     stored: int
     duplicates: int
+
+
+class SensorCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    kind: Literal["station", "relay"] = "station"
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+
+    @field_validator("name")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return v.strip()
+
+
+class SensorPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_active: bool | None = None
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+
+
+class SensorOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    kind: str
+    callsign: str  # the virtual participant that carries the sensor's bearings
+    lat: float | None
+    lon: float | None
+    is_active: bool
+    last_seen_at: datetime | None
+    online: bool  # heard from within the last two minutes
+    topic_prefix: str
+
+
+class SensorCreated(SensorOut):
+    api_key: str  # shown once; only its hash is stored
+
+
+class SuggestionOut(BaseModel):
+    lat: float
+    lon: float
+    expected_reduction: float
+    expected_semi_major_m: float
+    expected_semi_minor_m: float
+    azimuth_to_target_deg: float
+    distance_to_target_m: float
+
+
+class SuggestionsOut(BaseModel):
+    scope: Scope
+    n_bearings: int
+    typical_sigma_deg: float
+    suggestions: list[SuggestionOut]

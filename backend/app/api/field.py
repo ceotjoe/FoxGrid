@@ -6,7 +6,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from foxgrid_engine import Bearing as EngineBearing
@@ -44,7 +44,7 @@ from app.schemas.api import (
     TransmissionStart,
     TransmissionStop,
 )
-from app.services import domain, push
+from app.services import domain, push, transmissions
 from app.services.recompute import (
     MIN_BEARINGS,
     RecomputeScheduler,
@@ -127,42 +127,30 @@ async def start_transmission(
 ) -> TransmissionOut:
     mission = await _active_mission(session, mission_id)
     body = body or TransmissionStart()
-    seq = (
-        await session.scalar(
-            select(Transmission.seq)
-            .where(Transmission.mission_id == mission_id)
-            .order_by(Transmission.seq.desc())
-            .limit(1)
-        )
-        or 0
-    ) + 1
-    tx = Transmission(
-        mission_id=mission_id,
-        seq=seq,
-        started_at=body.at or datetime.now(UTC),
-        started_by=actor.id,
-        note=body.note,
-    )
-    session.add(tx)
-    try:
-        await session.flush()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise HTTPException(409, "a transmission is already running") from exc
-    await domain.audit(session, mission_id, actor.id, "start", "transmission", tx.id, seq=seq)
-    await session.commit()
-    out = transmission_out(tx)
-    await events.publish(redis, mission_id, "transmission_started", event_json(out))
-    scheduler.schedule(mission_id)
     app = request.app
-    task = asyncio.create_task(
-        push.notify_transmission_started(
-            app.state.push, app.state.sessionmaker, mission_id, actor.id, mission.name
+
+    def notify(_: Transmission) -> None:
+        task = asyncio.create_task(
+            push.notify_transmission_started(
+                app.state.push, app.state.sessionmaker, mission_id, actor.id, mission.name
+            )
         )
-    )
-    app.state.background.add(task)  # keep a reference until done
-    task.add_done_callback(app.state.background.discard)
-    return out
+        app.state.background.add(task)  # keep a reference until done
+        task.add_done_callback(app.state.background.discard)
+
+    try:
+        return await transmissions.start_transmission(
+            session,
+            redis,
+            scheduler,
+            mission,
+            actor,
+            at=body.at,
+            note=body.note,
+            after_commit=notify,
+        )
+    except transmissions.AlreadyRunningError as exc:
+        raise HTTPException(409, "a transmission is already running") from exc
 
 
 @router.post("/transmissions/stop", response_model=TransmissionOut)
@@ -175,22 +163,12 @@ async def stop_transmission(
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> TransmissionOut:
     await _active_mission(session, mission_id)
-    tx = await session.scalar(
-        select(Transmission)
-        .where(Transmission.mission_id == mission_id, Transmission.ended_at.is_(None))
-        .with_for_update()
-    )
-    if tx is None:
-        raise HTTPException(409, "no transmission is running")
-    ended = (body.at if body and body.at else None) or datetime.now(UTC)
-    tx.ended_at = max(ended, tx.started_at)
-    tx.ended_by = actor.id
-    await domain.audit(session, mission_id, actor.id, "stop", "transmission", tx.id)
-    await session.commit()
-    out = transmission_out(tx)
-    await events.publish(redis, mission_id, "transmission_ended", event_json(out))
-    scheduler.schedule(mission_id)
-    return out
+    try:
+        return await transmissions.stop_transmission(
+            session, redis, scheduler, mission_id, actor, at=body.at if body else None
+        )
+    except transmissions.NotRunningError as exc:
+        raise HTTPException(409, "no transmission is running") from exc
 
 
 @router.get("/transmissions", response_model=list[TransmissionOut])

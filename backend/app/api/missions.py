@@ -21,6 +21,7 @@ from app.models import (
     Participant,
     PositionSample,
     RssiSample,
+    Sensor,
     Task,
     Team,
     Transmission,
@@ -113,6 +114,10 @@ async def join(
             Participant.mission_id == mission.id, Participant.callsign == body.callsign
         )
     )
+    if participant is not None and await session.scalar(
+        select(Sensor.id).where(Sensor.participant_id == participant.id)
+    ):
+        raise HTTPException(403, "this callsign belongs to a sensor")
     if participant is None:
         if invite.max_uses is not None and invite.uses >= invite.max_uses:
             raise HTTPException(403, "invalid or expired invite")

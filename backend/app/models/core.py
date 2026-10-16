@@ -169,6 +169,7 @@ class Bearing(Base):
     is_outlier: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     source: Mapped[str] = mapped_column(String(10), default="manual")
+    sensor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sensors.id"), nullable=True)
 
     __table_args__ = (
         CheckConstraint("azimuth_true_deg >= 0 AND azimuth_true_deg < 360", name="ck_bearing_az"),
@@ -323,9 +324,37 @@ class RssiSample(Base):
     received_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     source: Mapped[str] = mapped_column(String(10), default="manual")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sensor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sensors.id"), nullable=True)
 
     __table_args__ = (
         CheckConstraint("source in ('manual','cat','sensor')", name="ck_rssi_source"),
         CheckConstraint("attenuation_db >= 0", name="ck_rssi_attenuation"),
         Index("ix_rssi_mission_measured", "mission_id", "measured_at"),
+    )
+
+
+class Sensor(Base):
+    """An automatic station (bearings/RSSI) or a repeater hook that reports over MQTT.
+
+    Every sensor owns a virtual participant so its data fits the normal model (bearings need a
+    participant). That participant can never be joined by a human.
+    """
+
+    __tablename__ = "sensors"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True, default=uuid.uuid4)
+    mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"), index=True)
+    participant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id"), unique=True)
+    name: Mapped[str] = mapped_column(String(60))
+    kind: Mapped[str] = mapped_column(String(10), default="station")
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)  # fixed position
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    api_key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    __table_args__ = (
+        CheckConstraint("kind in ('station','relay')", name="ck_sensor_kind"),
+        UniqueConstraint("mission_id", "name", name="uq_sensor_name"),
     )

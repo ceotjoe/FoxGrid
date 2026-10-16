@@ -104,3 +104,52 @@ async def server(settings: Settings) -> AsyncIterator[Server]:
 async def client(server: Server) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(base_url=f"{server.base_url}/api/v1", timeout=10) as c:
         yield c
+
+
+class FakePush:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[object], str, str, dict[str, str]]] = []
+
+    async def send(self, targets, title, body, data):  # type: ignore[no-untyped-def]
+        self.calls.append((targets, title, body, data))
+        return []
+
+
+@pytest_asyncio.fixture
+async def ingest_ctx(settings: Settings, server: Server):  # type: ignore[no-untyped-def]
+    """An ingest context on its own connections (the handlers are called directly)."""
+    from redis.asyncio import Redis
+
+    from app.db import make_engine, make_sessionmaker
+    from app.services.ingest import IngestContext
+    from app.services.recompute import RecomputeScheduler
+
+    engine = make_engine(settings.database_url)
+    sessionmaker = make_sessionmaker(engine)
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    scheduler = RecomputeScheduler(sessionmaker, redis, settings)
+    ctx = IngestContext(sessionmaker, redis, scheduler, FakePush(), settings)
+    yield ctx
+    await scheduler.shutdown()
+    await redis.aclose()
+    await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def mosquitto(tmp_path_factory: pytest.TempPathFactory):  # type: ignore[no-untyped-def]
+    """A real MQTT broker (anonymous, for tests only)."""
+    import re
+
+    from testcontainers.core.container import DockerContainer
+    from testcontainers.core.wait_strategies import LogMessageWaitStrategy
+
+    conf = tmp_path_factory.mktemp("mosquitto") / "mosquitto.conf"
+    conf.write_text("listener 1883\nallow_anonymous true\n")
+    container = (
+        DockerContainer("eclipse-mosquitto:2")
+        .with_exposed_ports(1883)
+        .with_volume_mapping(str(conf), "/mosquitto/config/mosquitto.conf", "ro")
+        .waiting_for(LogMessageWaitStrategy(re.compile(r"mosquitto version .* running")))
+    )
+    with container:
+        yield container.get_container_host_ip(), int(container.get_exposed_port(1883))
