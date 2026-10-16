@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 200 200"><rect width="200" height="200" fill="#0B3B3C"/>
+  <g stroke="#fff" stroke-width="2.5" opacity=".22">
+    <line x1="40" y1="20" x2="40" y2="180"/><line x1="100" y1="20" x2="100" y2="180"/><line x1="160" y1="20" x2="160" y2="180"/>
+    <line x1="20" y1="40" x2="180" y2="40"/><line x1="20" y1="100" x2="180" y2="100"/><line x1="20" y1="160" x2="180" y2="160"/>
+  </g>
+  <polygon points="52,66 58,22 94,48" fill="#FF7A1A"/>
+  <polygon points="148,66 142,22 106,48" fill="#FF7A1A"/>
+  <circle cx="100" cy="106" r="58" fill="none" stroke="#fff" stroke-width="9"/>
+  <g transform="rotate(-28 100 106)"><ellipse cx="100" cy="106" rx="38" ry="19" fill="#FF7A1A" opacity=".95"/></g>
+  <g stroke="#fff" stroke-width="6" stroke-linecap="round">
+    <line x1="100" y1="30" x2="100" y2="58"/><line x1="100" y1="154" x2="100" y2="182"/>
+    <line x1="24" y1="106" x2="52" y2="106"/><line x1="148" y1="106" x2="176" y2="106"/>
+  </g>
+  <circle cx="100" cy="106" r="6" fill="#fff"/>
+</svg>
