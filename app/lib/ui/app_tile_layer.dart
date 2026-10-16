@@ -15,7 +15,7 @@ class AppTileLayer extends ConsumerWidget {
     final cache = ref.watch(tileCacheProvider).value;
     final layer = TileLayer(
       urlTemplate: settings.tileUrl,
-      userAgentPackageName: 'de.foxgrid.foxgrid',
+      userAgentPackageName: 'com.itwebservice.foxgrid',
       maxZoom: settings.baseMap == BaseMap.topo ? 17 : 19,
       tileProvider: cache == null
           ? NetworkTileProvider()
