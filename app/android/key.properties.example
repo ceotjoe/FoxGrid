@@ -1,0 +1,5 @@
+# Copy to android/key.properties (gitignored). The keystore path is relative to android/.
+storeFile=../foxgrid-upload.jks
+storePassword=change-me
+keyAlias=upload
+keyPassword=change-me

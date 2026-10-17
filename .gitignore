@@ -12,3 +12,11 @@ build/
 .dart_tool/
 .idea/
 .DS_Store
+
+# Store signing material
+*.p12
+*.p8
+*.mobileprovision
+*.jks
+*.keystore
+android/key.properties
