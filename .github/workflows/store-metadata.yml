@@ -1,0 +1,46 @@
+name: Store metadata
+
+# Pushes listing texts, graphics and screenshots (store/metadata) to the stores without a new build.
+# Run manually after changing store/ or after tools/store/generate_assets.py.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Store
+        type: choice
+        options: [both, android, ios]
+        default: both
+
+jobs:
+  android:
+    if: inputs.platform != 'ios'
+    runs-on: ubuntu-latest
+    environment: store-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with: { bundler-cache: true }
+      - run: bundle exec fastlane android metadata
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+
+  ios:
+    if: inputs.platform != 'android'
+    runs-on: macos-latest
+    environment: store-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with: { bundler-cache: true }
+      - run: bundle exec fastlane ios metadata
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          REVIEW_DEMO_SERVER: ${{ secrets.REVIEW_DEMO_SERVER }}
+          REVIEW_DEMO_INVITE: ${{ secrets.REVIEW_DEMO_INVITE }}
+          REVIEW_FIRST_NAME: ${{ secrets.REVIEW_FIRST_NAME }}
+          REVIEW_LAST_NAME: ${{ secrets.REVIEW_LAST_NAME }}
+          REVIEW_PHONE: ${{ secrets.REVIEW_PHONE }}
+          REVIEW_EMAIL: ${{ secrets.REVIEW_EMAIL }}

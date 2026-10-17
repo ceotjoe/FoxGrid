@@ -1,0 +1,141 @@
+# Store delivery for FoxGrid. Run from the repository root through the GitHub workflows
+# (.github/workflows/release.yml, store-metadata.yml); how to set up the secrets: docs/release.md.
+#
+#   bundle exec fastlane android beta           upload app/build/app/outputs/bundle/release/app-release.aab
+#   bundle exec fastlane android metadata       listing texts, graphics and screenshots only
+#   bundle exec fastlane ios beta               sign, build and upload to TestFlight (build / upload separately in CI)
+#   bundle exec fastlane ios metadata           listing texts and screenshots only
+
+default_platform(:android)
+
+BUNDLE_ID = "com.itwebservice.foxgrid"
+TEAM_ID = "Q486NF4XF6"
+IOS_PROFILE = "FoxGrid App Store" # name of the App Store provisioning profile, see ios/ExportOptions.plist
+IOS_METADATA = "store/metadata/ios"
+ANDROID_METADATA = "store/metadata/android"
+AAB = "app/build/app/outputs/bundle/release/app-release.aab"
+
+platform :android do
+  desc "Upload the release bundle (and changelogs) to Google Play"
+  lane :beta do |options|
+    upload_to_play_store(
+      package_name: BUNDLE_ID,
+      json_key_data: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON"),
+      aab: AAB,
+      track: options[:track] || ENV.fetch("PLAY_TRACK", "internal"),
+      # A brand-new app only accepts "draft" until the first release was published by hand.
+      release_status: options[:release_status] || ENV.fetch("PLAY_RELEASE_STATUS", "completed"),
+      metadata_path: ANDROID_METADATA,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: false
+    )
+  end
+
+  desc "Upload store listing texts, graphics and screenshots to Google Play"
+  lane :metadata do
+    upload_to_play_store(
+      package_name: BUNDLE_ID,
+      json_key_data: ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON"),
+      metadata_path: ANDROID_METADATA,
+      skip_upload_aab: true,
+      skip_upload_apk: true,
+      skip_upload_changelogs: true
+    )
+  end
+end
+
+platform :ios do
+  def asc_api_key
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_KEY_P8"),
+      is_key_content_base64: false,
+      in_house: false
+    )
+  end
+
+  desc "Sign with the distribution certificate and profile from the environment, build the IPA"
+  lane :build do
+    # Run `flutter build ios --release --no-codesign --build-number N` before: it creates
+    # Generated.xcconfig (version and build number) and installs the pods.
+    setup_ci
+    cert = File.expand_path("../build/ios_dist.p12", __dir__)
+    profile = File.expand_path("../build/ios_app_store.mobileprovision", __dir__)
+    File.binwrite(cert, Base64.decode64(ENV.fetch("IOS_DIST_CERT_P12_BASE64")))
+    File.binwrite(profile, Base64.decode64(ENV.fetch("IOS_PROVISIONING_PROFILE_BASE64")))
+    import_certificate(
+      certificate_path: cert,
+      certificate_password: ENV.fetch("IOS_DIST_CERT_PASSWORD"),
+      keychain_name: ENV["MATCH_KEYCHAIN_NAME"],
+      keychain_password: ENV.fetch("MATCH_KEYCHAIN_PASSWORD", "")
+    )
+    install_provisioning_profile(path: profile)
+    update_code_signing_settings(
+      path: "app/ios/Runner.xcodeproj",
+      use_automatic_signing: false,
+      team_id: TEAM_ID,
+      targets: ["Runner"],
+      build_configurations: ["Release"],
+      code_sign_identity: "Apple Distribution",
+      profile_name: IOS_PROFILE
+    )
+    build_app(
+      workspace: "app/ios/Runner.xcworkspace",
+      scheme: "Runner",
+      configuration: "Release",
+      export_method: "app-store",
+      export_options: { provisioningProfiles: { BUNDLE_ID => IOS_PROFILE } },
+      output_directory: "build/ios",
+      output_name: "FoxGrid.ipa"
+    )
+  end
+
+  desc "Upload build/ios/FoxGrid.ipa to TestFlight (submitting for App Review stays manual)"
+  lane :upload do
+    upload_to_testflight(
+      api_key: asc_api_key,
+      ipa: "build/ios/FoxGrid.ipa",
+      skip_waiting_for_build_processing: true
+    )
+  end
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    build
+    upload
+  end
+
+  desc "Upload store listing texts and screenshots to App Store Connect"
+  lane :metadata do
+    review = nil
+    if ENV["REVIEW_DEMO_SERVER"]
+      notes = File.read("#{IOS_METADATA}/review_information/notes.txt")
+                  .gsub("{{DEMO_SERVER}}", ENV.fetch("REVIEW_DEMO_SERVER"))
+                  .gsub("{{DEMO_INVITE}}", ENV.fetch("REVIEW_DEMO_INVITE"))
+      review = {
+        first_name: ENV.fetch("REVIEW_FIRST_NAME"),
+        last_name: ENV.fetch("REVIEW_LAST_NAME"),
+        phone_number: ENV.fetch("REVIEW_PHONE"),
+        email_address: ENV.fetch("REVIEW_EMAIL"),
+        demo_user: "", demo_password: "", demo_account_required: false,
+        notes: notes
+      }
+    end
+    deliver(
+      api_key: asc_api_key,
+      app_identifier: BUNDLE_ID,
+      metadata_path: IOS_METADATA,
+      screenshots_path: "#{IOS_METADATA}/screenshots",
+      app_review_information: review,
+      skip_binary_upload: true,
+      submit_for_review: false,
+      automatic_release: false,
+      force: true, # no interactive HTML preview in CI
+      overwrite_screenshots: true,
+      precheck_include_in_app_purchases: false
+    )
+  end
+end

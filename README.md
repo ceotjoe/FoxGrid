@@ -6,7 +6,7 @@ berechnet live den wahrscheinlichsten Standort des Störers samt Fehlerellipse u
 an alle. Lizenz: MIT.
 
 **Stand: Phase 4 (Automatisierung).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
-Konventionen: [CLAUDE.md](CLAUDE.md).
+Konventionen: [CLAUDE.md](CLAUDE.md). Store-Release: [docs/release.md](docs/release.md).
 
 ## Aufbau
 

@@ -1,0 +1,153 @@
+name: Release
+
+# Tag v<version> (must match app/pubspec.yaml) builds signed Android and iOS releases, uploads them to
+# Google Play (internal track) and TestFlight, and attaches them to a GitHub release.
+# Manual run: builds both and keeps them as artifacts; tick "publish" to upload to the stores as well.
+# Secrets and one-time setup: docs/release.md
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload to Google Play and TestFlight
+        type: boolean
+        default: false
+      play_track:
+        description: Google Play track
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+      play_release_status:
+        description: Google Play release status (use draft until the first release was published by hand)
+        type: choice
+        options: [completed, draft]
+        default: completed
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Monotonic store build number. Set the repository variable BUILD_NUMBER_OFFSET if this workflow is
+  # ever recreated (run_number restarts at 1) or a store already knows higher numbers.
+  BUILD_NUMBER: ${{ github.run_number + fromJSON(vars.BUILD_NUMBER_OFFSET || '0') }}
+  PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches pubspec version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -n 's/^version: *\([0-9][0-9.]*\).*/\1/p' pubspec.yaml)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match pubspec version $version"
+            exit 1
+          fi
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: store-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - uses: ruby/setup-ruby@v1
+        with: { bundler-cache: true }
+      - name: Restore upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "::error::ANDROID_KEYSTORE_BASE64 is not set"; exit 1; }
+          echo "$KEYSTORE_BASE64" | base64 --decode > app/android/upload.jks
+      - name: Build signed app bundle
+        working-directory: app
+        env:
+          FOXGRID_KEYSTORE_FILE: upload.jks # relative to app/android
+          FOXGRID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FOXGRID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          FOXGRID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter pub get
+          flutter build appbundle --release --build-number "$BUILD_NUMBER"
+      - name: Refuse debug-signed bundles
+        run: |
+          if keytool -printcert -jarfile app/build/app/outputs/bundle/release/app-release.aab | grep -q "Android Debug"; then
+            echo "::error::The bundle is signed with the debug key"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: app/build/app/outputs/bundle/release/app-release.aab
+      - name: Upload to Google Play
+        if: env.PUBLISH == 'true'
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_TRACK: ${{ inputs.play_track || 'internal' }}
+          PLAY_RELEASE_STATUS: ${{ inputs.play_release_status || 'completed' }}
+        run: bundle exec fastlane android beta
+
+  ios:
+    needs: verify
+    runs-on: macos-latest
+    environment: store-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - uses: ruby/setup-ruby@v1
+        with: { bundler-cache: true }
+      - name: Prepare Flutter build (version, pods)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build ios --release --no-codesign --build-number "$BUILD_NUMBER"
+      - name: Sign and build IPA
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p build
+          bundle exec fastlane ios build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: build/ios/FoxGrid.ipa
+      - name: Upload to TestFlight
+        if: env.PUBLISH == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: bundle exec fastlane ios upload
+
+  github-release:
+    if: github.ref_type == 'tag'
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/android-aab/app-release.aab
+            artifacts/ios-ipa/FoxGrid.ipa

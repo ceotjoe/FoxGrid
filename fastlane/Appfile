@@ -1,0 +1,3 @@
+package_name("com.itwebservice.foxgrid") # Google Play
+app_identifier("com.itwebservice.foxgrid") # App Store Connect
+team_id("Q486NF4XF6")

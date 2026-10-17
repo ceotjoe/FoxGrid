@@ -128,3 +128,13 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 - Mosquitto password file is rebuilt at every start (`entrypoint` in `docker-compose.yml`); the MQTT password
   is optional in `.env` so plain `docker compose up` keeps working, only the broker refuses to start without it.
 - `tools/relay_hook` and `tools/sensor_client` have their own tests: `uv run --with pytest --with aiomqtt pytest tools/relay_hook`.
+
+## Release notes
+- Store release is tag-driven (`.github/workflows/release.yml`, fastlane in `fastlane/`, setup in `docs/release.md`).
+  Release builds accept HTTPS servers only (`serverUrlError` in `join_screen.dart`); cleartext is allowed in the
+  debug manifest only. Android signs from `android/key.properties` or `FOXGRID_*` env vars, never commit keystores.
+- Store texts/graphics: `store/metadata/{ios,android}/<locale>/` (fastlane layout, de-DE + en-US). Raw screenshots in
+  `store/screenshots/raw/`, captions in `store/captions.json`; regenerate with `python3 tools/store/generate_assets.py`.
+  Do not edit the generated PNGs by hand.
+- `app/ios/Runner/PrivacyInfo.xcprivacy`, `docs/privacy*.md` and `docs/store-compliance.md` must stay in sync when the
+  data flow changes. The privacy policy is a draft until the provider details are filled in.
