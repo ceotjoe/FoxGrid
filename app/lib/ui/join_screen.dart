@@ -6,7 +6,20 @@ import '../core/api.dart';
 import '../core/session.dart';
 import '../state/providers.dart';
 
+/// Release builds talk to servers over HTTPS only; plain HTTP stays available
+/// in debug builds for the local dev stack.
+String? serverUrlError(String url, {bool releaseMode = kReleaseMode}) {
+  final uri = Uri.tryParse(url);
+  if (uri == null || !uri.hasAuthority || uri.host.isEmpty) {
+    return 'Bitte eine gültige Server-Adresse eingeben.';
+  }
+  if (uri.scheme == 'https') return null;
+  if (uri.scheme == 'http' && !releaseMode) return null;
+  return 'Der Server muss per HTTPS erreichbar sein (https://…).';
+}
+
 String defaultServerUrl() {
+  if (kReleaseMode) return '';
   if (kIsWeb) return 'http://localhost:8000';
   return defaultTargetPlatform == TargetPlatform.android
       ? 'http://10.0.2.2:8000' // host machine as seen from the Android emulator
@@ -55,9 +68,16 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
 
   String get _base => _server.text.trim().replaceAll(RegExp(r'/+$'), '');
 
+  bool _serverOk(String server) {
+    final error = serverUrlError(server);
+    if (error != null) setState(() => _error = error);
+    return error == null;
+  }
+
   void _join() {
     final parsed = parseInvite(_invite.text);
     final server = parsed.server ?? _base;
+    if (!_serverOk(server)) return;
     _run(
       (api) => api.join(
         baseUrl: server,
@@ -69,6 +89,7 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
   }
 
   void _create() {
+    if (!_serverOk(_base)) return;
     _run(
       (api) => api.createMission(
         baseUrl: _base,
@@ -107,6 +128,7 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
                       labelText: 'Server',
+                      hintText: 'https://foxgrid.example.org',
                       border: OutlineInputBorder(),
                     ),
                   ),
