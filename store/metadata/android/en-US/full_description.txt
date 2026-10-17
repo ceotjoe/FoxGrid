@@ -1,0 +1,39 @@
+FoxGrid helps a group of radio amateurs find an interferer on a 70 cm repeater together. Every participant records bearings, FoxGrid fuses them live into the most likely location of the interferer and shows it to everyone on the map right away.
+
+IMPORTANT: FoxGrid is a client for your own FoxGrid server, which your group runs itself (open source, MIT license). The app cannot be used without a server and an invitation. The app's publisher receives no data.
+
+RECORD BEARINGS
+• Position, azimuth, uncertainty and field strength in a few taps
+• Azimuth is always stored as true north; magnetic input is converted with the declination at your position
+• Uncertainty is mandatory: sharp ±5°, medium ±15°, poor ±30°
+• Bearings are never deleted, only flagged as outliers or deactivated
+
+LIVE ESTIMATE
+• All bearings are fused into one most likely location
+• Error ellipse (1σ/2σ) and probability areas (50/80/95 %) on the map
+• Single outliers barely move the result
+• Filter by transmission and time
+
+HOMING
+• Arrow and distance to the estimated source
+• Signal trend with S-meter input (IARU convention) and attenuator setting
+• Signal levels refine the estimate further
+
+NEXT BEARING
+• The app suggests positions where one more bearing would shrink the error ellipse the most
+
+TEAMWORK
+• Chat for the whole operation or per team
+• Tasks with assignee and map position
+• Fixed bearing stations can feed bearings automatically via MQTT
+
+WORKS OFFLINE
+• Everything you enter is stored locally first and synced automatically later
+• Sync status is always visible
+
+PRIVACY
+• Sign in with an invite link and your callsign: no passwords, no account
+• Location is used only while the app is open, for bearings and the team map
+• Map tiles come from OpenStreetMap and OpenTopoMap
+
+FoxGrid is free software: https://github.com/ceotjoe/FoxGrid

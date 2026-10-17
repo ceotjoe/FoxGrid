@@ -1,0 +1,5 @@
+FoxGrid is a client for a self-hosted server, so there is no account or login. To review the app:
+1. Open the app and enter the server address {{DEMO_SERVER}} in the "Server" field.
+2. Enter any callsign (for example DL0TEST) and this invite token: {{DEMO_INVITE}}
+3. Tap "Beitreten" (Join). The demo mission contains simulated bearings from five stations near Munich.
+The app uses the location only while it is open (to attach your position to bearings). No background location, no tracking, no ads. The UI language is German.

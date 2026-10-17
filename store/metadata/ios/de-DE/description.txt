@@ -1,0 +1,39 @@
+FoxGrid hilft einer Gruppe von Funkamateuren, gemeinsam einen Störsender auf einem 70-cm-Relais zu finden. Jede Teilnehmerin und jeder Teilnehmer trägt Peilungen ein, FoxGrid berechnet daraus live den wahrscheinlichsten Standort des Störers und zeigt ihn allen sofort auf der Karte.
+
+WICHTIG: FoxGrid ist ein Client für einen eigenen FoxGrid-Server, den eure Gruppe selbst betreibt (Open Source, MIT-Lizenz). Ohne Server und Einladung kann die App nicht benutzt werden. Der Anbieter der App erhält keine Daten.
+
+PEILUNGEN ERFASSEN
+• Standort, Azimut, Unsicherheit und Feldstärke in wenigen Taps
+• Azimut immer rechtweisend gespeichert; magnetische Eingaben werden mit der Missweisung des Standorts umgerechnet
+• Unsicherheit ist Pflicht: scharf ±5°, mittel ±15°, schlecht ±30°
+• Peilungen werden nie gelöscht, nur als Ausreißer markiert oder deaktiviert
+
+LIVE-SCHÄTZUNG
+• Alle Peilungen werden zu einem wahrscheinlichsten Standort verdichtet
+• Fehlerellipse (1σ/2σ) und Wahrscheinlichkeitsflächen (50/80/95 %) auf der Karte
+• Einzelne Ausreißer verschieben das Ergebnis kaum
+• Filter nach Aussendung und Zeit
+
+NAHPEILUNG
+• Pfeil und Entfernung zur geschätzten Quelle
+• Pegelverlauf mit S-Meter-Eingabe (IARU-Konvention) und Dämpfungsglied
+• Pegelwerte verbessern die Schätzung zusätzlich
+
+NÄCHSTE PEILUNG
+• Die App schlägt Standorte vor, von denen aus eine weitere Peilung die Fehlerellipse am stärksten verkleinert
+
+TEAMARBEIT
+• Chat für den ganzen Einsatz oder pro Team
+• Aufgaben mit Zuweisung und Kartenposition
+• Feste Peilstationen können per MQTT automatisch Peilungen liefern
+
+OFFLINE-FÄHIG
+• Alle Eingaben werden zuerst lokal gespeichert und später automatisch übertragen
+• Der Synchronisationsstatus ist immer sichtbar
+
+DATENSCHUTZ
+• Anmeldung per Einladungslink und Rufzeichen, keine Passwörter, kein Konto
+• Standort wird nur bei geöffneter App und nur für Peilungen und Teamkarte verwendet
+• Kartenkacheln stammen von OpenStreetMap bzw. OpenTopoMap
+
+FoxGrid ist freie Software: https://github.com/ceotjoe/FoxGrid

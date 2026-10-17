@@ -1,0 +1,1 @@
+Share your bearings live and instantly see where the interferer most likely is, with an error ellipse and a suggestion for the next bearing.

@@ -1,0 +1,1 @@
+Erste Version: Peilungen erfassen, live fusionieren, Nahpeilung mit S-Meter, Team-Chat und Aufgaben, Offline-Betrieb.
