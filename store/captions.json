@@ -4,8 +4,8 @@
     "en": "All bearings live\non one map"
   },
   "02_capture": {
-    "de": "Peilung erfassen:\nAzimut, Unsicherheit, Feldstärke",
-    "en": "Record a bearing:\nazimuth, uncertainty, strength"
+    "de": "Peilung erfassen:\nAzimut, Unsicherheit,\nFeldstärke",
+    "en": "Record a bearing:\nazimuth, uncertainty,\nsignal strength"
   },
   "03_homing": {
     "de": "Endanpeilung\nmit S-Meter und Verlauf",
