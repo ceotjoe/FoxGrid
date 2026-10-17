@@ -1,0 +1,22 @@
+{
+  "01_map": {
+    "de": "Alle Peilungen live\nauf einer Karte",
+    "en": "All bearings live\non one map"
+  },
+  "02_capture": {
+    "de": "Peilung erfassen:\nAzimut, Unsicherheit, Feldstärke",
+    "en": "Record a bearing:\nazimuth, uncertainty, strength"
+  },
+  "03_homing": {
+    "de": "Endanpeilung\nmit S-Meter und Verlauf",
+    "en": "Homing in with\nS-meter and trend"
+  },
+  "04_team": {
+    "de": "Team-Chat und Aufgaben\nim Einsatz",
+    "en": "Team chat and tasks\nduring the hunt"
+  },
+  "05_suggest": {
+    "de": "Vorschläge: Wo peilen\nals Nächstes?",
+    "en": "Suggestions: where to\ntake the next bearing"
+  }
+}
