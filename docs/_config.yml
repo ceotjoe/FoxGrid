@@ -1,0 +1,9 @@
+# GitHub Pages (Settings > Pages > Deploy from branch > /docs): serves the privacy policy for the stores.
+title: FoxGrid
+theme: jekyll-theme-minimal
+exclude:
+  - phase0-plan.md
+  - branding
+  - mqtt.md
+  - release.md
+  - store-compliance.md
