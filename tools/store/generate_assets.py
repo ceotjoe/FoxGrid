@@ -99,7 +99,11 @@ def make_feature_graphic(lang: str) -> None:
 def frame(raw: Path, caption: str, size: tuple[int, int], out: Path) -> None:
     width, height = size
     phone_w = int(width * 0.84)
-    top = int(height * 0.20)
+    font = int(width * 0.062)
+    spacing = int(width * 0.01)
+    lines = caption.count("\n") + 1
+    # Leave room for every caption line, never less than 20 % of the canvas.
+    top = max(int(height * 0.20), int(height * 0.045) + lines * (font + spacing) + int(height * 0.02))
     radius = int(width * 0.05)
     shot = out.parent / ".shot.png"
     # Scale the screenshot, round its corners and add a thin light border.
@@ -113,7 +117,7 @@ def frame(raw: Path, caption: str, size: tuple[int, int], out: Path) -> None:
         "magick", "-size", f"{width}x{height}", f"xc:{BACKGROUND}",
         shot, "-gravity", "north", "-geometry", f"+0+{top}", "-composite",
         "-gravity", "north", "-font", FONT, "-fill", "white",
-        "-pointsize", str(int(width * 0.062)), "-interline-spacing", str(int(width * 0.01)),
+        "-pointsize", str(font), "-interline-spacing", str(spacing),
         "-annotate", f"+0+{int(height * 0.045)}", caption,
         out,
     )
