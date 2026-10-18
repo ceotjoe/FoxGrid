@@ -20,6 +20,7 @@ import 'capture_sheet.dart';
 import 'chat_screen.dart';
 import 'filter_sheet.dart';
 import 'homing_screen.dart';
+import 'station_screen.dart';
 import 'settings_screen.dart';
 import 'sensors_screen.dart';
 import 'suggestions_sheet.dart';
@@ -217,6 +218,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               MaterialPageRoute<void>(builder: (_) => const HomingScreen()),
             ),
           ),
+          if (session.role == 'fixed' || session.isLead)
+            IconButton(
+              key: const Key('open-station'),
+              tooltip: 'Rundstrahl-Station',
+              icon: const Icon(Icons.cell_tower),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const StationScreen()),
+              ),
+            ),
           PopupMenuButton<String>(
             onSelected: (v) {
               switch (v) {
@@ -309,7 +319,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ],
                 ),
-              if (state.rssi.isNotEmpty) _rssiDots(state.rssi),
+              if (state.rssi.any((r) => !r.isStation))
+                _rssiDots(state.rssi.where((r) => !r.isStation).toList()),
               if (estimate != null && filter.showContours)
                 PolygonLayer(polygons: _contourPolygons(estimate)),
               if (estimate != null)
@@ -357,6 +368,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           foregroundColor: Colors.white,
                           child: Text('${i + 1}'),
                         ),
+                      ),
+                    ),
+                  ..._stationMarkers(state),
+                  if (state.mission?.repeater != null)
+                    Marker(
+                      point: state.mission!.repeater!.point,
+                      width: 40,
+                      height: 40,
+                      child: const Icon(
+                        Icons.cell_tower,
+                        color: Colors.deepPurple,
+                        size: 32,
+                        key: Key('repeater-marker'),
                       ),
                     ),
                   if (estimate != null)
@@ -556,6 +580,39 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ];
     final next = order[(order.indexOf(settings.baseMap) + 1) % order.length];
     ref.read(settingsProvider.notifier).setBaseMap(next);
+  }
+
+  /// Fixed omnidirectional stations: the latest S value of each, coloured by level.
+  List<Marker> _stationMarkers(MissionState state) {
+    final latest = <String, RssiSample>{};
+    for (final r in state.rssi) {
+      if (r.isStation && !r.isCalibration) latest[r.participantId] = r;
+    }
+    final (lo, hi) = levelRange(latest.values.map((r) => r.correctedDbm));
+    return [
+      for (final r in latest.values)
+        Marker(
+          point: r.point,
+          width: 64,
+          height: 44,
+          child: Container(
+            key: Key('station-marker-${r.participantId}'),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: rssiColor(r.correctedDbm, min: lo, max: hi),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white, width: 1.5),
+            ),
+            child: Text(
+              dbmToSLabel(r.correctedDbm),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+    ];
   }
 
   /// The homing track as dots coloured by field strength (blue weak, red strong).

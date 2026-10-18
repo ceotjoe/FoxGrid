@@ -13,6 +13,7 @@ const _kindLabels = {
   'tx_start': 'Aussendung Start',
   'tx_stop': 'Aussendung Ende',
   'rssi': 'RSSI-Messwert',
+  'mission': 'Relais-Standort',
 };
 
 /// Status chip for the app bar: shows whether everything reached the server.

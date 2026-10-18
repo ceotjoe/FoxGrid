@@ -578,6 +578,8 @@ class MissionNotifier extends Notifier<MissionState> {
         attenuationDb: (p['attenuation_db'] as num?)?.toDouble() ?? 0,
         measuredAt: DateTime.parse(p['measured_at'] as String).toUtc(),
         pending: true,
+        receiver: (p['receiver'] as String?) ?? 'mobile',
+        isCalibration: (p['is_calibration'] as bool?) ?? false,
       );
 
   static ChatMessage _messageFromPayload(Map<String, dynamic> p, Session s) =>
@@ -662,6 +664,8 @@ class MissionNotifier extends Notifier<MissionState> {
     double attenuationDb = 0,
     String source = 'manual',
     DateTime? when,
+    String receiver = 'mobile',
+    bool isCalibration = false,
   }) async {
     final payload = {
       'id': const Uuid().v4(),
@@ -672,6 +676,8 @@ class MissionNotifier extends Notifier<MissionState> {
       'attenuation_db': attenuationDb,
       'measured_at': (when ?? DateTime.now()).toUtc().toIso8601String(),
       'source': source,
+      if (receiver != 'mobile') 'receiver': receiver,
+      if (isCalibration) 'is_calibration': true,
     };
     state = state.copyWith(
       rssi: [...state.rssi, _rssiFromPayload(payload, _session)],
@@ -681,6 +687,20 @@ class MissionNotifier extends Notifier<MissionState> {
       method: 'POST',
       path: '$_base/rssi',
       body: [payload],
+    );
+  }
+
+  /// Lead only: sets where the repeater is and on which frequencies it works.
+  Future<void> setRepeater(Repeater repeater) async {
+    final mission = state.mission;
+    if (mission != null) {
+      state = state.copyWith(mission: mission.withRepeater(repeater));
+    }
+    await _enqueue(
+      kind: 'mission',
+      method: 'PATCH',
+      path: _base,
+      body: {'repeater': repeater.toJson()},
     );
   }
 
@@ -937,6 +957,43 @@ class DeclinationNotifier extends Notifier<double?> {
 final declinationProvider = NotifierProvider<DeclinationNotifier, double?>(
   DeclinationNotifier.new,
 );
+
+/// Fixed location of this station for the current mission (typed in, e.g. a home QTH without GPS
+/// or with a poor fix indoors); persisted per mission. `null` = use the GPS position.
+class StationPositionNotifier extends Notifier<LatLng?> {
+  String? get _key {
+    final id = ref.watch(sessionProvider)?.missionId;
+    return id == null ? null : 'foxgrid.station.$id';
+  }
+
+  @override
+  LatLng? build() {
+    final key = _key;
+    if (key == null) return null;
+    final parts = ref.watch(sharedPrefsProvider).getString(key)?.split(',');
+    if (parts == null || parts.length != 2) return null;
+    final lat = double.tryParse(parts[0]);
+    final lon = double.tryParse(parts[1]);
+    return lat == null || lon == null ? null : LatLng(lat, lon);
+  }
+
+  Future<void> set(LatLng? point) async {
+    state = point;
+    final key = _key;
+    if (key == null) return;
+    final prefs = ref.read(sharedPrefsProvider);
+    if (point == null) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, '${point.latitude},${point.longitude}');
+    }
+  }
+}
+
+final stationPositionProvider =
+    NotifierProvider<StationPositionNotifier, LatLng?>(
+      StationPositionNotifier.new,
+    );
 
 /// Attenuator currently in front of the receiver (dB); persisted so it survives restarts.
 class AttenuationNotifier extends Notifier<int> {

@@ -31,13 +31,17 @@ Map<String, dynamic> snapshotJson({
   List<Map<String, dynamic>> estimates = const [],
   List<Map<String, dynamic>> messages = const [],
   List<Map<String, dynamic>> tasks = const [],
+  Map<String, dynamic>? repeater,
+  List<Map<String, dynamic>> rssi = const [],
 }) => {
   'mission': {
     'id': 'm1',
     'name': 'Test hunt',
     'frequency_mhz': 433.5,
     'status': 'active',
+    'repeater': ?repeater,
   },
+  'rssi': rssi,
   'participants': [
     {'id': 'p1', 'callsign': 'DL1ABC', 'role': 'lead', 'team': 'Alpha'},
     {'id': 'p2', 'callsign': 'DL2XYZ', 'role': 'mobile', 'team': null},

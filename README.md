@@ -111,6 +111,19 @@ uv run tools/sensor_client/station.py --help   # Beispielclient für eine Peilst
 uv run tools/relay_hook/hook.py --help         # Relais-Hook
 ```
 
+**Phase 5 (Rundstrahler):**
+- Feste Stationen mit Rundstrahlantenne (Rolle *fixed*) melden den S-Wert des Störers über das Sendemast-Symbol
+  in der Kartenleiste. **Gemessen wird auf der Eingabefrequenz des Relais** (Reverse-Taste): auf der Ausgabe hört man
+  nur das Relais. Der Standort kommt per GPS oder wird als fester Standort eingegeben (z. B. Heim-QTH, gilt je Einsatz). Die Meldung läuft über dieselbe Offline-Queue wie alle Messwerte.
+- Die Engine fusioniert die Pegel mehrerer Stationen über das Log-Distanzmodell. Jede Station bekommt einen
+  unbekannten Offset (Antenne, Kabel, Empfänger, Prior ±6 dB, `engine_params.rssi_station_sigma_db`); es braucht
+  mindestens 4 Stationen (`rssi_omni_min_stations`), pro Station und Aussendung zählt der Median.
+- Kalibrierung (optional): Die Einsatzleitung legt den Relais-Standort fest (Station → *Relais festlegen*, oder
+  `PATCH /missions/{id}`). Jede Station misst einmal den Pegel der Relais-**Ausgabe**; daraus werden die relativen
+  Offsets der Stationen berechnet.
+- Erwartung: nur ein grobes Gebiet (Größenordnung km bei Stationen in 2–15 km Entfernung, siehe
+  `uv run tools/simulator/omni_eval.py`). Peilungen dominieren, sobald sie vorliegen.
+
 ## Push-Benachrichtigungen einrichten
 
 Der Server verschickt bei Aussendungsstart einen Push an alle anderen Teilnehmer, sobald

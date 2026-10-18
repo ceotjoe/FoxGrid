@@ -3,6 +3,28 @@ import 'package:latlong2/latlong.dart';
 DateTime _time(Object? v) => DateTime.parse(v! as String).toUtc();
 double? _d(Object? v) => (v as num?)?.toDouble();
 
+/// The repeater the interferer is heard on. Fixed stations measure its *input* frequency.
+class Repeater {
+  const Repeater({required this.point, this.inputMhz, this.outputMhz});
+
+  final LatLng point;
+  final double? inputMhz;
+  final double? outputMhz;
+
+  factory Repeater.fromJson(Map<String, dynamic> j) => Repeater(
+    point: LatLng(_d(j['lat'])!, _d(j['lon'])!),
+    inputMhz: _d(j['input_mhz']),
+    outputMhz: _d(j['output_mhz']),
+  );
+
+  Map<String, dynamic> toJson() => {
+    'lat': point.latitude,
+    'lon': point.longitude,
+    'input_mhz': inputMhz,
+    'output_mhz': outputMhz,
+  };
+}
+
 class Mission {
   const Mission({
     required this.id,
@@ -10,6 +32,7 @@ class Mission {
     required this.frequencyMhz,
     required this.status,
     this.searchArea,
+    this.repeater,
   });
 
   final String id;
@@ -17,6 +40,16 @@ class Mission {
   final double frequencyMhz;
   final String status;
   final List<LatLng>? searchArea;
+  final Repeater? repeater;
+
+  Mission withRepeater(Repeater? value) => Mission(
+    id: id,
+    name: name,
+    frequencyMhz: frequencyMhz,
+    status: status,
+    searchArea: searchArea,
+    repeater: value,
+  );
 
   bool get isActive => status == 'active';
 
@@ -28,6 +61,9 @@ class Mission {
     searchArea: (j['search_area'] as List?)
         ?.map((p) => LatLng((p as List)[1] as double, p[0] as double))
         .toList(),
+    repeater: j['repeater'] == null
+        ? null
+        : Repeater.fromJson(j['repeater'] as Map<String, dynamic>),
   );
 }
 
@@ -162,6 +198,7 @@ class RssiFit {
     required this.exponent,
     required this.residualDb,
     required this.nSamples,
+    this.stationOffsetsDb = const {},
   });
 
   final double p0Dbm;
@@ -169,11 +206,18 @@ class RssiFit {
   final double residualDb;
   final int nSamples;
 
+  /// Estimated receiver offset (dB) per fixed station, keyed by participant id.
+  final Map<String, double> stationOffsetsDb;
+
   factory RssiFit.fromJson(Map<String, dynamic> j) => RssiFit(
     p0Dbm: _d(j['p0_dbm'])!,
     exponent: _d(j['exponent'])!,
     residualDb: _d(j['residual_db'])!,
     nSamples: j['n_samples'] as int,
+    stationOffsetsDb: {
+      for (final e in ((j['station_offsets_db'] as Map?) ?? const {}).entries)
+        e.key as String: _d(e.value)!,
+    },
   );
 }
 
@@ -187,11 +231,20 @@ class RssiSample {
     required this.measuredAt,
     this.attenuationDb = 0,
     this.pending = false,
+    this.receiver = 'mobile',
+    this.isCalibration = false,
   });
 
   final String id;
   final String participantId;
   final LatLng point;
+
+  /// `mobile` = the moving homing device, `omni` = a fixed omnidirectional station.
+  final String receiver;
+
+  /// A reading of the repeater output (not the interferer) used to calibrate a station.
+  final bool isCalibration;
+  bool get isStation => receiver == 'omni';
 
   /// As read from the receiver.
   final double rssiDbm;
@@ -209,6 +262,8 @@ class RssiSample {
     rssiDbm: _d(j['rssi_dbm'])!,
     attenuationDb: _d(j['attenuation_db']) ?? 0,
     measuredAt: _time(j['measured_at']),
+    receiver: (j['receiver'] as String?) ?? 'mobile',
+    isCalibration: (j['is_calibration'] as bool?) ?? false,
   );
 }
 

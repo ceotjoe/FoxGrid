@@ -153,3 +153,7 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   lead only). Calibration readings (repeater **output**, known position) never enter the fit: `calibration_offsets` in
   `services/recompute.py` turns them into relative station offsets (assumed exponent 3, needs 3 stations, centred on the mean)
   which are passed to the engine as `offset_db`. `rssi.station_offsets_db` of an estimate is keyed by participant id.
+- 5c app: `lib/ui/station_screen.dart` (role `fixed`/lead; S-value buttons, calibration switch, lead dialog for the repeater).
+  Readings go through `MissionNotifier.logRssi(receiver: 'omni', isCalibration: ...)`, the repeater through
+  `setRepeater` (outbox kind `mission`, PATCH). The map draws station markers (latest S value) and the repeater; the
+  homing dots only show `mobile` readings. A station can type in a fixed location (`stationPositionProvider`, persisted per mission) which wins over GPS.
