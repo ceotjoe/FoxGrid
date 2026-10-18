@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import time
 import uuid
 from typing import Any
@@ -14,6 +15,7 @@ from foxgrid_engine import Bearing as EngineBearing
 from foxgrid_engine import EngineError, EngineParams
 from foxgrid_engine import RssiSample as EngineRssi
 from foxgrid_engine import estimate as run_engine
+from foxgrid_engine.rssi import usable_samples
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -26,6 +28,8 @@ from app.services.serialize import estimate_out, event_json
 log = logging.getLogger(__name__)
 
 MIN_BEARINGS = 2
+CALIBRATION_EXPONENT = 3.0  # path loss exponent assumed towards the repeater
+CALIBRATION_MIN_STATIONS = 3  # offsets are relative, so a mean needs a few stations
 
 
 def engine_params_for(mission: Mission, now: float) -> EngineParams:
@@ -38,13 +42,78 @@ def uses_rssi(mission: Mission) -> bool:
     return (mission.engine_params or {}).get("use_rssi") is not False
 
 
+def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = (
+        math.sin((p2 - p1) / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    )
+    return 2 * 6_371_000.0 * math.asin(math.sqrt(a))
+
+
+def calibration_offsets(mission: Mission, rows: list[RssiSample]) -> dict[uuid.UUID, float]:
+    """Relative receiver offset (dB) per fixed station from readings of the repeater output.
+
+    The repeater transmits with the same power for everyone, so after removing the path loss
+    (assumed exponent) the remaining differences are the stations' antenna/receiver offsets. They
+    are only known relative to each other, hence centred on their mean.
+    """
+    if mission.repeater_lat is None or mission.repeater_lon is None:
+        return {}
+    latest: dict[uuid.UUID, RssiSample] = {}
+    for r in sorted(rows, key=lambda r: r.measured_at):
+        if r.is_calibration and r.is_active and r.receiver == "omni":
+            latest[r.participant_id] = r
+    if len(latest) < CALIBRATION_MIN_STATIONS:
+        return {}
+    ref = {
+        pid: r.rssi_dbm
+        + r.attenuation_db
+        + 10.0
+        * CALIBRATION_EXPONENT
+        * math.log10(
+            max(_distance_m(r.lat, r.lon, mission.repeater_lat, mission.repeater_lon), 10.0)
+        )
+        for pid, r in latest.items()
+    }
+    mean = sum(ref.values()) / len(ref)
+    return {pid: v - mean for pid, v in ref.items()}
+
+
+async def load_calibration(session: AsyncSession, mission: Mission) -> dict[uuid.UUID, float]:
+    """Station offsets from the mission's calibration readings (independent of any time filter)."""
+    rows = (
+        await session.scalars(
+            select(RssiSample).where(
+                RssiSample.mission_id == mission.id,
+                RssiSample.is_calibration.is_(True),
+                RssiSample.is_active.is_(True),
+            )
+        )
+    ).all()
+    return calibration_offsets(mission, list(rows))
+
+
 def _input_hash(
-    bearings: list[Bearing], params: EngineParams, rssi: list[RssiSample] | None = None
+    bearings: list[Bearing],
+    params: EngineParams,
+    rssi: list[RssiSample] | None = None,
+    offsets: dict[uuid.UUID, float] | None = None,
 ) -> str:
     rows = sorted(
         [str(b.id), float(b.azimuth_true_deg), float(b.sigma_deg), b.lat, b.lon] for b in bearings
     )
-    rssi_rows = sorted([str(r.id), r.rssi_dbm, r.attenuation_db] for r in rssi or [])
+    offsets = offsets or {}
+    rssi_rows = sorted(
+        [
+            str(r.id),
+            r.rssi_dbm,
+            r.attenuation_db,
+            r.receiver,
+            round(offsets.get(r.participant_id, 0.0), 3),
+        ]
+        for r in rssi or []
+    )
     # `now` only matters for age weighting; bucket it so idle triggers stay cheap.
     now_bucket = int(params.now // 60) if params.half_life_s and params.now else None
     blob = json.dumps(
@@ -58,6 +127,8 @@ def _input_hash(
             rssi_rows,
             params.rssi_sigma_db,
             params.rssi_weight,
+            params.rssi_station_sigma_db,
+            params.rssi_omni_min_stations,
         ]
     )
     return hashlib.sha256(blob.encode()).hexdigest()
@@ -74,13 +145,17 @@ def _to_engine(b: Bearing) -> EngineBearing:
     )
 
 
-def _to_engine_rssi(r: RssiSample) -> EngineRssi:
+def _to_engine_rssi(r: RssiSample, offsets: dict[uuid.UUID, float]) -> EngineRssi:
+    fixed = r.receiver == "omni"
     return EngineRssi(
         lat=r.lat,
         lon=r.lon,
         rssi_dbm=r.rssi_dbm,
         attenuation_db=r.attenuation_db,
         measured_at=r.measured_at.timestamp(),
+        group=str(r.participant_id) if fixed else None,
+        event=str(r.transmission_id) if fixed and r.transmission_id else None,
+        offset_db=offsets.get(r.participant_id, 0.0) if fixed else 0.0,
     )
 
 
@@ -93,6 +168,7 @@ def rssi_fit_json(result: Any) -> dict[str, Any] | None:
         "exponent": fit.exponent,
         "residual_db": fit.residual_db,
         "n_samples": fit.n_samples,
+        "station_offsets_db": dict(fit.station_offsets_db),
     }
 
 
@@ -170,8 +246,9 @@ async def compute_mission(
         )
     ).all()
     rssi_rows: list[RssiSample] = []
+    offsets: dict[uuid.UUID, float] = {}
     if uses_rssi(mission):
-        rssi_rows = list(
+        all_rssi = list(
             (
                 await session.scalars(
                     select(RssiSample).where(
@@ -180,6 +257,8 @@ async def compute_mission(
                 )
             ).all()
         )
+        offsets = calibration_offsets(mission, all_rssi)
+        rssi_rows = [r for r in all_rssi if not r.is_calibration]
     current_tx = await session.scalar(
         select(Transmission)
         .where(Transmission.mission_id == mission_id)
@@ -197,9 +276,10 @@ async def compute_mission(
 
     created: list[Estimate] = []
     for scope, (subset, rssi_subset) in scopes.items():
-        if len(subset) < MIN_BEARINGS and len(rssi_subset) < params.rssi_min_samples:
+        engine_rssi = [_to_engine_rssi(r, offsets) for r in rssi_subset]
+        if len(subset) < MIN_BEARINGS and not usable_samples(engine_rssi, params):
             continue
-        digest = _input_hash(subset, params, rssi_subset)
+        digest = _input_hash(subset, params, rssi_subset, offsets)
         last = await session.scalar(
             select(Estimate)
             .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
@@ -214,7 +294,7 @@ async def compute_mission(
                 run_engine,
                 [_to_engine(b) for b in subset],
                 params,
-                [_to_engine_rssi(r) for r in rssi_subset],
+                engine_rssi,
             )
         except EngineError:
             log.exception("engine rejected input for mission %s", mission_id)

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_scheduler, member
 from app.db import get_session
-from app.models import Participant, RssiSample
+from app.models import Mission, Participant, RssiSample
 from app.schemas.api import RssiBatchResult, RssiIn, RssiOut, RssiPatch
 from app.services import domain
 from app.services.recompute import RecomputeScheduler
@@ -29,6 +29,8 @@ def _same(existing: RssiSample, body: RssiIn, actor: Participant, mission_id: uu
         and abs(existing.rssi_dbm - body.rssi_dbm) < 1e-6
         and abs(existing.lat - body.lat) < 1e-9
         and abs(existing.lon - body.lon) < 1e-9
+        and existing.receiver == body.receiver
+        and existing.is_calibration == body.is_calibration
     )
 
 
@@ -43,6 +45,12 @@ async def post_rssi(
     """Idempotent batch upload. Allowed after the mission ended so offline logs are not lost."""
     if not 1 <= len(body) <= MAX_BATCH:
         raise HTTPException(422, f"between 1 and {MAX_BATCH} samples per request")
+    if any(s.receiver == "omni" for s in body) and actor.role not in ("fixed", "lead"):
+        raise HTTPException(403, "only fixed stations (or a lead) may report omni readings")
+    if any(s.is_calibration for s in body):
+        mission = await session.get(Mission, mission_id)
+        if mission is None or mission.repeater_lat is None:
+            raise HTTPException(422, "set the repeater position before calibration readings")
     ids = [s.id for s in body]
     if len(set(ids)) != len(ids):
         raise HTTPException(422, "duplicate ids in one request")
@@ -74,6 +82,8 @@ async def post_rssi(
                 attenuation_db=sample.attenuation_db,
                 measured_at=sample.measured_at,
                 source=sample.source,
+                receiver=sample.receiver,
+                is_calibration=sample.is_calibration,
             )
         )
         stored += 1

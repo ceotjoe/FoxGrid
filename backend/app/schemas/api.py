@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Role = Literal["lead", "fixed", "mobile"]
 Polarization = Literal["h", "v", "unknown"]
@@ -38,6 +38,24 @@ class EngineParamsIn(BaseModel):
     use_rssi: bool | None = None  # include the homing RSSI track in the estimate (default on)
     rssi_sigma_db: float | None = Field(default=None, gt=0, le=30)
     rssi_weight: float | None = Field(default=None, ge=0, le=5)
+    # fixed stations: spread of the unknown receiver offsets and the minimum number of stations
+    rssi_station_sigma_db: float | None = Field(default=None, ge=0, le=20)
+    rssi_omni_min_stations: int | None = Field(default=None, ge=3, le=50)
+
+
+class RepeaterIn(BaseModel):
+    """The repeater the interferer is heard on. Stations measure its *input* frequency."""
+
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    input_mhz: float | None = Field(default=None, gt=0, lt=10_000)
+    output_mhz: float | None = Field(default=None, gt=0, lt=10_000)
+
+
+class MissionPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repeater: RepeaterIn | None = None
 
 
 class MissionCreate(BaseModel):
@@ -48,6 +66,7 @@ class MissionCreate(BaseModel):
     search_area: list[tuple[float, float]] | None = Field(default=None, min_length=3)
     track_retention_days: int = Field(default=30, ge=1, le=3650)
     engine_params: EngineParamsIn = Field(default_factory=EngineParamsIn)
+    repeater: RepeaterIn | None = None
 
     @field_validator("callsign")
     @classmethod
@@ -65,6 +84,7 @@ class MissionOut(BaseModel):
     track_retention_days: int
     engine_params: dict[str, Any]
     search_area: list[tuple[float, float]] | None = None
+    repeater: RepeaterIn | None = None
 
 
 class ParticipantOut(ORM):
@@ -225,6 +245,8 @@ class RssiFitOut(BaseModel):
     exponent: float  # path loss exponent n
     residual_db: float
     n_samples: int
+    # estimated receiver offset (dB) per fixed station, keyed by participant id
+    station_offsets_db: dict[str, float] = Field(default_factory=dict)
 
 
 class EstimateOut(BaseModel):
@@ -346,6 +368,15 @@ class RssiIn(BaseModel):
     measured_at: AwareDatetime
     source: Literal["manual", "cat", "sensor"] = "manual"
     transmission_id: uuid.UUID | None = None
+    receiver: Literal["mobile", "omni"] = "mobile"
+    # reading of the repeater output (not the interferer) to calibrate a fixed station
+    is_calibration: bool = False
+
+    @model_validator(mode="after")
+    def _calibration_needs_station(self) -> RssiIn:
+        if self.is_calibration and self.receiver != "omni":
+            raise ValueError("calibration readings come from fixed stations")
+        return self
 
 
 class RssiPatch(BaseModel):
@@ -367,6 +398,8 @@ class RssiOut(BaseModel):
     measured_at: datetime
     source: str
     is_active: bool
+    receiver: str = "mobile"
+    is_calibration: bool = False
 
 
 class RssiBatchResult(BaseModel):

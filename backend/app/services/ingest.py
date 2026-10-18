@@ -271,6 +271,7 @@ async def _rssi(ctx: IngestContext, session: AsyncSession, sensor: Sensor, msg: 
                 measured_at=item.measured_at,
                 source="sensor",
                 sensor_id=sensor.id,
+                receiver="omni",  # sensors sit at a fixed position
             )
         )
         stored += 1

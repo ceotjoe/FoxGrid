@@ -22,6 +22,7 @@ from app.schemas.api import (
     MissionOut,
     ParticipantOut,
     PositionOut,
+    RepeaterIn,
     RssiFitOut,
     RssiOut,
     TaskOut,
@@ -40,6 +41,16 @@ def mission_out(m: Mission, area: list[tuple[float, float]] | None = None) -> Mi
         track_retention_days=m.track_retention_days,
         engine_params=m.engine_params,
         search_area=area,
+        repeater=(
+            RepeaterIn(
+                lat=m.repeater_lat,
+                lon=m.repeater_lon,
+                input_mhz=None if m.repeater_input_mhz is None else float(m.repeater_input_mhz),
+                output_mhz=None if m.repeater_output_mhz is None else float(m.repeater_output_mhz),
+            )
+            if m.repeater_lat is not None and m.repeater_lon is not None
+            else None
+        ),
     )
 
 
@@ -157,4 +168,6 @@ def rssi_out(r: RssiSample) -> RssiOut:
         measured_at=r.measured_at,
         source=r.source,
         is_active=r.is_active,
+        receiver=r.receiver,
+        is_calibration=r.is_calibration,
     )

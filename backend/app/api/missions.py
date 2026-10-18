@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_redis, get_settings, lead, member
+from app.api.deps import get_redis, get_scheduler, get_settings, lead, member
 from app.config import Settings
 from app.db import get_session
 from app.models import (
@@ -34,12 +34,15 @@ from app.schemas.api import (
     MissionCreate,
     MissionCreated,
     MissionOut,
+    MissionPatch,
     ParticipantOut,
+    RepeaterIn,
     SnapshotOut,
     TeamOut,
 )
 from app.security import create_jwt, hash_token, new_invite_token
 from app.services import domain
+from app.services.recompute import RecomputeScheduler
 from app.services.serialize import (
     bearing_out,
     estimate_out,
@@ -55,6 +58,13 @@ from app.services.serialize import (
 router = APIRouter()
 
 
+def _set_repeater(mission: Mission, repeater: RepeaterIn | None) -> None:
+    mission.repeater_lat = None if repeater is None else repeater.lat
+    mission.repeater_lon = None if repeater is None else repeater.lon
+    mission.repeater_input_mhz = None if repeater is None else repeater.input_mhz
+    mission.repeater_output_mhz = None if repeater is None else repeater.output_mhz
+
+
 @router.post("/missions", response_model=MissionCreated, status_code=201)
 async def create_mission(
     body: MissionCreate,
@@ -68,6 +78,7 @@ async def create_mission(
         track_retention_days=body.track_retention_days,
         engine_params=body.engine_params.model_dump(exclude_none=True),
     )
+    _set_repeater(mission, body.repeater)
     session.add(mission)
     await session.flush()
     creator = Participant(mission_id=mission.id, callsign=body.callsign, role="lead")
@@ -154,6 +165,26 @@ async def get_mission(
     mission = await session.get(Mission, mission_id)
     if mission is None:
         raise HTTPException(404, "mission not found")
+    return mission_out(mission, await domain.search_area_ring(session, mission_id))
+
+
+@router.patch("/missions/{mission_id}", response_model=MissionOut)
+async def patch_mission(
+    mission_id: uuid.UUID,
+    body: MissionPatch,
+    actor: Participant = Depends(lead),
+    session: AsyncSession = Depends(get_session),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> MissionOut:
+    """Set the repeater reference (position and frequencies); calibration depends on it."""
+    mission = await session.get(Mission, mission_id)
+    if mission is None:
+        raise HTTPException(404, "mission not found")
+    if "repeater" in body.model_fields_set:
+        _set_repeater(mission, body.repeater)
+        await domain.audit(session, mission_id, actor.id, "update", "mission", mission_id)
+        await session.commit()
+        scheduler.schedule(mission_id)
     return mission_out(mission, await domain.search_area_ring(session, mission_id))
 
 

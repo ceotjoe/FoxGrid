@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from foxgrid_engine import Bearing as EngineBearing
 from foxgrid_engine import EngineError
 from foxgrid_engine import estimate as run_engine
+from foxgrid_engine.rssi import usable_samples
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -53,6 +54,7 @@ from app.services.recompute import (
     _to_engine_rssi,
     build_estimate,
     engine_params_for,
+    load_calibration,
     uses_rssi,
 )
 from app.services.serialize import (
@@ -439,20 +441,20 @@ async def query_estimate(
             rstmt = rstmt.where(RssiSample.measured_at >= since)
         if until:
             rstmt = rstmt.where(RssiSample.measured_at <= until)
-        rssi_rows = list((await session.scalars(rstmt)).all())
+        rssi_rows = [r for r in (await session.scalars(rstmt)).all() if not r.is_calibration]
+    offsets = await load_calibration(session, mission) if rssi_rows else {}
     params = engine_params_for(mission, time.time())
-    if len(bearings) < MIN_BEARINGS and len(rssi_rows) < params.rssi_min_samples:
+    engine_rssi = [_to_engine_rssi(r, offsets) for r in rssi_rows]
+    if len(bearings) < MIN_BEARINGS and not usable_samples(engine_rssi, params):
         raise HTTPException(404, "too few bearings or RSSI samples match the filter")
     if half_life_s is not None:
         params = replace(params, half_life_s=half_life_s)
     engine_bearings: list[EngineBearing] = [_to_engine(b) for b in bearings]
     try:
-        result = await asyncio.to_thread(
-            run_engine, engine_bearings, params, [_to_engine_rssi(r) for r in rssi_rows]
-        )
+        result = await asyncio.to_thread(run_engine, engine_bearings, params, engine_rssi)
     except EngineError as exc:
         raise HTTPException(422, str(exc)) from exc
     est = build_estimate(
-        mission_id, "all", None, _input_hash(bearings, params, rssi_rows), result, params
+        mission_id, "all", None, _input_hash(bearings, params, rssi_rows, offsets), result, params
     )
     return estimate_out(est)

@@ -148,3 +148,8 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   `rssi_omni_min_stations` (4) distinct stations are needed, the homing track still needs `rssi_min_samples`.
   `RssiSample.offset_db` is a known calibration offset; `RssiFit.station_offsets_db` returns the estimated ones.
 - Expected accuracy (`uv run tools/simulator/omni_eval.py`): coarse area only, median error 1-4 km for stations 2-15 km away.
+- 5b backend: `rssi_samples.receiver` (`mobile`|`omni`) and `is_calibration`; omni readings only from role `fixed`/`lead`;
+  sensor RSSI is stored as `omni`. Mission has `repeater_lat/lon/input_mhz/output_mhz` (set at create or `PATCH /missions/{id}`,
+  lead only). Calibration readings (repeater **output**, known position) never enter the fit: `calibration_offsets` in
+  `services/recompute.py` turns them into relative station offsets (assumed exponent 3, needs 3 stations, centred on the mean)
+  which are passed to the engine as `offset_db`. `rssi.station_offsets_db` of an estimate is keyed by participant id.

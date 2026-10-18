@@ -50,6 +50,11 @@ class Mission(Base):
     ended_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
     track_retention_days: Mapped[int] = mapped_column(Integer, default=30)
     engine_params: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    # The repeater whose input frequency the interferer is heard on (calibration reference)
+    repeater_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    repeater_lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    repeater_input_mhz: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    repeater_output_mhz: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
 
     __table_args__ = (CheckConstraint("status in ('active','ended')", name="ck_mission_status"),)
 
@@ -325,9 +330,15 @@ class RssiSample(Base):
     source: Mapped[str] = mapped_column(String(10), default="manual")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sensor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sensors.id"), nullable=True)
+    # 'mobile' = the moving homing device, 'omni' = a fixed omnidirectional station
+    receiver: Mapped[str] = mapped_column(String(6), default="mobile", server_default="mobile")
+    # Reading of the repeater *output* (known position) used to calibrate a fixed station
+    is_calibration: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     __table_args__ = (
         CheckConstraint("source in ('manual','cat','sensor')", name="ck_rssi_source"),
+        CheckConstraint("receiver in ('mobile','omni')", name="ck_rssi_receiver"),
+        CheckConstraint("not is_calibration or receiver = 'omni'", name="ck_rssi_calibration"),
         CheckConstraint("attenuation_db >= 0", name="ck_rssi_attenuation"),
         Index("ix_rssi_mission_measured", "mission_id", "measured_at"),
     )
