@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/painting.dart';
 
 /// IARU Region 1 recommendation for VHF and above: S9 = -93 dBm, 6 dB per S unit.
-/// (HF uses -73 dBm for S9; FoxGrid only deals with the 70 cm band.)
+/// (HF uses -73 dBm for S9; FoxGrid is built for VHF/UHF, the create form warns below 30 MHz.)
 const s9Dbm = -93.0;
 const dbPerSUnit = 6.0;
 

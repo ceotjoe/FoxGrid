@@ -3,9 +3,18 @@ import 'package:foxgrid/ui/join_screen.dart';
 
 void main() {
   test('release builds accept https only', () {
-    expect(serverUrlError('https://fox.example.org', releaseMode: true), isNull);
-    expect(serverUrlError('http://fox.example.org', releaseMode: true), isNotNull);
-    expect(serverUrlError('http://10.0.2.2:8000', releaseMode: true), isNotNull);
+    expect(
+      serverUrlError('https://fox.example.org', releaseMode: true),
+      isNull,
+    );
+    expect(
+      serverUrlError('http://fox.example.org', releaseMode: true),
+      isNotNull,
+    );
+    expect(
+      serverUrlError('http://10.0.2.2:8000', releaseMode: true),
+      isNotNull,
+    );
   });
 
   test('debug builds also accept http for the dev stack', () {

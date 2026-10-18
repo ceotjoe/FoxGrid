@@ -18,6 +18,25 @@ String? serverUrlError(String url, {bool releaseMode = kReleaseMode}) {
   return 'Der Server muss per HTTPS erreichbar sein (https://…).';
 }
 
+/// Parses a frequency typed in MHz; accepts a decimal comma. `null` if it is not a number.
+double? parseFrequencyMhz(String text) =>
+    double.tryParse(text.trim().replaceAll(',', '.'));
+
+/// Why a mission frequency is rejected (same bounds as the API), or `null` if it is fine.
+String? frequencyError(double? mhz) {
+  if (mhz == null || mhz <= 0 || mhz >= 10000) {
+    return 'Bitte eine Frequenz in MHz eingeben, z. B. 145.500 oder 433.500.';
+  }
+  return null;
+}
+
+/// Hint below 30 MHz: FoxGrid assumes line-of-sight VHF/UHF propagation and the VHF S-meter scale.
+String? frequencyHint(double? mhz) {
+  if (mhz == null || mhz <= 0 || mhz >= 30) return null;
+  return 'Unter 30 MHz sind Peilungen per Bodenwelle unsicher und S9 liegt bei '
+      '−73 dBm; FoxGrid rechnet mit der VHF/UHF-Skala (S9 = −93 dBm).';
+}
+
 String defaultServerUrl() {
   if (kReleaseMode) return '';
   if (kIsWeb) return 'http://localhost:8000';
@@ -38,7 +57,7 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
   final _callsign = TextEditingController();
   final _invite = TextEditingController();
   final _name = TextEditingController();
-  final _frequency = TextEditingController(text: '433.500');
+  final _frequency = TextEditingController();
   String _role = 'mobile';
   bool _busy = false;
   String? _error;
@@ -90,12 +109,17 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
 
   void _create() {
     if (!_serverOk(_base)) return;
+    final mhz = parseFrequencyMhz(_frequency.text);
+    final error = frequencyError(mhz);
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
     _run(
       (api) => api.createMission(
         baseUrl: _base,
         name: _name.text.trim(),
-        frequencyMhz:
-            double.tryParse(_frequency.text.trim().replaceAll(',', '.')) ?? 0,
+        frequencyMhz: mhz!,
         callsign: _callsign.text.trim(),
       ),
     );
@@ -192,14 +216,21 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
                             ),
                             const SizedBox(height: 12),
                             TextField(
+                              key: const Key('frequency'),
                               controller: _frequency,
+                              onChanged: (_) => setState(() {}),
                               keyboardType:
                                   const TextInputType.numberWithOptions(
                                     decimal: true,
                                   ),
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Frequenz in MHz',
-                                border: OutlineInputBorder(),
+                                hintText: 'z. B. 145.500 oder 433.500',
+                                helperText: frequencyHint(
+                                  parseFrequencyMhz(_frequency.text),
+                                ),
+                                helperMaxLines: 3,
+                                border: const OutlineInputBorder(),
                               ),
                             ),
                             const SizedBox(height: 16),
