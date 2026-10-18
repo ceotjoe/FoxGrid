@@ -121,6 +121,9 @@ uv run tools/relay_hook/hook.py --help         # Relais-Hook
 - Kalibrierung (optional): Die Einsatzleitung legt den Relais-Standort fest (Station → *Relais festlegen*, oder
   `PATCH /missions/{id}`). Jede Station misst einmal den Pegel der Relais-**Ausgabe**; daraus werden die relativen
   Offsets der Stationen berechnet.
+- Karte: Je Station ein Marker mit dem letzten S-Wert (blau schwach, rot stark) und ein **Entfernungsring**, auf dem das
+  Pegelmodell den Störer sieht, samt zwei blassen Ringen für die Streuung des Fits (abschaltbar im Filter). Wo sich die Ringe
+  treffen, liegt die Schätzung. Das Relais erscheint als Sendemast.
 - Erwartung: nur ein grobes Gebiet (Größenordnung km bei Stationen in 2–15 km Entfernung, siehe
   `uv run tools/simulator/omni_eval.py`). Peilungen dominieren, sobald sie vorliegen.
 

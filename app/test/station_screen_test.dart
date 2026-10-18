@@ -1,7 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxgrid/state/filter.dart';
 import 'package:foxgrid/core/models.dart';
 import 'package:foxgrid/core/signal.dart';
 import 'package:foxgrid/ui/map_screen.dart';
@@ -248,6 +251,86 @@ void main() {
     expect(find.byKey(const Key('repeater-marker')), findsOneWidget);
     expect(find.byKey(const Key('station-marker-p2')), findsOneWidget);
     expect(find.text('S6'), findsOneWidget);
+    await _unmount(tester);
+  });
+
+  test('ring distance follows the path loss model', () {
+    // level = p0 - 10 n log10(d): 30 dB below p0 at n = 3 is 10 m, 90 dB below is 1000 m
+    expect(
+      ringDistanceM(levelDbm: -50, p0Dbm: -20, exponent: 3),
+      closeTo(10, 1e-9),
+    );
+    expect(
+      ringDistanceM(levelDbm: -110, p0Dbm: -20, exponent: 3),
+      closeTo(1000, 1e-6),
+    );
+    // a positive station offset means the receiver reads high: the ring gets larger
+    expect(
+      ringDistanceM(levelDbm: -110, p0Dbm: -20, exponent: 3, offsetDb: 6),
+      greaterThan(1000),
+    );
+    // a weaker level (negative delta) is farther away
+    expect(
+      ringDistanceM(levelDbm: -110, p0Dbm: -20, exponent: 3, deltaDb: -6),
+      greaterThan(1000),
+    );
+    expect(
+      ringDistanceM(levelDbm: 100, p0Dbm: -20, exponent: 3),
+      10, // clamped
+    );
+  });
+
+  testWidgets('the map draws distance rings from the fitted model', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final est = estimateJson()
+      ..['rssi'] = {
+        'p0_dbm': -20.0,
+        'exponent': 3.0,
+        'residual_db': 4.0,
+        'n_samples': 5,
+        'station_offsets_db': {'p2': 0.0},
+      };
+    final api = FakeApi()
+      ..snapshotData = snapshotJson(
+        estimates: [est],
+        rssi: [
+          {
+            'id': 'r1',
+            'participant_id': 'p2',
+            'lat': 48.1,
+            'lon': 11.5,
+            'rssi_dbm': -110.0,
+            'attenuation_db': 0,
+            'measured_at': '2026-01-01T10:00:00Z',
+            'receiver': 'omni',
+          },
+        ],
+      );
+    final env = await pumpWith(tester, const MapScreen(), api: api);
+    await tester.pumpAndSettle();
+    final layer = tester.widget<CircleLayer>(
+      find.byKey(const Key('station-rings')),
+    );
+    final radii = layer.circles.map((c) => c.radius).toList()..sort();
+    expect(layer.circles, hasLength(3));
+    expect(layer.circles.every((c) => c.useRadiusInMeter), isTrue);
+    expect(
+      radii[1],
+      closeTo(1000, 1),
+    ); // the main ring, between the scatter band
+    expect(radii.first, lessThan(radii[1]));
+    expect(radii.last, greaterThan(radii[1]));
+
+    ProviderScope.containerOf(tester.element(find.byType(MapScreen)))
+        .read(filterProvider.notifier)
+        .set(const BearingFilter(showRings: false));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('station-rings')), findsNothing);
+    expect(env.api.sent, isEmpty);
     await _unmount(tester);
   });
 }

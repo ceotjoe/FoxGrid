@@ -110,6 +110,14 @@ class FilterSheet extends ConsumerWidget {
                 onChanged: (v) => notifier.set(f.copyWith(showContours: v)),
               ),
               SwitchListTile(
+                key: const Key('filter-rings'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Entfernungsringe der Rundstrahler'),
+                subtitle: const Text('Aus dem Pegel geschätzt, mit ±Streuung'),
+                value: f.showRings,
+                onChanged: (v) => notifier.set(f.copyWith(showRings: v)),
+              ),
+              SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Ausreißer ausblenden'),
                 value: f.hideOutliers,

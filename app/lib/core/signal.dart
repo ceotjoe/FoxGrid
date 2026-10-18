@@ -53,3 +53,19 @@ Color rssiColor(double dbm, {double min = -110, double max = -40}) {
   final mid = (hi + lo) / 2;
   return (mid - 10, mid + 10);
 }
+
+/// Distance (m) at which the fitted path loss model `level = p0 + offset - 10 n log10(d)` gives
+/// [levelDbm]. [deltaDb] shifts the level (negative = weaker = farther) to span an uncertainty band.
+double ringDistanceM({
+  required double levelDbm,
+  required double p0Dbm,
+  required double exponent,
+  double offsetDb = 0,
+  double deltaDb = 0,
+}) {
+  final d = pow(
+    10,
+    (p0Dbm + offsetDb - (levelDbm + deltaDb)) / (10 * exponent),
+  );
+  return d.toDouble().clamp(10.0, 500000.0);
+}

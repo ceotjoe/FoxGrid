@@ -330,6 +330,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 _rssiDots(state.rssi.where((r) => !r.isStation).toList()),
               if (estimate != null && filter.showContours)
                 PolygonLayer(polygons: _contourPolygons(estimate)),
+              if (estimate != null && filter.showRings)
+                _stationRings(state, estimate),
               if (estimate != null)
                 PolygonLayer(
                   polygons: [
@@ -590,11 +592,51 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   /// Fixed omnidirectional stations: the latest S value of each, coloured by level.
-  List<Marker> _stationMarkers(MissionState state) {
+  Map<String, RssiSample> _latestStations(MissionState state) {
     final latest = <String, RssiSample>{};
     for (final r in state.rssi) {
       if (r.isStation && !r.isCalibration) latest[r.participantId] = r;
     }
+    return latest;
+  }
+
+  /// Distance rings: where the fitted path loss model puts the interferer for each station's
+  /// level, plus a faint band for the scatter of the fit. The estimate is where they agree.
+  Widget _stationRings(MissionState state, Estimate estimate) {
+    final fit = estimate.rssi;
+    final latest = _latestStations(state);
+    if (fit == null || latest.isEmpty) return const SizedBox.shrink();
+    final (lo, hi) = levelRange(latest.values.map((r) => r.correctedDbm));
+    final circles = <CircleMarker>[];
+    for (final r in latest.values) {
+      final offset = fit.stationOffsetsDb[r.participantId] ?? 0;
+      double dist(double delta) => ringDistanceM(
+        levelDbm: r.correctedDbm,
+        p0Dbm: fit.p0Dbm,
+        exponent: fit.exponent,
+        offsetDb: offset,
+        deltaDb: delta,
+      );
+      final color = rssiColor(r.correctedDbm, min: lo, max: hi);
+      CircleMarker ring(double radius, double alpha, double width) =>
+          CircleMarker(
+            point: r.point,
+            radius: radius,
+            useRadiusInMeter: true,
+            color: Colors.transparent,
+            borderColor: color.withValues(alpha: alpha),
+            borderStrokeWidth: width,
+          );
+      circles
+        ..add(ring(dist(fit.residualDb), 0.35, 1))
+        ..add(ring(dist(-fit.residualDb), 0.35, 1))
+        ..add(ring(dist(0), 0.9, 2.5));
+    }
+    return CircleLayer(key: const Key('station-rings'), circles: circles);
+  }
+
+  List<Marker> _stationMarkers(MissionState state) {
+    final latest = _latestStations(state);
     final (lo, hi) = levelRange(latest.values.map((r) => r.correctedDbm));
     return [
       for (final r in latest.values)

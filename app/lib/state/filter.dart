@@ -10,6 +10,7 @@ class BearingFilter {
     this.window,
     this.halfLife,
     this.showContours = true,
+    this.showRings = true,
     this.hideOutliers = false,
   });
 
@@ -17,6 +18,9 @@ class BearingFilter {
   final Duration? window;
   final Duration? halfLife;
   final bool showContours;
+
+  /// Distance rings of the fixed stations (from the fitted path loss model).
+  final bool showRings;
   final bool hideOutliers;
 
   /// True when the server's own estimates cannot answer: an ad-hoc query is needed.
@@ -30,12 +34,14 @@ class BearingFilter {
     Duration? halfLife,
     bool clearHalfLife = false,
     bool? showContours,
+    bool? showRings,
     bool? hideOutliers,
   }) => BearingFilter(
     transmissionIds: transmissionIds ?? this.transmissionIds,
     window: clearWindow ? null : (window ?? this.window),
     halfLife: clearHalfLife ? null : (halfLife ?? this.halfLife),
     showContours: showContours ?? this.showContours,
+    showRings: showRings ?? this.showRings,
     hideOutliers: hideOutliers ?? this.hideOutliers,
   );
 

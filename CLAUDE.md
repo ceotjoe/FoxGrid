@@ -157,3 +157,6 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   Readings go through `MissionNotifier.logRssi(receiver: 'omni', isCalibration: ...)`, the repeater through
   `setRepeater` (outbox kind `mission`, PATCH). The map draws station markers (latest S value) and the repeater; the
   homing dots only show `mobile` readings. A station can type in a fixed location (`stationPositionProvider`, persisted per mission) which wins over GPS.
+- Map rings: `_stationRings` in `map_screen.dart` draws, per station, the distance from `ringDistanceM` (`core/signal.dart`) with the
+  estimate's `rssi` fit (p0, n, offsets) and +-residual bands; filter toggle `showRings`. The calibration offset is not known to the app,
+  so rings use only the estimated offset.
