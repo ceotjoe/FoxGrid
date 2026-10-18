@@ -181,6 +181,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           _ConnectionDot(status: state.connection),
           const SyncChip(),
           IconButton(
+            visualDensity: VisualDensity.compact,
             key: const Key('open-chat'),
             tooltip: 'Chat',
             icon: const Icon(Icons.chat_bubble_outline),
@@ -189,6 +190,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ).push(MaterialPageRoute<void>(builder: (_) => const ChatScreen())),
           ),
           IconButton(
+            visualDensity: VisualDensity.compact,
             key: const Key('open-tasks'),
             tooltip: 'Aufgaben',
             icon: const Icon(Icons.checklist),
@@ -197,6 +199,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
           IconButton(
+            visualDensity: VisualDensity.compact,
             key: const Key('open-filter'),
             tooltip: 'Filter',
             icon: Badge(
@@ -211,6 +214,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
           IconButton(
+            visualDensity: VisualDensity.compact,
             key: const Key('open-homing'),
             tooltip: 'Nahpeilung',
             icon: const Icon(Icons.explore),
@@ -218,15 +222,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               MaterialPageRoute<void>(builder: (_) => const HomingScreen()),
             ),
           ),
-          if (session.role == 'fixed' || session.isLead)
-            IconButton(
-              key: const Key('open-station'),
-              tooltip: 'Rundstrahl-Station',
-              icon: const Icon(Icons.cell_tower),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const StationScreen()),
-              ),
-            ),
           PopupMenuButton<String>(
             onSelected: (v) {
               switch (v) {
@@ -240,6 +235,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     isScrollControlled: true,
                     showDragHandle: true,
                     builder: (_) => const BearingsSheet(),
+                  );
+                case 'station':
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const StationScreen(),
+                    ),
                   );
                 case 'sensors':
                   Navigator.of(context).push(
@@ -262,6 +263,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 value: 'bearings',
                 child: Text('Peilungen (Liste)'),
               ),
+              if (session.role == 'fixed' || session.isLead)
+                const PopupMenuItem(
+                  key: Key('open-station'),
+                  value: 'station',
+                  child: Text('Rundstrahl-Station'),
+                ),
               if (session.inviteToken != null)
                 const PopupMenuItem(value: 'invite', child: Text('Einladung')),
               if (session.isLead)

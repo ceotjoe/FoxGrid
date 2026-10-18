@@ -87,9 +87,11 @@ class DioFoxGridApi implements FoxGridApi {
     try {
       return await _dio.request<dynamic>(
         '${baseUrl ?? _session!.baseUrl}$url',
-        data: data,
+        // Dio only JSON-encodes maps; a list body (batch uploads) would go out as Dart's toString.
+        data: data == null ? null : jsonEncode(data),
         options: Options(
           method: method,
+          contentType: data == null ? null : Headers.jsonContentType,
           headers: auth && _session != null
               ? {'Authorization': 'Bearer ${_session.token}'}
               : null,

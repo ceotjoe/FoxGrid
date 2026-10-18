@@ -237,7 +237,14 @@ void main() {
       );
     await pumpWith(tester, const MapScreen(), api: api);
     await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('open-station')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('open-station')));
+    await tester.pumpAndSettle();
+    expect(find.byType(StationScreen), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('repeater-marker')), findsOneWidget);
     expect(find.byKey(const Key('station-marker-p2')), findsOneWidget);
     expect(find.text('S6'), findsOneWidget);
