@@ -1,4 +1,6 @@
-FoxGrid hilft einer Gruppe von Funkamateuren, gemeinsam einen Störsender auf einem 70-cm-Relais zu finden. Jede Teilnehmerin und jeder Teilnehmer trägt Peilungen ein, FoxGrid berechnet daraus live den wahrscheinlichsten Standort des Störers und zeigt ihn allen sofort auf der Karte.
+FoxGrid hilft einer Gruppe von Funkamateuren, gemeinsam einen Störsender im VHF/UHF-Bereich zu finden, zum Beispiel auf einem 2-m- oder 70-cm-Relais. Jede Teilnehmerin und jeder Teilnehmer trägt Peilungen ein, FoxGrid berechnet daraus live den wahrscheinlichsten Standort des Störers und zeigt ihn allen sofort auf der Karte.
+
+FoxGrid ist für VHF/UHF ausgelegt: Die Frequenz ist frei wählbar (2 m, 70 cm, 23 cm …). Unter 30 MHz sind Peilungen per Bodenwelle unsicher, die App warnt dann.
 
 WICHTIG: FoxGrid ist ein Client für einen eigenen FoxGrid-Server, den eure Gruppe selbst betreibt (Open Source, MIT-Lizenz). Ohne Server und Einladung kann die App nicht benutzt werden. Der Anbieter der App erhält keine Daten.
 

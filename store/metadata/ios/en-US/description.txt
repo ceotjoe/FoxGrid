@@ -1,4 +1,6 @@
-FoxGrid helps a group of radio amateurs find an interferer on a 70 cm repeater together. Every participant records bearings, FoxGrid fuses them live into the most likely location of the interferer and shows it to everyone on the map right away.
+FoxGrid helps a group of radio amateurs find an interferer on VHF/UHF together, for example on a 2 m or 70 cm repeater. Every participant records bearings, FoxGrid fuses them live into the most likely location of the interferer and shows it to everyone on the map right away.
+
+FoxGrid is built for VHF/UHF: the frequency is up to you (2 m, 70 cm, 23 cm ...). Below 30 MHz ground-wave bearings are unreliable and the app warns you.
 
 IMPORTANT: FoxGrid is a client for your own FoxGrid server, which your group runs itself (open source, MIT license). The app cannot be used without a server and an invitation. The app's publisher receives no data.
 

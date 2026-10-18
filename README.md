@@ -1,7 +1,7 @@
 # FoxGrid
 
 Open-Source-Werkzeug für Funkamateure: Eine Gruppe peilt gemeinsam einen Störsender auf einem
-70-cm-Relais. Teilnehmer erfassen Peilungen (Standort, Richtung, Unsicherheit, Feldstärke), das Backend
+VHF/UHF (beliebige Frequenz, z. B. 2 m, 70 cm, 23 cm), etwa auf einem Relais. Teilnehmer erfassen Peilungen (Standort, Richtung, Unsicherheit, Feldstärke), das Backend
 berechnet live den wahrscheinlichsten Standort des Störers samt Fehlerellipse und verteilt das Ergebnis
 an alle. Lizenz: MIT.
 
@@ -135,7 +135,7 @@ Paket `firebase_messaging`. Bis dahin gibt es Vibration und Banner nur bei geöf
   Kalibrierung in den Einstellungen gleicht Abweichungen aus.
 - RSSI-Fusion: Das Modell nimmt eine Quelle mit isotroper Abstrahlung und Gauß-Streuung (Standard 6 dB) an;
   Reflexionen und Abschattung erzeugen Ausreißer, die nur über die Streuung abgefangen werden. Mit weniger als
-  5 Messwerten wird die Spur ignoriert. Die S9-Konvention (−93 dBm) gilt für 70 cm, nicht für KW.
+  5 Messwerten wird die Spur ignoriert. Die S9-Konvention (−93 dBm) gilt für VHF/UHF (ab ca. 30 MHz), nicht für KW; unter 30 MHz warnt die App beim Anlegen eines Einsatzes.
 - Der Pfeil nutzt den GPS-Kurs ab 1,5 m/s und sonst Kompass plus Missweisung; ohne Kompass (Web) zeigt er
   relativ zu Norden.
 - Positionsvorschläge rechnen mit der Fisher-Information der Peilungen (Gauß-Näherung ohne Ausreißeranteil und

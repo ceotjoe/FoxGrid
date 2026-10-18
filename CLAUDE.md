@@ -1,6 +1,6 @@
 # FoxGrid – Project Conventions
 
-FoxGrid is an open-source (MIT) app for a group of radio amateurs to jointly locate an interferer on a 70 cm repeater.
+FoxGrid is an open-source (MIT) app for a group of radio amateurs to jointly locate an interferer on VHF/UHF (any frequency, e.g. 2 m, 70 cm, 23 cm; the S-meter scale is the VHF one, below 30 MHz the app only warns).
 Participants record bearings (position, azimuth, uncertainty, field strength); the backend fuses them live into a
 most-likely interferer location and pushes the result to everyone. Phase 1 = coarse bearing (triangulation),
 later homing (RSSI). Also used for team coordination (chat, tasks).

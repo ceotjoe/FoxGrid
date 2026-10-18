@@ -14,7 +14,7 @@ Last updated: 17 October 2026
 
 ## 1. What this is
 
-FoxGrid is an app for radio amateurs who locate an interferer on a 70 cm repeater as a group. The app is a
+FoxGrid is an app for radio amateurs who locate an interferer on VHF/UHF (for example a repeater) as a group. The app is a
 **client for a FoxGrid server that your group runs itself**. There is no central FoxGrid service operated by
 the app's publisher.
 

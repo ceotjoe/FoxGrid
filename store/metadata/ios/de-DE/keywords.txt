@@ -1,1 +1,1 @@
-Peilung,Funkamateur,Amateurfunk,Störsender,Fuchsjagd,70cm,Triangulation,Repeater,Relais
+Peilung,Funkamateur,Amateurfunk,Störsender,Fuchsjagd,VHF,UHF,70cm,2m,Triangulation,Relais

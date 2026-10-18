@@ -14,7 +14,7 @@ Stand: 17. Oktober 2026
 
 ## 1. Worum es geht
 
-FoxGrid ist eine App für Funkamateure, mit der eine Gruppe gemeinsam einen Störsender auf einem 70-cm-Relais
+FoxGrid ist eine App für Funkamateure, mit der eine Gruppe gemeinsam einen Störsender im VHF/UHF-Bereich (z. B. auf einem Relais)
 peilt. Die App ist ein **Client für einen FoxGrid-Server, den eure Gruppe selbst betreibt**. Es gibt keinen
 zentralen FoxGrid-Dienst des App-Anbieters.
 

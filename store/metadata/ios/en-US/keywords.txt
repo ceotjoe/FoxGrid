@@ -1,1 +1,1 @@
-ham radio,amateur radio,bearing,triangulation,fox hunt,interference,repeater,70cm,direction finder
+ham radio,amateur radio,bearing,triangulation,fox hunt,interference,repeater,VHF,UHF,70cm
