@@ -138,3 +138,13 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   Do not edit the generated PNGs by hand.
 - `app/ios/Runner/PrivacyInfo.xcprivacy`, `docs/privacy*.md` and `docs/store-compliance.md` must stay in sync when the
   data flow changes. The privacy policy is a draft until the provider details are filled in.
+
+## Phase 5 notes (omnidirectional stations, 5a = engine only)
+- Plan: `/Users/joerg/.claude/plans/mossy-watching-barto.md` (5a engine, 5b backend/API, 5c app). Fixed stations report an
+  S-value of the interferer on the repeater **input** frequency (on the output you only hear the repeater).
+- Engine: `RssiSample(group=<station>, event=<transmission>)` marks fixed-station readings. Model
+  `level = p0 + b_k - 10 n log10(d)` with a per-station offset `b_k ~ N(0, rssi_station_sigma_db)`: GLS via Woodbury in
+  `rssi.py` (`_fit_arrays`). One reading per (station, transmission) is used (median, `usable_samples`); at least
+  `rssi_omni_min_stations` (4) distinct stations are needed, the homing track still needs `rssi_min_samples`.
+  `RssiSample.offset_db` is a known calibration offset; `RssiFit.station_offsets_db` returns the estimated ones.
+- Expected accuracy (`uv run tools/simulator/omni_eval.py`): coarse area only, median error 1-4 km for stations 2-15 km away.

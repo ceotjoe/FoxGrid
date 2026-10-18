@@ -22,7 +22,7 @@ from foxgrid_engine.rssi import (
     corrected_level,
     fit_at,
     rssi_log_likelihood,
-    select_recent,
+    usable_samples,
 )
 from foxgrid_engine.types import (
     Bearing,
@@ -150,13 +150,13 @@ def _bounds(
 
 
 def _validate(bearings: list[Bearing], rssi: list[RssiSample], params: EngineParams) -> None:
-    usable_rssi = len(rssi) >= params.rssi_min_samples
-    if not bearings and not usable_rssi:
-        raise EngineError(
-            f"at least one bearing or {params.rssi_min_samples} RSSI samples are required"
-        )
-    if params.rssi_sigma_db <= 0 or params.rssi_weight < 0:
+    if params.rssi_sigma_db <= 0 or params.rssi_weight < 0 or params.rssi_station_sigma_db < 0:
         raise EngineError("invalid RSSI configuration")
+    if not bearings and not usable_samples(rssi, params):
+        raise EngineError(
+            f"at least one bearing, {params.rssi_min_samples} track RSSI samples or "
+            f"{params.rssi_omni_min_stations} station readings are required"
+        )
     lo, hi = params.rssi_exponent_bounds
     if not 0 < lo <= hi:
         raise EngineError("invalid RSSI exponent bounds")
@@ -209,9 +209,9 @@ def _ring(center: FloatArray, axes: FloatArray, inv: Transformer) -> list[tuple[
 def _prepare_rssi(
     samples: list[RssiSample], fwd: Transformer, params: EngineParams
 ) -> RssiData | None:
-    if len(samples) < params.rssi_min_samples:
+    samples = usable_samples(samples, params)
+    if not samples:
         return None  # too few readings to say anything about a trend
-    samples = select_recent(samples, params.rssi_max_samples)
     east, north = fwd.transform([s.lon for s in samples], [s.lat for s in samples])
     weight = np.ones(len(samples))
     if params.half_life_s is not None and params.now is not None:
@@ -219,11 +219,16 @@ def _prepare_rssi(
         if all(t is not None for t in times):
             age = np.maximum(params.now - np.array(times, dtype=np.float64), 0.0)
             weight = np.power(0.5, age / params.half_life_s)
+    labels = sorted({s.group or "" for s in samples})
+    index = {label: i for i, label in enumerate(labels)}
     return RssiData(
         east=np.asarray(east, dtype=np.float64),
         north=np.asarray(north, dtype=np.float64),
         level=np.array([corrected_level(s) for s in samples], dtype=np.float64),
         weight=weight,
+        group=np.array([index[s.group or ""] for s in samples], dtype=np.int64),
+        group_labels=tuple(labels),
+        tau=(params.rssi_station_sigma_db / params.rssi_sigma_db) ** 2,
     )
 
 

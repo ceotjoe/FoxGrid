@@ -30,6 +30,12 @@ class RssiSample:
     rssi_dbm: float  # as read from the receiver
     attenuation_db: float = 0.0  # attenuator in front of the receiver; added back before fitting
     measured_at: float | None = None  # POSIX seconds (UTC)
+    # Fixed (omnidirectional) stations: all readings of one station share ``group``. Each station
+    # gets its own unknown receiver offset (antenna, cable, receiver). ``None`` = the single
+    # moving homing device, whose offset is absorbed by the reference level.
+    group: str | None = None
+    event: str | None = None  # transmission id; one reading per (group, event) is used
+    offset_db: float = 0.0  # known receiver offset (calibration), subtracted from the level
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +46,8 @@ class RssiFit:
     exponent: float  # path loss exponent n
     residual_db: float  # rms residual of the fit
     n_samples: int
+    # estimated receiver offset per fixed station (dB, relative to the reference level)
+    station_offsets_db: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +68,9 @@ class EngineParams:
     rssi_min_distance_m: float = 10.0  # distances are floored to keep log10 finite
     rssi_max_samples: int = 300  # only the most recent samples are used
     rssi_min_samples: int = 5  # fewer samples are ignored; needed for an RSSI-only estimate
+    # Fixed stations: unknown per-station offset ~ N(0, sigma_b^2); needs enough distinct stations
+    rssi_station_sigma_db: float = 6.0
+    rssi_omni_min_stations: int = 4
 
 
 @dataclass(frozen=True, slots=True)
