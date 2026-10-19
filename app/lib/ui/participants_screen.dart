@@ -38,6 +38,61 @@ class ParticipantsScreen extends ConsumerWidget {
     }
   }
 
+  /// Takes everything the participant contributed out of the estimate (stays in the log).
+  Future<void> _quarantine(
+    BuildContext context,
+    WidgetRef ref,
+    Participant p,
+  ) async {
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Quarantäne für ${p.callsign}?'),
+        content: const Text(
+          'Alle Peilungen und Messwerte dieses Teilnehmers werden aus der '
+          'Schätzung genommen und sein Vertrauen entzogen. Sie bleiben im '
+          'Protokoll. Das Zurücknehmen geht nur einzeln pro Peilung.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            key: const Key('quarantine-only'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Quarantäne'),
+          ),
+          FilledButton(
+            key: const Key('quarantine-remove'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Quarantäne und entfernen'),
+          ),
+        ],
+      ),
+    );
+    if (remove == null || !context.mounted) return;
+    try {
+      final r = await ref.read(apiProvider).quarantine(p.id, remove: remove);
+      ref.read(missionProvider.notifier).applyParticipant(r.participant);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${r.bearings} Peilungen und ${r.rssi} Messwerte '
+              'aus der Schätzung genommen.',
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final own = ref.watch(sessionProvider)?.participantId;
@@ -114,6 +169,7 @@ class ParticipantsScreen extends ConsumerWidget {
         [
           state,
           if (p.team != null) p.team!,
+          if (!p.trusted && !off) 'nicht vertraut (Daten zählen nicht)',
           if (!p.deviceBound && !off) 'Gerät frei',
         ].join(' · '),
       ),
@@ -121,23 +177,30 @@ class ParticipantsScreen extends ConsumerWidget {
           ? null
           : PopupMenuButton<String>(
               key: Key('menu-${p.callsign}'),
-              onSelected: (v) => _run(
-                context,
-                ref,
-                (api) => switch (v) {
-                  'mobile' ||
-                  'fixed' ||
-                  'lead' => api.patchParticipant(p.id, role: v),
-                  'device' => api.patchParticipant(p.id, resetDevice: true),
-                  'remove' => api.patchParticipant(p.id, isActive: false),
-                  'restore' => api.patchParticipant(
-                    p.id,
-                    isActive: true,
-                    status: 'active',
-                  ),
-                  _ => throw StateError(v),
-                },
-              ),
+              onSelected: (v) => v == 'quarantine'
+                  ? _quarantine(context, ref, p)
+                  : _run(
+                      context,
+                      ref,
+                      (api) => switch (v) {
+                        'mobile' ||
+                        'fixed' ||
+                        'lead' => api.patchParticipant(p.id, role: v),
+                        'trust' => api.patchParticipant(p.id, trusted: true),
+                        'untrust' => api.patchParticipant(p.id, trusted: false),
+                        'device' => api.patchParticipant(
+                          p.id,
+                          resetDevice: true,
+                        ),
+                        'remove' => api.patchParticipant(p.id, isActive: false),
+                        'restore' => api.patchParticipant(
+                          p.id,
+                          isActive: true,
+                          status: 'active',
+                        ),
+                        _ => throw StateError(v),
+                      },
+                    ),
               itemBuilder: (_) => [
                 if (!off) ...[
                   for (final r in ['mobile', 'fixed', 'lead'])
@@ -146,11 +209,22 @@ class ParticipantsScreen extends ConsumerWidget {
                         value: r,
                         child: Text('Rolle: ${roleLabel(r)}'),
                       ),
+                  PopupMenuItem(
+                    value: p.trusted ? 'untrust' : 'trust',
+                    child: Text(
+                      p.trusted ? 'Vertrauen entziehen' : 'Vertrauen',
+                    ),
+                  ),
                   if (p.deviceBound)
                     const PopupMenuItem(
                       value: 'device',
                       child: Text('Gerät freigeben (neues Handy)'),
                     ),
+                  const PopupMenuItem(
+                    key: Key('quarantine'),
+                    value: 'quarantine',
+                    child: Text('Quarantäne …'),
+                  ),
                   const PopupMenuItem(
                     value: 'remove',
                     child: Text('Entfernen'),

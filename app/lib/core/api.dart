@@ -48,8 +48,12 @@ abstract class FoxGridApi {
     String? role,
     String? status,
     bool? isActive,
+    bool? trusted,
     bool resetDevice = false,
   });
+
+  /// Lead only: takes all of a participant's bearings and readings out of the estimate.
+  Future<QuarantineResult> quarantine(String id, {bool remove = false});
 
   /// Delivers one queued write and classifies the result for the sync service.
   Future<SendResult> sendQueued(OutboxEntry entry);
@@ -205,6 +209,7 @@ class DioFoxGridApi implements FoxGridApi {
     String? role,
     String? status,
     bool? isActive,
+    bool? trusted,
     bool resetDevice = false,
   }) async {
     final r = await _call(
@@ -214,10 +219,28 @@ class DioFoxGridApi implements FoxGridApi {
         'role': ?role,
         'status': ?status,
         'is_active': ?isActive,
+        'trusted': ?trusted,
         if (resetDevice) 'reset_device': true,
       },
     );
     return Participant.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<QuarantineResult> quarantine(String id, {bool remove = false}) async {
+    final r = await _call(
+      'POST',
+      '$_mission/participants/$id/quarantine',
+      data: {'remove': remove},
+    );
+    final j = r.data as Map<String, dynamic>;
+    return QuarantineResult(
+      participant: Participant.fromJson(
+        j['participant'] as Map<String, dynamic>,
+      ),
+      bearings: j['bearings_deactivated'] as int,
+      rssi: j['rssi_deactivated'] as int,
+    );
   }
 
   @override

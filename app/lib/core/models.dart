@@ -76,12 +76,16 @@ class Participant {
     this.status = 'active',
     this.isActive = true,
     this.deviceBound = false,
+    this.trusted = true,
   });
 
   final String id;
   final String callsign;
   final String role;
   final String? team;
+
+  /// Only trusted participants' data moves the estimate; the rest is logged and shown.
+  final bool trusted;
 
   /// `pending` (waiting for the lead), `active` or `rejected`.
   final String status;
@@ -100,7 +104,21 @@ class Participant {
     status: j['status'] as String? ?? 'active',
     isActive: j['is_active'] as bool? ?? true,
     deviceBound: j['device_bound'] as bool? ?? false,
+    trusted: j['trusted'] as bool? ?? true,
   );
+}
+
+/// Outcome of a quarantine: how much the participant had contributed.
+class QuarantineResult {
+  const QuarantineResult({
+    required this.participant,
+    required this.bearings,
+    required this.rssi,
+  });
+
+  final Participant participant;
+  final int bearings;
+  final int rssi;
 }
 
 class PositionFix {

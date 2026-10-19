@@ -34,7 +34,8 @@ class BearingsSheet extends ConsumerWidget {
               '${time.hour.toString().padLeft(2, '0')}:'
               '${time.minute.toString().padLeft(2, '0')}'
               '${b.rssiDbm != null ? ' · ${b.rssiDbm!.round()} dBm' : ''}'
-              '${b.note != null ? ' · ${b.note}' : ''}',
+              '${b.note != null ? ' · ${b.note}' : ''}'
+              '${state.participants[b.participantId]?.trusted == false ? ' · nicht vertraut' : ''}',
             ),
             secondary: Icon(
               b.isOutlier ? Icons.report : Icons.check_circle_outline,

@@ -192,9 +192,11 @@ class FakeApi implements FoxGridApi {
     String? role,
     String? status,
     bool? isActive,
+    bool? trusted,
     bool resetDevice = false,
   }) async {
     patched.add({
+      'trusted': trusted,
       'id': id,
       'role': role,
       'status': status,
@@ -212,6 +214,29 @@ class FakeApi implements FoxGridApi {
       status: status ?? known.status,
       isActive: isActive ?? known.isActive,
       deviceBound: resetDevice ? false : known.deviceBound,
+      trusted: trusted ?? known.trusted,
+    );
+  }
+
+  final quarantined = <(String, bool)>[];
+
+  @override
+  Future<QuarantineResult> quarantine(String id, {bool remove = false}) async {
+    quarantined.add((id, remove));
+    final known = [
+      for (final p in (snapshotData ?? snapshotJson())['participants'] as List)
+        Participant.fromJson(p as Map<String, dynamic>),
+    ].firstWhere((p) => p.id == id);
+    return QuarantineResult(
+      participant: Participant(
+        id: id,
+        callsign: known.callsign,
+        role: known.role,
+        isActive: !remove,
+        trusted: false,
+      ),
+      bearings: 2,
+      rssi: 5,
     );
   }
 

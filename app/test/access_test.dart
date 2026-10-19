@@ -189,4 +189,69 @@ void main() {
       expect(api.patched.last['isActive'], true);
     });
   });
+
+  group('trust and quarantine', () {
+    Map<String, dynamic> snapshotWithUntrusted() {
+      final s = snapshotJson();
+      s['participants'] = <dynamic>[
+        ...(s['participants'] as List),
+        <String, dynamic>{
+          'id': 'p5',
+          'callsign': 'DL5OPEN',
+          'role': 'mobile',
+          'team': null,
+          'status': 'active',
+          'is_active': true,
+          'device_bound': true,
+          'trusted': false,
+        },
+      ];
+      return s;
+    }
+
+    testWidgets('shows who is untrusted and lets the lead trust them', (
+      tester,
+    ) async {
+      final api = FakeApi()..snapshotData = snapshotWithUntrusted();
+      await pumpWith(tester, const ParticipantsScreen(), api: api);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('nicht vertraut'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('menu-DL5OPEN')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Vertrauen'));
+      await tester.pumpAndSettle();
+      expect(api.patched.last['trusted'], true);
+      expect(find.textContaining('nicht vertraut'), findsNothing);
+    });
+
+    testWidgets('quarantine asks first and reports what it took out', (
+      tester,
+    ) async {
+      final api = FakeApi();
+      await pumpWith(tester, const ParticipantsScreen(), api: api);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('menu-DL2XYZ')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quarantine')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Abbrechen'));
+      await tester.pumpAndSettle();
+      expect(api.quarantined, isEmpty);
+
+      await tester.tap(find.byKey(const Key('menu-DL2XYZ')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quarantine')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quarantine-remove')));
+      await tester.pumpAndSettle();
+      expect(api.quarantined.single, ('p2', true));
+      expect(
+        find.textContaining('2 Peilungen und 5 Messwerte'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('entfernt'), findsOneWidget);
+    });
+  });
 }
