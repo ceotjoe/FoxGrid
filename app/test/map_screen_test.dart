@@ -42,8 +42,11 @@ void main() {
     );
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
-    expect(find.text('Sensoren'), findsOneWidget);
-    await tester.tap(find.text('Sensoren'));
+    expect(find.text('Sensoren'), findsNothing); // grouped under "verwalten"
+    await tester.tap(find.byKey(const Key('open-manage')));
+    await tester.pumpAndSettle();
+    expect(find.text('Sicherheitsprotokoll'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('open-sensors')));
     await tester.pumpAndSettle();
     expect(find.byType(SensorsScreen), findsOneWidget);
     expect(find.byKey(const Key('sensor-Nord')), findsOneWidget);
@@ -67,6 +70,7 @@ void main() {
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
     expect(find.text('Sensoren'), findsNothing);
+    expect(find.byKey(const Key('open-manage')), findsNothing);
     expect(find.text('Einstellungen'), findsOneWidget);
     await _unmount(tester);
   });
@@ -139,6 +143,46 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Test hunt'), findsWidgets);
     expect(find.textContaining('Frequenz: 433.500 MHz'), findsOneWidget);
+    await _unmount(tester);
+  });
+
+  testWidgets('exports are bundled into one sheet', (tester) async {
+    await _open(tester);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Export:'), findsNothing);
+    await tester.tap(find.byKey(const Key('open-export')));
+    await tester.pumpAndSettle();
+    for (final f in ['pdf', 'gpx', 'kml', 'json']) {
+      expect(find.byKey(Key('export-$f')), findsOneWidget, reason: f);
+    }
+    await _unmount(tester);
+  });
+
+  testWidgets('leaving asks for confirmation first', (tester) async {
+    await _open(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(MapScreen)),
+    );
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('menu-leave')));
+    await tester.pumpAndSettle();
+    expect(find.text('Einsatz verlassen?'), findsOneWidget);
+    await tester.tap(find.text('Abbrechen'));
+    await tester.pumpAndSettle();
+    expect(container.read(sessionProvider), isNotNull);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('menu-leave')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-leave')));
+    await tester.pump();
+    await tester.pump();
+    // main.dart swaps the screen once the session is gone; this bare
+    // MapScreen cannot build without one
+    tester.takeException();
+    expect(container.read(sessionProvider), isNull);
     await _unmount(tester);
   });
 }

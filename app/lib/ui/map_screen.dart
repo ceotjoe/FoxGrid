@@ -108,6 +108,138 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  void _push(Widget screen) =>
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => screen));
+
+  void _sheet(WidgetBuilder builder) => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: builder,
+  );
+
+  /// Lead tools that are rarely needed during a hunt, grouped in one place.
+  void _showManage(Session session, int waiting) {
+    _sheet(
+      (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const Key('open-participants'),
+              leading: Badge(
+                isLabelVisible: waiting > 0,
+                label: Text('$waiting'),
+                child: const Icon(Icons.group_outlined),
+              ),
+              title: const Text('Teilnehmer'),
+              subtitle: Text(
+                waiting > 0
+                    ? '$waiting warten auf Freigabe'
+                    : 'Freigabe, Rollen, Vertrauen',
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _push(const ParticipantsScreen());
+              },
+            ),
+            if (session.inviteToken != null)
+              ListTile(
+                key: const Key('open-invite'),
+                leading: const Icon(Icons.qr_code_2),
+                title: const Text('Einladung'),
+                subtitle: const Text('Link und Token anzeigen'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showInvite(session);
+                },
+              ),
+            ListTile(
+              key: const Key('open-sensors'),
+              leading: const Icon(Icons.sensors),
+              title: const Text('Sensoren'),
+              subtitle: const Text('Feste Peilstationen und API-Schlüssel'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _push(const SensorsScreen());
+              },
+            ),
+            ListTile(
+              key: const Key('open-audit'),
+              leading: const Icon(Icons.shield_outlined),
+              title: const Text('Sicherheitsprotokoll'),
+              subtitle: const Text('Beitritte, Entfernungen, Sperren'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _push(const AuditScreen());
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showExport() {
+    const formats = [
+      (
+        'pdf',
+        Icons.picture_as_pdf_outlined,
+        'PDF-Protokoll',
+        'Zum Ausdrucken und Archivieren',
+      ),
+      ('gpx', Icons.route_outlined, 'GPX', 'Für Navi- und Karten-Apps'),
+      ('kml', Icons.public, 'KML', 'Für Google Earth'),
+      ('json', Icons.data_object, 'JSON', 'Alle Rohdaten des Einsatzes'),
+    ];
+    _sheet(
+      (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (format, icon, title, hint) in formats)
+              ListTile(
+                key: Key('export-$format'),
+                leading: Icon(icon),
+                title: Text(title),
+                subtitle: Text(hint),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _export(format);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmLeave() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Einsatz verlassen?'),
+        content: const Text(
+          'Nicht gesendete Einträge bleiben in der Warteschlange, '
+          'aber du musst dich danach neu verbinden.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            key: const Key('confirm-leave'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Verlassen'),
+          ),
+        ],
+      ),
+    );
+    if (ok ?? false) ref.read(sessionProvider.notifier).leave();
+  }
+
   void _showMissionInfo(Mission mission) {
     final repeater = mission.repeater;
     showDialog<void>(
@@ -310,62 +442,24 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
             onSelected: (v) {
               switch (v) {
-                case 'participants':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ParticipantsScreen(),
-                    ),
-                  );
-                case 'audit':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const AuditScreen(),
-                    ),
-                  );
                 case 'tasks':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const TasksScreen(),
-                    ),
-                  );
+                  _push(const TasksScreen());
                 case 'filter':
-                  showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    showDragHandle: true,
-                    builder: (_) => const FilterSheet(),
-                  );
-                case 'leave':
-                  ref.read(sessionProvider.notifier).leave();
+                  _sheet((_) => const FilterSheet());
+                case 'bearings':
+                  _sheet((_) => const BearingsSheet());
+                case 'station':
+                  _push(const StationScreen());
+                case 'manage':
+                  _showManage(session, waiting);
                 case 'invite':
                   _showInvite(session);
-                case 'bearings':
-                  showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    showDragHandle: true,
-                    builder: (_) => const BearingsSheet(),
-                  );
-                case 'station':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const StationScreen(),
-                    ),
-                  );
-                case 'sensors':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SensorsScreen(),
-                    ),
-                  );
+                case 'export':
+                  _showExport();
                 case 'settings':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SettingsScreen(),
-                    ),
-                  );
-                default:
-                  _export(v);
+                  _push(const SettingsScreen());
+                case 'leave':
+                  _confirmLeave();
               }
             },
             itemBuilder: (_) => [
@@ -373,56 +467,61 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 const PopupMenuItem(
                   key: Key('menu-tasks'),
                   value: 'tasks',
-                  child: Text('Aufgaben'),
+                  child: _MenuRow(Icons.checklist, 'Aufgaben'),
                 ),
                 PopupMenuItem(
                   key: const Key('menu-filter'),
                   value: 'filter',
-                  child: Text(filterActive ? 'Filter (aktiv)' : 'Filter'),
+                  child: _MenuRow(
+                    Icons.filter_alt_outlined,
+                    filterActive ? 'Filter (aktiv)' : 'Filter',
+                  ),
                 ),
               ],
               const PopupMenuItem(
                 value: 'bearings',
-                child: Text('Peilungen (Liste)'),
+                child: _MenuRow(Icons.list_alt, 'Peilungen (Liste)'),
               ),
               if (session.role == 'fixed' || session.isLead)
                 const PopupMenuItem(
                   key: Key('open-station'),
                   value: 'station',
-                  child: Text('Rundstrahl-Station'),
+                  child: _MenuRow(Icons.cell_tower, 'Rundstrahl-Station'),
                 ),
-              if (session.inviteToken != null)
-                const PopupMenuItem(value: 'invite', child: Text('Einladung')),
               if (session.isLead)
                 PopupMenuItem(
-                  key: const Key('open-participants'),
-                  value: 'participants',
-                  child: Text(
-                    waiting > 0 ? 'Teilnehmer ($waiting warten)' : 'Teilnehmer',
+                  key: const Key('open-manage'),
+                  value: 'manage',
+                  child: _MenuRow(
+                    Icons.admin_panel_settings_outlined,
+                    waiting > 0
+                        ? 'Einsatz verwalten ($waiting warten)'
+                        : 'Einsatz verwalten',
                   ),
-                ),
-              if (session.isLead)
+                )
+              else if (session.inviteToken != null)
                 const PopupMenuItem(
-                  key: Key('open-audit'),
-                  value: 'audit',
-                  child: Text('Sicherheitsprotokoll'),
+                  value: 'invite',
+                  child: _MenuRow(Icons.qr_code_2, 'Einladung'),
                 ),
-              if (session.isLead)
-                const PopupMenuItem(value: 'sensors', child: Text('Sensoren')),
+              const PopupMenuItem(
+                key: Key('open-export'),
+                value: 'export',
+                child: _MenuRow(Icons.ios_share, 'Exportieren …'),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'settings',
-                child: Text('Einstellungen'),
+                child: _MenuRow(Icons.settings_outlined, 'Einstellungen'),
               ),
-              const PopupMenuItem(
-                value: 'pdf',
-                child: Text('Export: PDF-Protokoll'),
-              ),
-              const PopupMenuItem(value: 'gpx', child: Text('Export: GPX')),
-              const PopupMenuItem(value: 'kml', child: Text('Export: KML')),
-              const PopupMenuItem(value: 'json', child: Text('Export: JSON')),
-              const PopupMenuItem(
+              PopupMenuItem(
+                key: const Key('menu-leave'),
                 value: 'leave',
-                child: Text('Einsatz verlassen'),
+                child: _MenuRow(
+                  Icons.logout,
+                  'Einsatz verlassen',
+                  color: theme.colorScheme.error,
+                ),
               ),
             ],
           ),
@@ -982,4 +1081,23 @@ class _TransmissionBannerState extends State<_TransmissionBanner>
       ),
     );
   }
+}
+
+class _MenuRow extends StatelessWidget {
+  const _MenuRow(this.icon, this.label, {this.color});
+
+  final IconData icon;
+  final String label;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Icon(icon, size: 20, color: color),
+      const SizedBox(width: 12),
+      Flexible(
+        child: Text(label, style: TextStyle(color: color)),
+      ),
+    ],
+  );
 }
