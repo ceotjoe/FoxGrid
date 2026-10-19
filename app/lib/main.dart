@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'state/providers.dart';
 import 'ui/join_screen.dart';
 import 'ui/map_screen.dart';
+import 'ui/pending_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +29,11 @@ class FoxGridApp extends ConsumerWidget {
       title: 'FoxGrid',
       debugShowCheckedModeBanner: false,
       theme: night ? _redTheme : _dayTheme,
-      home: session == null ? const JoinScreen() : const MapScreen(),
+      home: session == null
+          ? const JoinScreen()
+          : session.isPending
+          ? const PendingScreen()
+          : const MapScreen(),
     );
   }
 }

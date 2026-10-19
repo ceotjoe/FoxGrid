@@ -168,6 +168,53 @@ class FakeApi implements FoxGridApi {
     return suggestionList;
   }
 
+  Participant meValue = const Participant(
+    id: 'p1',
+    callsign: 'DL1ABC',
+    role: 'lead',
+  );
+  Object? meError;
+  final patched = <Map<String, Object?>>[];
+  String? replacedInvite;
+
+  @override
+  Future<Participant> me() async {
+    if (meError != null) throw meError!;
+    return meValue;
+  }
+
+  @override
+  Future<String> replaceInvite() async => replacedInvite = 'new-invite-token';
+
+  @override
+  Future<Participant> patchParticipant(
+    String id, {
+    String? role,
+    String? status,
+    bool? isActive,
+    bool resetDevice = false,
+  }) async {
+    patched.add({
+      'id': id,
+      'role': role,
+      'status': status,
+      'isActive': isActive,
+      'resetDevice': resetDevice,
+    });
+    final known = [
+      for (final p in (snapshotData ?? snapshotJson())['participants'] as List)
+        Participant.fromJson(p as Map<String, dynamic>),
+    ].firstWhere((p) => p.id == id);
+    return Participant(
+      id: id,
+      callsign: known.callsign,
+      role: role ?? known.role,
+      status: status ?? known.status,
+      isActive: isActive ?? known.isActive,
+      deviceBound: resetDevice ? false : known.deviceBound,
+    );
+  }
+
   List<SensorInfo> sensorList = [];
   Object? createSensorError;
   final createdSensors = <Map<String, Object?>>[];

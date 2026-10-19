@@ -36,6 +36,21 @@ abstract class FoxGridApi {
 
   Future<Map<String, dynamic>> snapshot();
 
+  /// Lead only: revokes every open invite and returns the token of a fresh one.
+  Future<String> replaceInvite();
+
+  /// Own state; works while the join is still waiting for the lead's approval.
+  Future<Participant> me();
+
+  /// Lead only: approve/reject, change the role, remove or release the device.
+  Future<Participant> patchParticipant(
+    String id, {
+    String? role,
+    String? status,
+    bool? isActive,
+    bool resetDevice = false,
+  });
+
   /// Delivers one queued write and classifies the result for the sync service.
   Future<SendResult> sendQueued(OutboxEntry entry);
 
@@ -123,6 +138,7 @@ class DioFoxGridApi implements FoxGridApi {
       callsign: p['callsign'] as String,
       role: p['role'] as String,
       inviteToken: inviteToken,
+      status: p['status'] as String? ?? 'active',
     );
   }
 
@@ -169,6 +185,39 @@ class DioFoxGridApi implements FoxGridApi {
       },
     );
     return _sessionFrom(r.data as Map<String, dynamic>, baseUrl);
+  }
+
+  @override
+  Future<String> replaceInvite() async {
+    final r = await _call('POST', '$_mission/invites/replace');
+    return (r.data as Map<String, dynamic>)['token'] as String;
+  }
+
+  @override
+  Future<Participant> me() async {
+    final r = await _call('GET', '$_mission/me');
+    return Participant.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<Participant> patchParticipant(
+    String id, {
+    String? role,
+    String? status,
+    bool? isActive,
+    bool resetDevice = false,
+  }) async {
+    final r = await _call(
+      'PATCH',
+      '$_mission/participants/$id',
+      data: {
+        'role': ?role,
+        'status': ?status,
+        'is_active': ?isActive,
+        if (resetDevice) 'reset_device': true,
+      },
+    );
+    return Participant.fromJson(r.data as Map<String, dynamic>);
   }
 
   @override

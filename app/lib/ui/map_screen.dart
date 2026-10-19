@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../core/api.dart';
 import '../core/geo.dart';
 import '../core/live.dart';
 import '../core/models.dart';
@@ -20,6 +21,7 @@ import 'capture_sheet.dart';
 import 'chat_screen.dart';
 import 'filter_sheet.dart';
 import 'homing_screen.dart';
+import 'participants_screen.dart';
 import 'station_screen.dart';
 import 'settings_screen.dart';
 import 'sensors_screen.dart';
@@ -91,6 +93,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  Future<void> _replaceInvite(Session session) async {
+    try {
+      final token = await ref.read(apiProvider).replaceInvite();
+      final next = session.copyWith(inviteToken: token);
+      await ref.read(sessionProvider.notifier).set(next);
+      if (mounted) _showInvite(next);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   void _showInvite(Session session) {
     final token = session.inviteToken;
     if (token == null) return;
@@ -99,8 +115,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Einladung'),
-        content: SelectableText('Token: $token\n\nLink: $link'),
+        content: SelectableText(
+          'Token: $token\n\nLink: $link\n\n'
+          'Der Link läuft nach 24 Stunden ab. Neue Teilnehmer warten auf deine Freigabe '
+          '(Menü „Teilnehmer“). Ist er in falsche Hände geraten, ersetze ihn: '
+          'der alte Link wird ungültig, wer schon drin ist, bleibt drin.',
+        ),
         actions: [
+          TextButton(
+            key: const Key('replace-invite'),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _replaceInvite(session);
+            },
+            child: const Text('Link ersetzen'),
+          ),
           TextButton(
             onPressed: () => Clipboard.setData(ClipboardData(text: link)),
             child: const Text('Link kopieren'),
@@ -123,6 +152,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final scope = ref.watch(estimateScopeProvider);
     final theme = Theme.of(context);
     final running = state.running;
+    final waiting = session.isLead
+        ? state.participants.values.where((p) => p.isPending).length
+        : 0;
     ref.watch(
       syncProvider,
     ); // keeps the offline queue running while the map is open
@@ -223,8 +255,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
           PopupMenuButton<String>(
+            icon: Badge(
+              isLabelVisible: waiting > 0,
+              label: Text('$waiting'),
+              child: const Icon(Icons.more_vert),
+            ),
             onSelected: (v) {
               switch (v) {
+                case 'participants':
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ParticipantsScreen(),
+                    ),
+                  );
                 case 'leave':
                   ref.read(sessionProvider.notifier).leave();
                 case 'invite':
@@ -271,6 +314,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               if (session.inviteToken != null)
                 const PopupMenuItem(value: 'invite', child: Text('Einladung')),
+              if (session.isLead)
+                PopupMenuItem(
+                  key: const Key('open-participants'),
+                  value: 'participants',
+                  child: Text(
+                    waiting > 0 ? 'Teilnehmer ($waiting warten)' : 'Teilnehmer',
+                  ),
+                ),
               if (session.isLead)
                 const PopupMenuItem(value: 'sensors', child: Text('Sensoren')),
               const PopupMenuItem(

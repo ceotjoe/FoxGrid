@@ -12,6 +12,7 @@ class Session {
     required this.callsign,
     required this.role,
     this.inviteToken,
+    this.status = 'active',
   });
 
   final String baseUrl;
@@ -24,7 +25,23 @@ class Session {
   /// Only known on the device that created the mission.
   final String? inviteToken;
 
+  /// `pending` until the lead lets the joiner in; `rejected` if the lead said no.
+  final String status;
+
   bool get isLead => role == 'lead';
+  bool get isPending => status == 'pending';
+
+  Session copyWith({String? role, String? status, String? inviteToken}) =>
+      Session(
+        baseUrl: baseUrl,
+        token: token,
+        missionId: missionId,
+        participantId: participantId,
+        callsign: callsign,
+        role: role ?? this.role,
+        inviteToken: inviteToken ?? this.inviteToken,
+        status: status ?? this.status,
+      );
 
   Uri get wsUri {
     final base = Uri.parse(baseUrl);
@@ -43,6 +60,7 @@ class Session {
     'callsign': callsign,
     'role': role,
     'inviteToken': inviteToken,
+    'status': status,
   };
 
   factory Session.fromJson(Map<String, dynamic> j) => Session(
@@ -53,6 +71,7 @@ class Session {
     callsign: j['callsign'] as String,
     role: j['role'] as String,
     inviteToken: j['inviteToken'] as String?,
+    status: j['status'] as String? ?? 'active',
   );
 }
 

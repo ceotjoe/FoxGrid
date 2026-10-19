@@ -73,6 +73,9 @@ class Participant {
     required this.callsign,
     required this.role,
     this.team,
+    this.status = 'active',
+    this.isActive = true,
+    this.deviceBound = false,
   });
 
   final String id;
@@ -80,11 +83,23 @@ class Participant {
   final String role;
   final String? team;
 
+  /// `pending` (waiting for the lead), `active` or `rejected`.
+  final String status;
+
+  /// `false` once the lead removed the participant.
+  final bool isActive;
+  final bool deviceBound;
+
+  bool get isPending => status == 'pending' && isActive;
+
   factory Participant.fromJson(Map<String, dynamic> j) => Participant(
     id: j['id'] as String,
     callsign: j['callsign'] as String,
     role: j['role'] as String,
     team: j['team'] as String?,
+    status: j['status'] as String? ?? 'active',
+    isActive: j['is_active'] as bool? ?? true,
+    deviceBound: j['device_bound'] as bool? ?? false,
   );
 }
 

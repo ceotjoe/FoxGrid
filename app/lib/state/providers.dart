@@ -464,6 +464,20 @@ class MissionNotifier extends Notifier<MissionState> {
     }
   }
 
+  /// New or changed participant (live event or the lead's own change).
+  /// A role change of ours takes effect at once, e.g. the station screen appears.
+  void applyParticipant(Participant p) => _applyParticipant(p);
+
+  void _applyParticipant(Participant p) {
+    state = state.copyWith(participants: {...state.participants, p.id: p});
+    final own = ref.read(sessionProvider);
+    if (own != null && own.participantId == p.id && own.role != p.role) {
+      unawaited(
+        ref.read(sessionProvider.notifier).set(own.copyWith(role: p.role)),
+      );
+    }
+  }
+
   void _onEvent(Map<String, dynamic> event) {
     if (_disposed) return;
     final data = event['data'];
@@ -486,6 +500,8 @@ class MissionNotifier extends Notifier<MissionState> {
         if (!state.participants.containsKey(fix.participantId)) {
           unawaited(_loadSnapshot(ref.read(apiProvider)));
         }
+      case 'participant_updated':
+        _applyParticipant(Participant.fromJson(data));
       case 'bearing_created' || 'bearing_updated':
         state = _withBearing(state, Bearing.fromJson(data));
       case 'transmission_started':
