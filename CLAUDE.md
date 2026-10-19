@@ -160,3 +160,15 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 - Map rings: `_stationRings` in `map_screen.dart` draws, per station, the distance from `ringDistanceM` (`core/signal.dart`) with the
   estimate's `rssi` fit (p0, n, offsets) and +-residual bands; filter toggle `showRings`. The calibration offset is not known to the app,
   so rings use only the estimated offset.
+
+## Access control notes (leaked invite links, step A)
+- Plan: threat model "link leak / saboteur" in the session of 2026-10-19; step A done (device binding, roles, link defaults, removal),
+  next: B (join lobby with lead approval + participants UI), C (unverified participants do not feed the estimate, quarantine).
+- `participants.device_hash` = SHA-256 of a per-install secret (`JoinIn.device_secret`, app: `core/device_secret.dart`, SharedPreferences).
+  Re-joining a callsign needs the same secret (403 otherwise, audited as `join_denied`); legacy rows without a hash bind on the next join.
+  Lead releases it with `PATCH /missions/{id}/participants/{pid}` `{"reset_device": true}`.
+- The invite decides the role of a new participant (`mobile`|`fixed`); `JoinIn.role` is ignored. Leads only come from promotion via the same PATCH.
+  The app join screen therefore has no role picker, and there is no app UI yet for a lead to promote someone to `fixed` (planned with step B).
+- Invites always expire/limit: defaults `FOXGRID_INVITE_TTL_HOURS` (24) and `FOXGRID_INVITE_MAX_USES` (20), also for the first invite of a mission.
+  `POST .../invites/{id}/rotate` revokes and replaces.
+- Removal = `is_active=false` (token check is per request); event `participant_removed` makes the WebSocket of that participant close with 4403.

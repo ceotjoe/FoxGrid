@@ -42,6 +42,22 @@ Einsatz anlegen: In der App Tab „Einsatz anlegen“; über das Personen-Symbol
 (Token und Link `foxgrid://join?server=…&token=…`). Andere Geräte treten mit Token oder Link bei.
 Ein QR-Code zum Scannen kommt in Phase 2.
 
+### Zugang absichern (Einladungslink)
+
+- Einladungen laufen standardmäßig nach 24 h ab und gelten für höchstens 20 neue Teilnehmer
+  (`FOXGRID_INVITE_TTL_HOURS`, `FOXGRID_INVITE_MAX_USES`). Ist ein Link in falsche Hände geraten:
+  `POST /api/v1/missions/{id}/invites/{invite_id}/rotate` ersetzt ihn, bereits beigetretene Teilnehmer bleiben drin.
+- Jedes Gerät erzeugt beim ersten Start ein Geheimnis; der Server speichert nur den Hash. Ein Rufzeichen lässt sich nur
+  vom selben Gerät erneut betreten. Wer nur den Link kennt, kann kein vorhandenes Rufzeichen übernehmen.
+  Wechselt jemand das Handy, gibt die Einsatzleitung das Gerät frei (`PATCH …/participants/{id}` mit
+  `{"reset_device": true}`), danach genügt ein neuer Beitritt.
+- Wer über einen Link beitritt, ist immer „Mobil“. „Fest“ (Rundumstation) und „Leitung“ vergibt nur die Einsatzleitung
+  (`PATCH …/participants/{id}` mit `{"role": "fixed"}`) oder eine Einladung mit `default_role: "fixed"`.
+- Die Leitung kann Teilnehmer entfernen (`{"is_active": false}`): Der Zugriff endet sofort, offene Verbindungen werden
+  getrennt. Peilungen des Teilnehmers bleiben erhalten. Rückgängig mit `{"is_active": true}`.
+- Den Link nicht in offene Gruppen posten, sondern vor Ort (QR) oder persönlich weitergeben und nach dem Aufbau des
+  Teams rotieren. Eine Freigabe-Warteschlange für neue Teilnehmer und eine Oberfläche dafür in der App sind geplant.
+
 ## Simulator (Abnahme)
 
 ```bash
