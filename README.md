@@ -70,7 +70,15 @@ Ein QR-Code zum Scannen kommt in Phase 2.
   Schätzung und entzieht das Vertrauen (optional zugleich entfernen). Nichts wird gelöscht: Die Peilungen bleiben im Protokoll,
   jede mit einer Revision „quarantine“. Zurücknehmen geht nur einzeln pro Peilung.
 - Den Link nicht in offene Gruppen posten, sondern vor Ort (QR) oder persönlich weitergeben und nach dem Aufbau des
-  Teams ersetzen. Noch offen: automatische Plausibilitätsprüfung (Auffälligkeits-Flag), Rate-Limits.
+  Teams ersetzen.
+- **Auffälligkeiten:** Im Menü „Teilnehmer“ prüft die Lupe (nur Leitung) die Daten auf Widersprüche und markiert Teilnehmer
+  mit einem Warnsymbol: Peilungen, die klar am Ergebnis der anderen vorbeizeigen (ab 3 Peilungen im Ergebnis), Positionssprünge
+  über ca. 250 km/h, Peilungsstandorte weit weg vom eigenen Positionsverlauf oder Peilungen ganz ohne Positionsmeldung. Das sind
+  Hinweise, keine Urteile: Es wird nichts automatisch geändert, die Leitung entscheidet über Vertrauen und Quarantäne.
+- **Rate-Limits (pro Minute, 0 = aus):** Beitritte pro Absender-Adresse `FOXGRID_RATE_JOIN_PER_MIN` (20), Peilungen pro Teilnehmer
+  `FOXGRID_RATE_BEARING_PER_MIN` (120), Messwerte `FOXGRID_RATE_RSSI_PER_MIN` (600, je Wert), Chat `FOXGRID_RATE_MESSAGE_PER_MIN` (30).
+  Darüber antwortet der Server mit 429 und `Retry-After`; die App sendet ihre Warteschlange später erneut. Hinter einem Reverse-Proxy
+  muss uvicorn die echte Adresse kennen (`FORWARDED_ALLOW_IPS` auf die Proxy-Adresse setzen), sonst teilen sich alle den Beitritts-Zähler.
 
 ## Simulator (Abnahme)
 

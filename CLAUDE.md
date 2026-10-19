@@ -163,7 +163,7 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 
 ## Access control notes (leaked invite links, steps A + B)
 - Plan: threat model "link leak / saboteur" in the session of 2026-10-19; step A done (device binding, roles, link defaults, removal),
-  step B done (join lobby + participants UI), step C done (trust + quarantine), next: D (plausibility flag, rate limits), E (audit view, docs, voice code).
+  step B done (join lobby + participants UI), step C done (trust + quarantine), step D done (plausibility hints + rate limits), next: E (audit view, docs, voice code).
 - Lobby: `participants.status` = `pending`|`active`|`rejected` (separate from `is_active` = removed). New joiners are `pending` unless the invite has
   `auto_approve`. `deps.member` (so `lead` too) answers 403 `participant is pending|rejected`; only `GET /missions/{id}/me` works for them (the app
   polls it on `PendingScreen`). WebSocket handshake refuses non-active participants; push targets are active participants only.
@@ -184,3 +184,7 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   lobby approval or promotion to `fixed`/`lead` trusts (unless `trusted` is sent explicitly); changing trust triggers a recompute. Untrusted data is still stored, listed and exported.
 - `POST /missions/{id}/participants/{pid}/quarantine` (lead; `{"remove": bool}`): deactivates all active bearings (revision with `reason: "quarantine"`, `bearing_updated` events)
   and RSSI samples, sets `trusted=false`, audits the counts. No bulk undo (reactivate bearings one by one via PATCH). Not for sensors or the lead themself.
+- Rate limits (step D): `services/ratelimit.enforce(redis, bucket, subject, limit, cost)` fixed one-minute window in Redis, 429 + `Retry-After`; settings `rate_*_per_min`
+  (0 = off; tests switch the join limit off because all tests join from 127.0.0.1). The app already treats 429 as retry. Mind `FORWARDED_ALLOW_IPS` behind a proxy.
+- Plausibility (`services/plausibility.py`, pure functions, plain haversine, no pyproj): `GET /missions/{id}/plausibility` (lead) returns hints per active, non-sensor participant:
+  `bearings_disagree` (needs an `all` estimate with >= 3 bearings), `impossible_speed`, `bearing_off_track`, `no_track`. Hints only, never automatic actions; thresholds are constants at the top of the module.
