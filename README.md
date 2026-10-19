@@ -62,9 +62,15 @@ Ein QR-Code zum Scannen kommt in Phase 2.
 - Das Menü „Teilnehmer“ (nur Leitung) vergibt auch Rollen (Mobil/Fest/Leitung), gibt ein Gerät frei (neues Handy) und
   entfernt oder lässt wieder zu. Im Einladungs-Dialog ersetzt „Link ersetzen“ alle offenen Links durch einen neuen
   (`POST …/invites/replace`); wer schon drin ist, bleibt drin.
+- **Vertrauen:** Nur Daten von vertrauten Teilnehmern fließen in die Schätzung ein (Peilungen, Messwerte, Positionsvorschläge).
+  Wer von der Leitung freigegeben oder zur Fest-/Leitungsstation gemacht wird, ist vertraut. Wer über einen Link mit
+  `auto_approve` beitritt, ist es nicht: seine Peilungen erscheinen in der Liste (markiert „nicht vertraut“) und im
+  Protokoll, bewegen das Ergebnis aber nicht, bis die Leitung ihm im Menü „Teilnehmer“ vertraut. Vertrauen lässt sich jederzeit entziehen.
+- **Quarantäne:** „Quarantäne …“ im Teilnehmer-Menü nimmt alle Peilungen und Messwerte eines Teilnehmers auf einmal aus der
+  Schätzung und entzieht das Vertrauen (optional zugleich entfernen). Nichts wird gelöscht: Die Peilungen bleiben im Protokoll,
+  jede mit einer Revision „quarantine“. Zurücknehmen geht nur einzeln pro Peilung.
 - Den Link nicht in offene Gruppen posten, sondern vor Ort (QR) oder persönlich weitergeben und nach dem Aufbau des
-  Teams ersetzen. Noch offen: Peilungen von Teilnehmern, die die Leitung noch nicht „vertraut“, aus der Schätzung
-  heraushalten, und eine Sofort-Quarantäne aller Daten eines Teilnehmers.
+  Teams ersetzen. Noch offen: automatische Plausibilitätsprüfung (Auffälligkeits-Flag), Rate-Limits.
 
 ## Simulator (Abnahme)
 

@@ -163,7 +163,7 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 
 ## Access control notes (leaked invite links, steps A + B)
 - Plan: threat model "link leak / saboteur" in the session of 2026-10-19; step A done (device binding, roles, link defaults, removal),
-  step B done (join lobby + participants UI), next: C (unverified participants do not feed the estimate, quarantine), D (plausibility, rate limits).
+  step B done (join lobby + participants UI), step C done (trust + quarantine), next: D (plausibility flag, rate limits), E (audit view, docs, voice code).
 - Lobby: `participants.status` = `pending`|`active`|`rejected` (separate from `is_active` = removed). New joiners are `pending` unless the invite has
   `auto_approve`. `deps.member` (so `lead` too) answers 403 `participant is pending|rejected`; only `GET /missions/{id}/me` works for them (the app
   polls it on `PendingScreen`). WebSocket handshake refuses non-active participants; push targets are active participants only.
@@ -179,3 +179,8 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 - Invites always expire/limit: defaults `FOXGRID_INVITE_TTL_HOURS` (24) and `FOXGRID_INVITE_MAX_USES` (20), also for the first invite of a mission.
   `POST .../invites/{id}/rotate` revokes and replaces.
 - Removal = `is_active=false` (token check is per request); event `participant_removed` makes the WebSocket of that participant close with 4403.
+- Trust (step C): `participants.trusted`. Every query that feeds an estimate goes through `domain.trusted_only(stmt, Bearing|RssiSample)`
+  (recompute incl. calibration offsets, `/estimate/query`, `/suggestions`); a new such query must use it too. New joiners via `auto_approve` links start untrusted,
+  lobby approval or promotion to `fixed`/`lead` trusts (unless `trusted` is sent explicitly); changing trust triggers a recompute. Untrusted data is still stored, listed and exported.
+- `POST /missions/{id}/participants/{pid}/quarantine` (lead; `{"remove": bool}`): deactivates all active bearings (revision with `reason: "quarantine"`, `bearing_updated` events)
+  and RSSI samples, sets `trusted=false`, audits the counts. No bulk undo (reactivate bearings one by one via PATCH). Not for sensors or the lead themself.
