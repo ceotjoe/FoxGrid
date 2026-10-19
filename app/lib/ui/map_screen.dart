@@ -666,14 +666,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   padding: const EdgeInsets.all(8),
                   child: Row(
                     children: [
-                      Flexible(
+                      Expanded(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
                           child: SegmentedButton<EstimateScope>(
                             showSelectedIcon: false,
                             style: const ButtonStyle(
-                              visualDensity: VisualDensity.compact,
+                              // Same height as the 40 px round buttons on the right;
+                              // tight padding so it rarely needs to scale down.
+                              minimumSize: WidgetStatePropertyAll(Size(0, 40)),
+                              padding: WidgetStatePropertyAll(
+                                EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              textStyle: WidgetStatePropertyAll(
+                                TextStyle(fontSize: 15),
+                              ),
                             ),
                             segments: const [
                               ButtonSegment(
@@ -692,7 +700,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           ),
                         ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 8),
                       IconButton.filledTonal(
                         key: const Key('toggle-suggestions'),
                         tooltip: 'Wo als Nächstes peilen?',
