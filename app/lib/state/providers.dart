@@ -1073,6 +1073,12 @@ final suggestionsProvider = FutureProvider.autoDispose<List<Suggestion>>((
   return ref.read(apiProvider).suggestions(scope: scope.name);
 });
 
+/// Plausibility hints for the lead's participant list: participant id -> reasons.
+final plausibilityProvider =
+    FutureProvider.autoDispose<Map<String, List<String>>>(
+      (ref) => ref.watch(apiProvider).plausibility(),
+    );
+
 /// Registered sensors of the mission (lead screen).
 final sensorsProvider = FutureProvider.autoDispose<List<SensorInfo>>(
   (ref) => ref.watch(apiProvider).listSensors(),

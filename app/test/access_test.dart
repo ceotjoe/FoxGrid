@@ -254,4 +254,37 @@ void main() {
       expect(find.textContaining('entfernt'), findsOneWidget);
     });
   });
+
+  group('plausibility hints', () {
+    testWidgets('flag a participant for the lead and can be refreshed', (
+      tester,
+    ) async {
+      final api = FakeApi()
+        ..plausibilityData = {
+          'p2': [
+            '2 von 2 Peilungen weichen deutlich vom Ergebnis der anderen ab',
+          ],
+          'p1': [],
+        };
+      await pumpWith(tester, const ParticipantsScreen(), api: api);
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Auffällig: 2 von 2 Peilungen'),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.warning_amber), findsOneWidget);
+
+      api.plausibilityData = {};
+      await tester.tap(find.byKey(const Key('refresh-hints')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Auffällig'), findsNothing);
+    });
+
+    testWidgets('the list still works when the check fails', (tester) async {
+      final api = FakeApi()..plausibilityError = ApiException(500, 'boom');
+      await pumpWith(tester, const ParticipantsScreen(), api: api);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('participant-DL2XYZ')), findsOneWidget);
+    });
+  });
 }

@@ -52,6 +52,9 @@ abstract class FoxGridApi {
     bool resetDevice = false,
   });
 
+  /// Lead only: hints per participant id (German texts); an empty list means nothing stands out.
+  Future<Map<String, List<String>>> plausibility();
+
   /// Lead only: takes all of a participant's bearings and readings out of the estimate.
   Future<QuarantineResult> quarantine(String id, {bool remove = false});
 
@@ -224,6 +227,18 @@ class DioFoxGridApi implements FoxGridApi {
       },
     );
     return Participant.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<Map<String, List<String>>> plausibility() async {
+    final r = await _call('GET', '$_mission/plausibility');
+    return {
+      for (final e in r.data as List)
+        (e as Map<String, dynamic>)['participant_id'] as String: [
+          for (final f in e['flags'] as List)
+            (f as Map<String, dynamic>)['detail'] as String,
+        ],
+    };
   }
 
   @override

@@ -218,6 +218,15 @@ class FakeApi implements FoxGridApi {
     );
   }
 
+  Map<String, List<String>> plausibilityData = {};
+  Object? plausibilityError;
+
+  @override
+  Future<Map<String, List<String>>> plausibility() async {
+    if (plausibilityError != null) throw plausibilityError!;
+    return plausibilityData;
+  }
+
   final quarantined = <(String, bool)>[];
 
   @override

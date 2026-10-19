@@ -97,6 +97,7 @@ class ParticipantsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final own = ref.watch(sessionProvider)?.participantId;
     final all = ref.watch(missionProvider.select((s) => s.participants)).values;
+    final hints = ref.watch(plausibilityProvider).value ?? const {};
     int rank(Participant p) => p.isPending ? 0 : (p.isActive ? 1 : 2);
     final list = [...all]
       ..sort((a, b) {
@@ -104,7 +105,17 @@ class ParticipantsScreen extends ConsumerWidget {
         return r != 0 ? r : a.callsign.compareTo(b.callsign);
       });
     return Scaffold(
-      appBar: AppBar(title: const Text('Teilnehmer')),
+      appBar: AppBar(
+        title: const Text('Teilnehmer'),
+        actions: [
+          IconButton(
+            key: const Key('refresh-hints'),
+            tooltip: 'Auffälligkeiten prüfen',
+            icon: const Icon(Icons.fact_check_outlined),
+            onPressed: () => ref.invalidate(plausibilityProvider),
+          ),
+        ],
+      ),
       body: ListView(
         children: [
           for (final p in list)
@@ -142,7 +153,13 @@ class ParticipantsScreen extends ConsumerWidget {
                       ],
                     ),
                   )
-                : _row(context, ref, p, isSelf: p.id == own),
+                : _row(
+                    context,
+                    ref,
+                    p,
+                    isSelf: p.id == own,
+                    hints: hints[p.id] ?? const [],
+                  ),
         ],
       ),
     );
@@ -153,6 +170,7 @@ class ParticipantsScreen extends ConsumerWidget {
     WidgetRef ref,
     Participant p, {
     required bool isSelf,
+    List<String> hints = const [],
   }) {
     final off = !p.isActive || p.status == 'rejected';
     final state = !p.isActive
@@ -163,15 +181,21 @@ class ParticipantsScreen extends ConsumerWidget {
     return ListTile(
       key: Key('participant-${p.callsign}'),
       enabled: !off || !isSelf,
-      leading: Icon(off ? Icons.person_off : Icons.person),
+      leading: hints.isNotEmpty && !off
+          ? const Icon(Icons.warning_amber, color: Colors.orange)
+          : Icon(off ? Icons.person_off : Icons.person),
       title: Text(isSelf ? '${p.callsign} (du)' : p.callsign),
+      isThreeLine: hints.isNotEmpty && !off,
       subtitle: Text(
         [
-          state,
-          if (p.team != null) p.team!,
-          if (!p.trusted && !off) 'nicht vertraut (Daten zählen nicht)',
-          if (!p.deviceBound && !off) 'Gerät frei',
-        ].join(' · '),
+          [
+            state,
+            if (p.team != null) p.team!,
+            if (!p.trusted && !off) 'nicht vertraut (Daten zählen nicht)',
+            if (!p.deviceBound && !off) 'Gerät frei',
+          ].join(' · '),
+          if (!off) ...hints.map((h) => 'Auffällig: $h'),
+        ].join('\n'),
       ),
       trailing: isSelf
           ? null
