@@ -47,6 +47,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Text('Darstellung', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          SegmentedButton<ThemeMode>(
+            key: const Key('theme-mode'),
+            segments: const [
+              ButtonSegment(value: ThemeMode.system, label: Text('System')),
+              ButtonSegment(value: ThemeMode.light, label: Text('Hell')),
+              ButtonSegment(value: ThemeMode.dark, label: Text('Dunkel')),
+            ],
+            selected: {settings.themeMode},
+            onSelectionChanged: (v) => notifier.setThemeMode(v.first),
+          ),
+          const SizedBox(height: 8),
           SwitchListTile(
             key: const Key('night-mode'),
             title: const Text('Nachtmodus (rot)'),

@@ -25,10 +25,13 @@ class FoxGridApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
     final night = ref.watch(settingsProvider.select((s) => s.nightMode));
+    final themeMode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(
       title: 'FoxGrid',
       debugShowCheckedModeBanner: false,
       theme: night ? _redTheme : _dayTheme,
+      darkTheme: night ? _redTheme : _darkTheme,
+      themeMode: night ? ThemeMode.dark : themeMode,
       home: session == null
           ? const JoinScreen()
           : session.isPending
@@ -40,6 +43,13 @@ class FoxGridApp extends ConsumerWidget {
 
 final _dayTheme = ThemeData(
   colorSchemeSeed: Colors.deepOrange,
+  useMaterial3: true,
+);
+
+/// Regular dark scheme (same seed as the day theme).
+final _darkTheme = ThemeData(
+  colorSchemeSeed: Colors.deepOrange,
+  brightness: Brightness.dark,
   useMaterial3: true,
 );
 

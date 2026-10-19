@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +15,7 @@ enum BaseMap { osm, topo, custom }
 class AppSettings {
   const AppSettings({
     this.nightMode = false,
+    this.themeMode = ThemeMode.system,
     this.customTileUrl = '',
     this.baseMap = BaseMap.osm,
     this.radioId,
@@ -22,6 +24,9 @@ class AppSettings {
 
   /// Red-on-black scheme that keeps night vision in the field.
   final bool nightMode;
+
+  /// Light, dark or system appearance; the red night mode takes precedence.
+  final ThemeMode themeMode;
 
   /// Own tile server, e.g. `https://tiles.example.org/{z}/{x}/{y}.png`.
   final String customTileUrl;
@@ -43,6 +48,7 @@ class AppSettings {
 
   AppSettings copyWith({
     bool? nightMode,
+    ThemeMode? themeMode,
     String? customTileUrl,
     BaseMap? baseMap,
     String? radioId,
@@ -50,6 +56,7 @@ class AppSettings {
     double? radioOffsetDb,
   }) => AppSettings(
     nightMode: nightMode ?? this.nightMode,
+    themeMode: themeMode ?? this.themeMode,
     customTileUrl: customTileUrl ?? this.customTileUrl,
     baseMap: baseMap ?? this.baseMap,
     radioId: clearRadio ? null : (radioId ?? this.radioId),
@@ -59,6 +66,7 @@ class AppSettings {
 
 class SettingsNotifier extends Notifier<AppSettings> {
   static const _night = 'foxgrid.night';
+  static const _theme = 'foxgrid.themeMode';
   static const _tiles = 'foxgrid.tileUrl';
   static const _base = 'foxgrid.baseMap';
   static const _radio = 'foxgrid.radio';
@@ -70,8 +78,13 @@ class SettingsNotifier extends Notifier<AppSettings> {
   AppSettings build() {
     _prefs = ref.watch(sharedPrefsProvider);
     final base = _prefs.getString(_base);
+    final theme = _prefs.getString(_theme);
     return AppSettings(
       nightMode: _prefs.getBool(_night) ?? false,
+      themeMode: ThemeMode.values.firstWhere(
+        (m) => m.name == theme,
+        orElse: () => ThemeMode.system,
+      ),
       customTileUrl: _prefs.getString(_tiles) ?? '',
       baseMap: BaseMap.values.firstWhere(
         (b) => b.name == base,
@@ -85,6 +98,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setNight(bool v) async {
     state = state.copyWith(nightMode: v);
     await _prefs.setBool(_night, v);
+  }
+
+  Future<void> setThemeMode(ThemeMode m) async {
+    state = state.copyWith(themeMode: m);
+    await _prefs.setString(_theme, m.name);
   }
 
   Future<void> setCustomTileUrl(String v) async {

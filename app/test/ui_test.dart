@@ -350,6 +350,9 @@ void main() {
       await tester.tap(find.byKey(const Key('night-mode')));
       await tester.pump();
       expect(c.read(settingsProvider).nightMode, isTrue);
+      await tester.tap(find.text('Dunkel'));
+      await tester.pump();
+      expect(c.read(settingsProvider).themeMode, ThemeMode.dark);
       await tester.enterText(
         find.byKey(const Key('tile-url')),
         'https://tiles.example.org/{z}/{x}/{y}.png',
@@ -370,6 +373,7 @@ void main() {
       addTearDown(env.container.dispose);
       final n = env.container.read(settingsProvider.notifier);
       await n.setNight(true);
+      await n.setThemeMode(ThemeMode.dark);
       await n.setCustomTileUrl(' https://t/{z}/{x}/{y}.png ');
       await n.setBaseMap(BaseMap.custom);
       final prefs = env.container.read(sharedPrefsProvider);
@@ -379,6 +383,7 @@ void main() {
       addTearDown(again.dispose);
       final s = again.read(settingsProvider);
       expect(s.nightMode, isTrue);
+      expect(s.themeMode, ThemeMode.dark);
       expect(s.baseMap, BaseMap.custom);
       expect(s.tileUrl, 'https://t/{z}/{x}/{y}.png');
     });
