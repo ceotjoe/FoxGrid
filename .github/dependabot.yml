@@ -15,7 +15,11 @@ updates:
   - package-ecosystem: docker
     directory: /backend
     schedule: { interval: weekly }
-  - package-ecosystem: docker
+    ignore:
+      # Python is pinned to 3.12 (see .python-version and CLAUDE.md).
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
+  - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: weekly }
   - package-ecosystem: bundler

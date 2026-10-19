@@ -25,14 +25,18 @@ on:
         options: [completed, draft]
         default: completed
 
+permissions:
+  contents: read
+
 concurrency:
   group: release
   cancel-in-progress: false
 
 env:
-  # Monotonic store build number. Set the repository variable BUILD_NUMBER_OFFSET if this workflow is
-  # ever recreated (run_number restarts at 1) or a store already knows higher numbers.
-  BUILD_NUMBER: ${{ github.run_number + fromJSON(vars.BUILD_NUMBER_OFFSET || '0') }}
+  # Monotonic store build number = run_number + offset (computed in the "Build number" step, expressions
+  # have no "+"). Set the repository variable BUILD_NUMBER_OFFSET if this workflow is ever recreated
+  # (run_number restarts at 1) or a store already knows higher numbers.
+  BUILD_NUMBER_OFFSET: ${{ vars.BUILD_NUMBER_OFFSET || '0' }}
   PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
 
 jobs:
@@ -61,6 +65,8 @@ jobs:
     environment: store-release
     steps:
       - uses: actions/checkout@v4
+      - name: Build number
+        run: echo "BUILD_NUMBER=$((GITHUB_RUN_NUMBER + BUILD_NUMBER_OFFSET))" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
       - uses: subosito/flutter-action@v2
@@ -107,6 +113,8 @@ jobs:
     environment: store-release
     steps:
       - uses: actions/checkout@v4
+      - name: Build number
+        run: echo "BUILD_NUMBER=$((GITHUB_RUN_NUMBER + BUILD_NUMBER_OFFSET))" >> "$GITHUB_ENV"
       - uses: subosito/flutter-action@v2
         with: { channel: stable, cache: true }
       - uses: ruby/setup-ruby@v1

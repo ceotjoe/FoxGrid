@@ -12,6 +12,9 @@ on:
         options: [both, android, ios]
         default: both
 
+permissions:
+  contents: read
+
 jobs:
   android:
     if: inputs.platform != 'ios'
