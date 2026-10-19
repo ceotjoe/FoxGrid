@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 
 import httpx
+import pytest
 import websockets
 
 from tests.conftest import Server
@@ -168,3 +170,102 @@ async def test_short_device_secret_is_rejected(client: httpx.AsyncClient) -> Non
     assert (await client.post("/join", json=_join(m, "DL2SHT", secret="short"))).status_code == 422
     missing = {"invite_token": m.invite, "callsign": "DL2SHT"}
     assert (await client.post("/join", json=missing)).status_code == 422
+
+
+def _fresh(m: Mission, callsign: str) -> dict:  # type: ignore[type-arg]
+    return {
+        "invite_token": m.invite,
+        "callsign": callsign,
+        "device_secret": device_secret(callsign),
+    }
+
+
+async def test_joiner_waits_for_approval(client: httpx.AsyncClient, server: Server) -> None:
+    m = await Mission.create(client)
+    r = await client.post("/join", json=_fresh(m, "DL2WAIT"))
+    assert r.status_code == 200
+    token, p = r.json()["token"], r.json()["participant"]
+    assert p["status"] == "pending"
+
+    # nothing but the own state is reachable
+    for path in ("/snapshot", "/participants", "/bearings", "/estimate"):
+        denied = await client.get(m.url(path), headers=auth(token))
+        assert denied.status_code == 403, path
+    post = await client.post(m.url("/transmissions/start"), headers=auth(token))
+    assert post.status_code == 403
+    me = await client.get(m.url("/me"), headers=auth(token))
+    assert me.status_code == 200 and me.json()["status"] == "pending"
+    other = await Mission.create(client, callsign="DL9OTH")
+    assert (await client.get(other.url("/me"), headers=auth(token))).status_code == 403
+
+    # a pending joiner gets no live feed: the server refuses the handshake
+    with pytest.raises(websockets.exceptions.InvalidStatus):
+        async with websockets.connect(f"{server.ws_url}/ws/missions/{m.id}?token={token}"):
+            pass
+
+    # joining again from the same device stays pending (and does not use up the invite)
+    again = await client.post("/join", json=_fresh(m, "DL2WAIT"))
+    assert again.json()["participant"]["status"] == "pending"
+
+    h = auth(m.lead_token)
+    ok = await client.patch(m.url(f"/participants/{p['id']}"), json={"status": "active"}, headers=h)
+    assert ok.status_code == 200 and ok.json()["status"] == "active"
+    assert (await client.get(m.url("/snapshot"), headers=auth(token))).status_code == 200
+
+
+async def test_rejected_joiner_stays_out(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    r = await client.post("/join", json=_fresh(m, "DL2NOPE"))
+    token, p = r.json()["token"], r.json()["participant"]
+    h = auth(m.lead_token)
+    rej = await client.patch(
+        m.url(f"/participants/{p['id']}"), json={"status": "rejected"}, headers=h
+    )
+    assert rej.json()["status"] == "rejected"
+    me = await client.get(m.url("/me"), headers=auth(token))
+    assert me.json()["status"] == "rejected"
+    assert (await client.get(m.url("/snapshot"), headers=auth(token))).status_code == 403
+    assert (await client.post("/join", json=_fresh(m, "DL2NOPE"))).status_code == 403
+    # the lead cannot reject themselves
+    me_rej = await client.patch(
+        m.url(f"/participants/{m.lead_id}"), json={"status": "rejected"}, headers=h
+    )
+    assert me_rej.status_code == 409
+
+
+async def test_auto_approve_invite_and_rotation(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    inv = (await client.post(m.url("/invites"), json={"auto_approve": True}, headers=h)).json()
+    assert inv["auto_approve"] is True
+    body = {"invite_token": inv["token"], "callsign": "DL2AUT", "device_secret": "a" * 20}
+    r = await client.post("/join", json=body)
+    assert r.json()["participant"]["status"] == "active"
+    rot = (await client.post(m.url(f"/invites/{inv['id']}/rotate"), headers=h)).json()
+    assert rot["auto_approve"] is True
+
+
+async def test_lead_hears_about_joiners_live(client: httpx.AsyncClient, server: Server) -> None:
+    m = await Mission.create(client)
+    async with websockets.connect(f"{server.ws_url}/ws/missions/{m.id}?token={m.lead_token}") as ws:
+        await client.post("/join", json=_fresh(m, "DL2LIVE"))
+        event = {}
+        while event.get("type") != "participant_updated":
+            event = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+        assert event["data"]["callsign"] == "DL2LIVE" and event["data"]["status"] == "pending"
+
+
+async def test_replace_revokes_every_open_invite(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    member_token, _ = await m.join("DL2MEM")
+    h = auth(m.lead_token)
+    extra = (await client.post(m.url("/invites"), json={"auto_approve": True}, headers=h)).json()
+    new = await client.post(m.url("/invites/replace"), headers=h)
+    assert new.status_code == 201 and new.json()["auto_approve"] is False
+    for old in (m.invite, extra["token"]):
+        body = {"invite_token": old, "callsign": "DL2OLD", "device_secret": "o" * 20}
+        assert (await client.post("/join", json=body)).status_code == 403
+    body = {"invite_token": new.json()["token"], "callsign": "DL2OLD", "device_secret": "o" * 20}
+    assert (await client.post("/join", json=body)).status_code == 200
+    forbidden = await client.post(m.url("/invites/replace"), headers=auth(member_token))
+    assert forbidden.status_code == 403

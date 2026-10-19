@@ -64,6 +64,7 @@ def participant_out(p: Participant, team: str | None = None) -> ParticipantOut:
         last_seen_at=p.last_seen_at,
         is_active=p.is_active,
         device_bound=p.device_hash is not None,
+        status=p.status,  # type: ignore[arg-type]
     )
 
 

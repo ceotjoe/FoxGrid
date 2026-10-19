@@ -33,10 +33,9 @@ def _is_own_removal(raw: str | bytes, participant_id: uuid.UUID) -> bool:
         event = json.loads(raw)
     except ValueError:
         return False
-    return (
-        event.get("type") == "participant_removed"
-        and event.get("data", {}).get("participant_id") == str(participant_id)
-    )
+    return event.get("type") == "participant_removed" and event.get("data", {}).get(
+        "participant_id"
+    ) == str(participant_id)
 
 
 @router.websocket("/ws/missions/{mission_id}")
@@ -55,7 +54,12 @@ async def mission_socket(
         return
     async with sessionmaker() as session:
         participant = await session.get(Participant, pid)
-    if participant is None or not participant.is_active or participant.mission_id != mission_id:
+    if (
+        participant is None
+        or not participant.is_active
+        or participant.status != "active"
+        or participant.mission_id != mission_id
+    ):
         await ws.close(code=4403)
         return
 

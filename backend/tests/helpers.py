@@ -79,7 +79,7 @@ class Mission:
         return cls(client, r.json())
 
     async def join(self, callsign: str, role: str = "mobile") -> tuple[str, dict[str, Any]]:
-        """Joins as `mobile`; other roles are granted by the lead afterwards, as in real use."""
+        """Joins and is approved by the lead; `fixed` is granted by the lead, as in real use."""
         r = await self.client.post(
             "/join",
             json={
@@ -91,15 +91,23 @@ class Mission:
         )
         assert r.status_code == 200, r.text
         participant = r.json()["participant"]
+        changes: dict[str, str] = {}
+        if participant["status"] == "pending":
+            changes["status"] = "active"
         if role == "fixed":
-            p = await self.client.patch(
-                self.url(f"/participants/{participant['id']}"),
-                json={"role": "fixed"},
-                headers=auth(self.lead_token),
-            )
-            assert p.status_code == 200, p.text
-            participant = p.json()
+            changes["role"] = "fixed"
+        if changes:
+            participant = await self.patch_participant(participant["id"], **changes)
         return r.json()["token"], participant
+
+    async def patch_participant(self, participant_id: str, **changes: Any) -> dict[str, Any]:
+        r = await self.client.patch(
+            self.url(f"/participants/{participant_id}"),
+            json=changes,
+            headers=auth(self.lead_token),
+        )
+        assert r.status_code == 200, r.text
+        return r.json()  # type: ignore[no-any-return]
 
     def url(self, path: str) -> str:
         return f"/missions/{self.id}{path}"

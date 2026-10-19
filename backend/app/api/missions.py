@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
-from app.api.deps import get_redis, get_scheduler, get_settings, lead, member
+from app.api.deps import current_participant, get_redis, get_scheduler, get_settings, lead, member
 from app.config import Settings
 from app.db import get_session
 from app.models import (
@@ -118,6 +118,7 @@ async def join(
     body: JoinIn,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    redis: Redis = Depends(get_redis),
 ) -> JoinOut:
     invite = await session.scalar(
         select(Invite).where(Invite.token_hash == hash_token(body.invite_token)).with_for_update()
@@ -144,6 +145,7 @@ async def join(
     ):
         raise HTTPException(403, "this callsign belongs to a sensor")
     device_hash = hash_token(body.device_secret)
+    joined_new = False
     if participant is None:
         if invite.max_uses is not None and invite.uses >= invite.max_uses:
             raise HTTPException(403, "invalid or expired invite")
@@ -153,8 +155,10 @@ async def join(
             callsign=body.callsign,
             role=invite.default_role,
             device_hash=device_hash,
+            status="active" if invite.auto_approve else "pending",
         )
         session.add(participant)
+        joined_new = True
         invite.uses += 1
         await session.flush()
         await domain.audit(
@@ -170,10 +174,14 @@ async def join(
         raise HTTPException(403, "callsign is bound to another device; ask the lead to release it")
     if not participant.is_active:
         raise HTTPException(403, "participant deactivated")
+    if participant.status == "rejected":
+        raise HTTPException(403, "participant rejected")
     if body.team:
         team = await domain.get_or_create_team(session, mission.id, body.team)
         participant.team_id = team.id
     await session.commit()
+    if joined_new:
+        await _announce(redis, mission.id, participant)
     area = await domain.search_area_ring(session, mission.id)
     return JoinOut(
         mission=mission_out(mission, area),
@@ -261,6 +269,7 @@ async def create_invite(
         role=body.default_role,
         max_uses=body.max_uses,
         ttl_hours=body.expires_in_hours,
+        auto_approve=body.auto_approve,
     )
 
 
@@ -273,6 +282,7 @@ async def _issue_invite(
     role: str,
     max_uses: int | None,
     ttl_hours: int | None,
+    auto_approve: bool = False,
     action: str = "create",
 ) -> InviteOut:
     """New invite; omitted limits fall back to the server defaults, so links always expire."""
@@ -281,6 +291,7 @@ async def _issue_invite(
         mission_id=mission_id,
         token_hash=hash_token(token),
         default_role=role,
+        auto_approve=auto_approve,
         max_uses=max_uses if max_uses is not None else settings.invite_max_uses,
         expires_at=datetime.now(UTC)
         + timedelta(hours=ttl_hours if ttl_hours is not None else settings.invite_ttl_hours),
@@ -295,6 +306,36 @@ async def _issue_invite(
         default_role=invite.default_role,
         max_uses=invite.max_uses,
         expires_at=invite.expires_at,
+        auto_approve=invite.auto_approve,
+    )
+
+
+@router.post("/missions/{mission_id}/invites/replace", response_model=InviteOut, status_code=201)
+async def replace_invites(
+    mission_id: uuid.UUID,
+    actor: Participant = Depends(lead),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> InviteOut:
+    """Leak response: revokes every open invite and issues one fresh default link."""
+    now = datetime.now(UTC)
+    open_invites = (
+        await session.scalars(
+            select(Invite).where(Invite.mission_id == mission_id, Invite.revoked_at.is_(None))
+        )
+    ).all()
+    for invite in open_invites:
+        invite.revoked_at = now
+        await domain.audit(session, mission_id, actor.id, "revoke", "invite", invite.id)
+    return await _issue_invite(
+        session,
+        settings,
+        mission_id,
+        actor,
+        role="mobile",
+        max_uses=None,
+        ttl_hours=None,
+        action="replace",
     )
 
 
@@ -323,6 +364,7 @@ async def rotate_invite(
         role=old.default_role,
         max_uses=old.max_uses,
         ttl_hours=None,
+        auto_approve=old.auto_approve,
         action="rotate",
     )
 
@@ -376,7 +418,9 @@ async def patch_participant(
     if await session.scalar(select(Sensor.id).where(Sensor.participant_id == target.id)):
         raise HTTPException(409, "sensors are managed under /sensors")
     if target.id == actor.id and (
-        body.is_active is False or (body.role is not None and body.role != "lead")
+        body.is_active is False
+        or body.status == "rejected"
+        or (body.role is not None and body.role != "lead")
     ):
         raise HTTPException(409, "the lead cannot remove or demote themselves")
 
@@ -387,6 +431,9 @@ async def patch_participant(
     if body.is_active is not None and body.is_active != target.is_active:
         changes["is_active"] = body.is_active
         target.is_active = body.is_active
+    if body.status is not None and body.status != target.status:
+        changes["status"] = [target.status, body.status]
+        target.status = body.status
     if body.reset_device and target.device_hash is not None:
         changes["device_released"] = True
         target.device_hash = None
@@ -395,12 +442,33 @@ async def patch_participant(
             session, mission_id, actor.id, "update", "participant", target.id, **changes
         )
         await session.commit()
-        if changes.get("is_active") is False:
+        if changes.get("is_active") is False or (
+            changes.get("status") and target.status != "active"
+        ):
             # Closes the participant's open WebSockets on every worker.
             await events.publish(
                 redis, mission_id, "participant_removed", {"participant_id": str(target.id)}
             )
+        await _announce(redis, mission_id, target)
     return participant_out(target, await domain.team_name(session, target.team_id))
+
+
+async def _announce(redis: Redis, mission_id: uuid.UUID, p: Participant) -> None:
+    """Tells the connected members (the lead's participant list) about a new or changed one."""
+    out = participant_out(p)
+    await events.publish(redis, mission_id, "participant_updated", out.model_dump(mode="json"))
+
+
+@router.get("/missions/{mission_id}/me", response_model=ParticipantOut)
+async def whoami(
+    mission_id: uuid.UUID,
+    me: Participant = Depends(current_participant),
+    session: AsyncSession = Depends(get_session),
+) -> ParticipantOut:
+    """Own state, also for joiners still waiting for approval (they cannot use anything else)."""
+    if me.mission_id != mission_id:
+        raise HTTPException(403, "not a member of this mission")
+    return participant_out(me, await domain.team_name(session, me.team_id))
 
 
 @router.get("/missions/{mission_id}/snapshot", response_model=SnapshotOut)

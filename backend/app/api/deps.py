@@ -52,6 +52,8 @@ async def member(
 ) -> Participant:
     if participant.mission_id != mission_id:
         raise HTTPException(403, "not a member of this mission")
+    if participant.status != "active":
+        raise HTTPException(403, f"participant is {participant.status}")
     return participant
 
 

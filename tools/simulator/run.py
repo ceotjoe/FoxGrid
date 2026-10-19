@@ -162,6 +162,12 @@ def main() -> int:
             )
             j.raise_for_status()
             tokens.append(j.json()["token"])
+            approve = http.patch(  # new joiners wait for the lead's approval
+                f"{api}/missions/{mission_id}/participants/{j.json()['participant']['id']}",
+                json={"status": "active"},
+                headers={"Authorization": f"Bearer {tokens[0]}"},
+            )
+            approve.raise_for_status()
 
         def hdr(i: int) -> dict[str, str]:
             return {"Authorization": f"Bearer {tokens[i]}"}

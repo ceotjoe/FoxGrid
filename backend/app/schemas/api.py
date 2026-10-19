@@ -98,6 +98,7 @@ class ParticipantOut(ORM):
     last_seen_at: datetime | None
     is_active: bool = True
     device_bound: bool = False
+    status: Literal["pending", "active", "rejected"] = "active"
 
 
 class ParticipantPatch(BaseModel):
@@ -108,6 +109,7 @@ class ParticipantPatch(BaseModel):
     role: Role | None = None
     is_active: bool | None = None
     reset_device: bool = False
+    status: Literal["active", "rejected"] | None = None  # approve or reject a joiner
 
 
 class MissionCreated(BaseModel):
@@ -145,6 +147,8 @@ class InviteCreate(BaseModel):
     # Omitted values use the server defaults (FOXGRID_INVITE_MAX_USES / _TTL_HOURS).
     max_uses: int | None = Field(default=None, ge=1, le=1000)
     expires_in_hours: int | None = Field(default=None, ge=1, le=24 * 30)
+    # Skip the lead's approval for this link (e.g. for an exercise with a known group).
+    auto_approve: bool = False
 
 
 class InviteOut(BaseModel):
@@ -153,6 +157,7 @@ class InviteOut(BaseModel):
     default_role: str
     max_uses: int | None
     expires_at: datetime | None
+    auto_approve: bool = False
 
 
 class PositionIn(BaseModel):

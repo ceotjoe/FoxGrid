@@ -13,6 +13,7 @@ EVENT_TYPES = frozenset(
     {
         "participant_position",
         "participant_removed",
+        "participant_updated",
         "bearing_created",
         "bearing_updated",
         "transmission_started",

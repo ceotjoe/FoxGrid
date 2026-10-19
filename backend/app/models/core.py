@@ -67,6 +67,8 @@ class Invite(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     default_role: Mapped[str] = mapped_column(String(10), default="mobile")
     max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Joiners through this link skip the lead's approval (off by default).
+    auto_approve: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     uses: Mapped[int] = mapped_column(Integer, default=0)
     expires_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
@@ -96,10 +98,13 @@ class Participant(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # SHA-256 of the secret the joining device generated; binds the callsign to that device.
     device_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # `pending` joiners wait for the lead; only `active` ones see or write mission data.
+    status: Mapped[str] = mapped_column(String(10), default="active", server_default="active")
 
     __table_args__ = (
         UniqueConstraint("mission_id", "callsign", name="uq_participant_callsign"),
         CheckConstraint("role in ('lead','fixed','mobile')", name="ck_participant_role"),
+        CheckConstraint("status in ('pending','active','rejected')", name="ck_participant_status"),
     )
 
 

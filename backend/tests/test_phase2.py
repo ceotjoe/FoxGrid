@@ -34,7 +34,8 @@ async def _join_team(m: Mission, callsign: str, team: str) -> tuple[str, dict]:
         },
     )
     assert r.status_code == 200, r.text
-    return r.json()["token"], r.json()["participant"]
+    p = await m.patch_participant(r.json()["participant"]["id"], status="active")
+    return r.json()["token"], p
 
 
 async def _seed_estimate(client: httpx.AsyncClient, m: Mission) -> None:

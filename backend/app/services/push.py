@@ -128,7 +128,13 @@ async def notify_transmission_started(
                 await session.execute(
                     select(PushToken.token, PushToken.platform)
                     .join(Participant, Participant.id == PushToken.participant_id)
-                    .where(Participant.mission_id == mission_id, Participant.id != starter_id)
+                    .where(
+                        Participant.mission_id == mission_id,
+                        Participant.id != starter_id,
+                        # not for pending, rejected or removed people
+                        Participant.is_active.is_(True),
+                        Participant.status == "active",
+                    )
                 )
             ).all()
             if not rows:
