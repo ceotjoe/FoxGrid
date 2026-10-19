@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: store-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
         with: { bundler-cache: true }
       - run: bundle exec fastlane android metadata
@@ -33,7 +33,7 @@ jobs:
     runs-on: macos-latest
     environment: store-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ruby/setup-ruby@v1
         with: { bundler-cache: true }
       - run: bundle exec fastlane ios metadata
