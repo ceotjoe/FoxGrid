@@ -44,6 +44,8 @@ Ein QR-Code zum Scannen kommt in Phase 2.
 
 ### Zugang absichern (Einladungslink)
 
+Kurzfassung unten; ausführlich mit Checkliste für die Einsatzleitung: [docs/sicherheit.md](docs/sicherheit.md).
+
 - Einladungen laufen standardmäßig nach 24 h ab und gelten für höchstens 20 neue Teilnehmer
   (`FOXGRID_INVITE_TTL_HOURS`, `FOXGRID_INVITE_MAX_USES`). Ist ein Link in falsche Hände geraten:
   `POST /api/v1/missions/{id}/invites/{invite_id}/rotate` ersetzt ihn, bereits beigetretene Teilnehmer bleiben drin.
@@ -71,6 +73,10 @@ Ein QR-Code zum Scannen kommt in Phase 2.
   jede mit einer Revision „quarantine“. Zurücknehmen geht nur einzeln pro Peilung.
 - Den Link nicht in offene Gruppen posten, sondern vor Ort (QR) oder persönlich weitergeben und nach dem Aufbau des
   Teams ersetzen.
+- **Beitritts-Code:** Der Wartebildschirm zeigt dem Beitretenden vier Ziffern, die Leitung sieht dieselben neben dem Eintrag und
+  gleicht sie per Funk ab. Nach der Entscheidung verschwindet der Code. Andere Teilnehmer und der Live-Kanal sehen ihn nie.
+- **Sicherheitsprotokoll:** Menü „Sicherheitsprotokoll“ (nur Leitung): Beitritte, abgewiesene Geräte, Freigaben, Rollen, Entfernen,
+  Quarantäne und Einladungen, neueste zuerst (`GET …/audit`, mit `scope=all` auch Peilungs-Änderungen u. a.).
 - **Auffälligkeiten:** Im Menü „Teilnehmer“ prüft die Lupe (nur Leitung) die Daten auf Widersprüche und markiert Teilnehmer
   mit einem Warnsymbol: Peilungen, die klar am Ergebnis der anderen vorbeizeigen (ab 3 Peilungen im Ergebnis), Positionssprünge
   über ca. 250 km/h, Peilungsstandorte weit weg vom eigenen Positionsverlauf oder Peilungen ganz ohne Positionsmeldung. Das sind

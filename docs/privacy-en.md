@@ -39,6 +39,9 @@ When you join an operation and while you use it, the app sends the following to 
 | Signal levels (S-meter/dBm) | Homing and estimate | When you record them |
 | Chat messages and tasks | Teamwork | When you send them |
 | Access token (JWT) | Password-less sign-in to the server | Joining |
+| Device secret (random, per installation; the server stores only a hash) | A callsign can only be re-joined from the same device | Joining |
+| 4-digit join code (only until approval) | Compare by radio with the mission lead | Joining through a link that needs approval |
+| Security log (who joined, was approved, removed or quarantined, and when) | Accountability for the mission lead | Ongoing, visible to the mission lead only |
 
 The app does **not** request background location access. There are no ads, no analytics or tracking tools, and
 the app does not share data with third parties.

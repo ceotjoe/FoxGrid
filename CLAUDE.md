@@ -163,7 +163,7 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 
 ## Access control notes (leaked invite links, steps A + B)
 - Plan: threat model "link leak / saboteur" in the session of 2026-10-19; step A done (device binding, roles, link defaults, removal),
-  step B done (join lobby + participants UI), step C done (trust + quarantine), step D done (plausibility hints + rate limits), next: E (audit view, docs, voice code).
+  step B done (join lobby + participants UI), step C done (trust + quarantine), steps D (plausibility + rate limits) and E (audit view, join code, `docs/sicherheit.md`) done; the plan is complete.
 - Lobby: `participants.status` = `pending`|`active`|`rejected` (separate from `is_active` = removed). New joiners are `pending` unless the invite has
   `auto_approve`. `deps.member` (so `lead` too) answers 403 `participant is pending|rejected`; only `GET /missions/{id}/me` works for them (the app
   polls it on `PendingScreen`). WebSocket handshake refuses non-active participants; push targets are active participants only.
@@ -188,3 +188,6 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   (0 = off; tests switch the join limit off because all tests join from 127.0.0.1). The app already treats 429 as retry. Mind `FORWARDED_ALLOW_IPS` behind a proxy.
 - Plausibility (`services/plausibility.py`, pure functions, plain haversine, no pyproj): `GET /missions/{id}/plausibility` (lead) returns hints per active, non-sensor participant:
   `bearings_disagree` (needs an `all` estimate with >= 3 bearings), `impossible_speed`, `bearing_off_track`, `no_track`. Hints only, never automatic actions; thresholds are constants at the top of the module.
+- Join code (step E): `participants.join_code` (4 digits, only for pending joiners of non-`auto_approve` invites, cleared on approve/reject). `participant_out(..., show_code=True)` only for the
+  joiner (join response, `/me`) and the lead (`/participants`, `/snapshot`); events and other members never carry it. Audit: `GET /missions/{id}/audit?scope=security|all&limit=` (lead).
+  Privacy docs (`docs/privacy*.md`) list the device-secret hash, join code and security log; keep them in sync.

@@ -41,6 +41,9 @@ Beim Beitritt zu einem Einsatz und während der Nutzung sendet die App an den vo
 | Pegelwerte (S-Meter/dBm) | Nahpeilung und Schätzung | wenn ihr sie erfasst |
 | Chatnachrichten und Aufgaben | Zusammenarbeit im Team | wenn ihr sie sendet |
 | Zugangstoken (JWT) | Anmeldung am Server ohne Passwort | Beitritt |
+| Geräte-Geheimnis (zufällig, pro Installation; der Server speichert nur einen Hash) | Ein Rufzeichen kann nur vom selben Gerät erneut betreten werden | Beitritt |
+| 4-stelliger Beitritts-Code (nur bis zur Freigabe) | Abgleich per Funk mit der Einsatzleitung | Beitritt über einen Link mit Freigabe |
+| Sicherheitsprotokoll (wer ist wann beigetreten, freigegeben, entfernt, unter Quarantäne gestellt) | Nachvollziehbarkeit für die Einsatzleitung | laufend, nur für die Einsatzleitung einsehbar |
 
 Die App fragt **keinen Standortzugriff im Hintergrund** an. Es gibt keine Werbung, keine Analyse- und
 Tracking-Werkzeuge und keine Weitergabe an Dritte durch die App.
