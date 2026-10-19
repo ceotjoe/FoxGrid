@@ -24,13 +24,14 @@ abstract class FoxGridApi {
     required String name,
     required double frequencyMhz,
     required String callsign,
+    required String deviceSecret,
   });
 
   Future<Session> join({
     required String baseUrl,
     required String inviteToken,
     required String callsign,
-    required String role,
+    required String deviceSecret,
   });
 
   Future<Map<String, dynamic>> snapshot();
@@ -131,13 +132,19 @@ class DioFoxGridApi implements FoxGridApi {
     required String name,
     required double frequencyMhz,
     required String callsign,
+    required String deviceSecret,
   }) async {
     final r = await _call(
       'POST',
       '/api/v1/missions',
       baseUrl: baseUrl,
       auth: false,
-      data: {'name': name, 'frequency_mhz': frequencyMhz, 'callsign': callsign},
+      data: {
+        'name': name,
+        'frequency_mhz': frequencyMhz,
+        'callsign': callsign,
+        'device_secret': deviceSecret,
+      },
     );
     final j = r.data as Map<String, dynamic>;
     return _sessionFrom(j, baseUrl, inviteToken: j['invite_token'] as String);
@@ -148,14 +155,18 @@ class DioFoxGridApi implements FoxGridApi {
     required String baseUrl,
     required String inviteToken,
     required String callsign,
-    required String role,
+    required String deviceSecret,
   }) async {
     final r = await _call(
       'POST',
       '/api/v1/join',
       baseUrl: baseUrl,
       auth: false,
-      data: {'invite_token': inviteToken, 'callsign': callsign, 'role': role},
+      data: {
+        'invite_token': inviteToken,
+        'callsign': callsign,
+        'device_secret': deviceSecret,
+      },
     );
     return _sessionFrom(r.data as Map<String, dynamic>, baseUrl);
   }

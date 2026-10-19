@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api.dart';
+import '../core/device_secret.dart';
 import '../core/session.dart';
 import '../state/providers.dart';
 
@@ -58,7 +59,6 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
   final _invite = TextEditingController();
   final _name = TextEditingController();
   final _frequency = TextEditingController();
-  String _role = 'mobile';
   bool _busy = false;
   String? _error;
 
@@ -79,7 +79,12 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
       final session = await action(DioFoxGridApi());
       await ref.read(sessionProvider.notifier).set(session);
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      setState(
+        () => _error = e.message.contains('bound to another device')
+            ? 'Dieses Rufzeichen ist an ein anderes Gerät gebunden. '
+                  'Die Einsatzleitung muss das Gerät freigeben.'
+            : e.message,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -102,7 +107,7 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
         baseUrl: server,
         inviteToken: parsed.token,
         callsign: _callsign.text.trim(),
-        role: _role,
+        deviceSecret: deviceSecret(ref.read(sharedPrefsProvider)),
       ),
     );
   }
@@ -121,6 +126,7 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
         name: _name.text.trim(),
         frequencyMhz: mhz!,
         callsign: _callsign.text.trim(),
+        deviceSecret: deviceSecret(ref.read(sharedPrefsProvider)),
       ),
     );
   }
@@ -179,22 +185,6 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
                                 labelText: 'Einladung (Token oder Link)',
                                 border: OutlineInputBorder(),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            SegmentedButton<String>(
-                              segments: const [
-                                ButtonSegment(
-                                  value: 'mobile',
-                                  label: Text('Mobil'),
-                                ),
-                                ButtonSegment(
-                                  value: 'fixed',
-                                  label: Text('Fest'),
-                                ),
-                              ],
-                              selected: {_role},
-                              onSelectionChanged: (s) =>
-                                  setState(() => _role = s.first),
                             ),
                             const SizedBox(height: 16),
                             FilledButton(
