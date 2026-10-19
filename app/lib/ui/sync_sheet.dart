@@ -23,6 +23,7 @@ class SyncChip extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(syncProvider);
+    final compact = MediaQuery.sizeOf(context).width < 600;
     final (icon, color, label) = s.failed > 0
         ? (Icons.error_outline, Colors.red, '${s.failed} Fehler')
         : s.pending > 0
@@ -32,22 +33,32 @@ class SyncChip extends ConsumerWidget {
             '${s.pending} offen',
           )
         : (Icons.cloud_done_outlined, Colors.green, 'synchron');
-    return InkWell(
-      key: const Key('sync-chip'),
-      onTap: () => showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (_) => const SyncSheet(),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 3),
-            Text(label, style: const TextStyle(fontSize: 12)),
-          ],
+    final shortLabel = compact
+        ? (s.failed > 0
+              ? '${s.failed}'
+              : (s.pending > 0 ? '${s.pending}' : null))
+        : label;
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        key: const Key('sync-chip'),
+        onTap: () => showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          builder: (_) => const SyncSheet(),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              if (shortLabel != null) ...[
+                const SizedBox(width: 3),
+                Text(shortLabel, style: const TextStyle(fontSize: 12)),
+              ],
+            ],
+          ),
         ),
       ),
     );

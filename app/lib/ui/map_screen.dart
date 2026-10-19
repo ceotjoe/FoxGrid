@@ -108,6 +108,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  void _showMissionInfo(Mission mission) {
+    final repeater = mission.repeater;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: SelectableText(mission.name),
+        content: SelectableText(
+          'Frequenz: ${mission.frequencyMhz.toStringAsFixed(3)} MHz'
+          '${repeater?.inputMhz == null ? '' : '\nRelais-Eingabe: ${repeater!.inputMhz} MHz'}'
+          '${repeater?.outputMhz == null ? '' : '\nRelais-Ausgabe: ${repeater!.outputMhz} MHz'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Schließen'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showInvite(Session session) {
     final token = session.inviteToken;
     if (token == null) return;
@@ -201,15 +222,39 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
 
     final now = DateTime.now().toUtc();
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final filterActive = filter.needsQuery || filter.hideOutliers;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          state.mission == null
-              ? 'FoxGrid'
-              : '${state.mission!.name} · '
-                    '${state.mission!.frequencyMhz.toStringAsFixed(3)} MHz',
-        ),
+        titleSpacing: 0,
+        title: state.mission == null
+            ? const Text('FoxGrid')
+            : InkWell(
+                key: const Key('mission-title'),
+                onTap: () => _showMissionInfo(state.mission!),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      state.mission!.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${state.mission!.frequencyMhz.toStringAsFixed(3)} MHz',
+                        maxLines: 1,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
         actions: [
           _ConnectionDot(status: state.connection),
           const SyncChip(),
@@ -222,30 +267,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               context,
             ).push(MaterialPageRoute<void>(builder: (_) => const ChatScreen())),
           ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            key: const Key('open-tasks'),
-            tooltip: 'Aufgaben',
-            icon: const Icon(Icons.checklist),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const TasksScreen()),
+          if (!compact)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              key: const Key('open-tasks'),
+              tooltip: 'Aufgaben',
+              icon: const Icon(Icons.checklist),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const TasksScreen()),
+              ),
             ),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            key: const Key('open-filter'),
-            tooltip: 'Filter',
-            icon: Badge(
-              isLabelVisible: filter.needsQuery || filter.hideOutliers,
-              child: const Icon(Icons.filter_alt_outlined),
+          if (!compact)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              key: const Key('open-filter'),
+              tooltip: 'Filter',
+              icon: Badge(
+                isLabelVisible: filter.needsQuery || filter.hideOutliers,
+                child: const Icon(Icons.filter_alt_outlined),
+              ),
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                showDragHandle: true,
+                builder: (_) => const FilterSheet(),
+              ),
             ),
-            onPressed: () => showModalBottomSheet<void>(
-              context: context,
-              isScrollControlled: true,
-              showDragHandle: true,
-              builder: (_) => const FilterSheet(),
-            ),
-          ),
           IconButton(
             visualDensity: VisualDensity.compact,
             key: const Key('open-homing'),
@@ -257,8 +304,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
           PopupMenuButton<String>(
             icon: Badge(
-              isLabelVisible: waiting > 0,
-              label: Text('$waiting'),
+              isLabelVisible: waiting > 0 || (compact && filterActive),
+              label: waiting > 0 ? Text('$waiting') : null,
               child: const Icon(Icons.more_vert),
             ),
             onSelected: (v) {
@@ -274,6 +321,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     MaterialPageRoute<void>(
                       builder: (_) => const AuditScreen(),
                     ),
+                  );
+                case 'tasks':
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const TasksScreen(),
+                    ),
+                  );
+                case 'filter':
+                  showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    showDragHandle: true,
+                    builder: (_) => const FilterSheet(),
                   );
                 case 'leave':
                   ref.read(sessionProvider.notifier).leave();
@@ -309,6 +369,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               }
             },
             itemBuilder: (_) => [
+              if (compact) ...[
+                const PopupMenuItem(
+                  key: Key('menu-tasks'),
+                  value: 'tasks',
+                  child: Text('Aufgaben'),
+                ),
+                PopupMenuItem(
+                  key: const Key('menu-filter'),
+                  value: 'filter',
+                  child: Text(filterActive ? 'Filter (aktiv)' : 'Filter'),
+                ),
+              ],
               const PopupMenuItem(
                 value: 'bearings',
                 child: Text('Peilungen (Liste)'),
@@ -503,25 +575,31 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   padding: const EdgeInsets.all(8),
                   child: Row(
                     children: [
-                      SegmentedButton<EstimateScope>(
-                        showSelectedIcon: false,
-                        style: const ButtonStyle(
-                          visualDensity: VisualDensity.compact,
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: SegmentedButton<EstimateScope>(
+                            showSelectedIcon: false,
+                            style: const ButtonStyle(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            segments: const [
+                              ButtonSegment(
+                                value: EstimateScope.current,
+                                label: Text('Aussendung'),
+                              ),
+                              ButtonSegment(
+                                value: EstimateScope.all,
+                                label: Text('Alle'),
+                              ),
+                            ],
+                            selected: {scope},
+                            onSelectionChanged: (s) => ref
+                                .read(estimateScopeProvider.notifier)
+                                .select(s.first),
+                          ),
                         ),
-                        segments: const [
-                          ButtonSegment(
-                            value: EstimateScope.current,
-                            label: Text('Aussendung'),
-                          ),
-                          ButtonSegment(
-                            value: EstimateScope.all,
-                            label: Text('Alle'),
-                          ),
-                        ],
-                        selected: {scope},
-                        onSelectionChanged: (s) => ref
-                            .read(estimateScopeProvider.notifier)
-                            .select(s.first),
                       ),
                       const Spacer(),
                       IconButton.filledTonal(
@@ -576,34 +654,37 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.extended(
-            key: const Key('toggle-transmission'),
-            heroTag: 'tx',
-            backgroundColor: running != null
-                ? Colors.red
-                : theme.colorScheme.secondaryContainer,
-            foregroundColor: running != null
-                ? Colors.white
-                : theme.colorScheme.onSecondaryContainer,
-            onPressed: state.mission?.isActive ?? false
-                ? ref.read(missionProvider.notifier).toggleTransmission
-                : null,
-            icon: Icon(running != null ? Icons.stop : Icons.podcasts),
-            label: Text(
-              running != null ? 'Aussendung Ende' : 'Aussendung Start',
+      floatingActionButton: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FloatingActionButton.extended(
+              key: const Key('toggle-transmission'),
+              heroTag: 'tx',
+              backgroundColor: running != null
+                  ? Colors.red
+                  : theme.colorScheme.secondaryContainer,
+              foregroundColor: running != null
+                  ? Colors.white
+                  : theme.colorScheme.onSecondaryContainer,
+              onPressed: state.mission?.isActive ?? false
+                  ? ref.read(missionProvider.notifier).toggleTransmission
+                  : null,
+              icon: Icon(running != null ? Icons.stop : Icons.podcasts),
+              label: Text(
+                running != null ? 'Aussendung Ende' : 'Aussendung Start',
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          FloatingActionButton.large(
-            key: const Key('open-capture'),
-            heroTag: 'capture',
-            onPressed: _openCapture,
-            child: const Icon(Icons.my_location),
-          ),
-        ],
+            const SizedBox(width: 12),
+            FloatingActionButton.large(
+              key: const Key('open-capture'),
+              heroTag: 'capture',
+              onPressed: _openCapture,
+              child: const Icon(Icons.my_location),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -835,15 +916,21 @@ class _ConnectionDot extends StatelessWidget {
       LiveStatus.connecting => (Colors.orange, 'verbinde'),
       LiveStatus.reconnecting => (Colors.red, 'offline'),
     };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        key: const Key('connection'),
-        children: [
-          Icon(Icons.circle, size: 12, color: color),
-          const SizedBox(width: 4),
-          Text(text, style: const TextStyle(fontSize: 12)),
-        ],
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    return Tooltip(
+      message: text,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          key: const Key('connection'),
+          children: [
+            Icon(Icons.circle, size: 12, color: color),
+            if (!compact) ...[
+              const SizedBox(width: 4),
+              Text(text, style: const TextStyle(fontSize: 12)),
+            ],
+          ],
+        ),
       ),
     );
   }
