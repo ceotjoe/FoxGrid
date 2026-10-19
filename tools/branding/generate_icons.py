@@ -10,6 +10,7 @@ Needs `rsvg-convert` (librsvg) and ImageMagick's `magick`.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -92,6 +93,13 @@ def ios() -> None:
         render(source, round(float(m.group(1)) * int(m.group(2))), png, flatten=True)
 
 
+def ios_liquid_glass() -> None:
+    """Copy the layered Icon Composer bundle (iOS 26 Liquid Glass); the PNGs above stay as fallback."""
+    target = APP / "ios/Runner/AppIcon.icon"
+    shutil.rmtree(target, ignore_errors=True)
+    shutil.copytree(SRC / "liquid-glass/AppIcon.icon", target)
+
+
 def android() -> None:
     res = APP / "android/app/src/main/res"
     densities = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
@@ -134,6 +142,7 @@ def web() -> None:
 
 if __name__ == "__main__":
     ios()
+    ios_liquid_glass()
     android()
     web()
     print("icons written")
