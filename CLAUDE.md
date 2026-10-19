@@ -161,9 +161,16 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   estimate's `rssi` fit (p0, n, offsets) and +-residual bands; filter toggle `showRings`. The calibration offset is not known to the app,
   so rings use only the estimated offset.
 
-## Access control notes (leaked invite links, step A)
+## Access control notes (leaked invite links, steps A + B)
 - Plan: threat model "link leak / saboteur" in the session of 2026-10-19; step A done (device binding, roles, link defaults, removal),
-  next: B (join lobby with lead approval + participants UI), C (unverified participants do not feed the estimate, quarantine).
+  step B done (join lobby + participants UI), next: C (unverified participants do not feed the estimate, quarantine), D (plausibility, rate limits).
+- Lobby: `participants.status` = `pending`|`active`|`rejected` (separate from `is_active` = removed). New joiners are `pending` unless the invite has
+  `auto_approve`. `deps.member` (so `lead` too) answers 403 `participant is pending|rejected`; only `GET /missions/{id}/me` works for them (the app
+  polls it on `PendingScreen`). WebSocket handshake refuses non-active participants; push targets are active participants only.
+  Lead approves via `PATCH .../participants/{pid}` `{"status": "active"|"rejected"}`; events `participant_updated` (list sync) and `participant_removed` (closes the socket).
+- `POST .../invites/replace` revokes every open invite and issues one default link; `rotate` replaces a single one.
+- App: `Session.status`, `ui/pending_screen.dart` (gate in `main.dart`), `ui/participants_screen.dart` (lead menu with badge); `MissionNotifier.applyParticipant`
+  also updates the own session role live. Tests that join a second participant use `Mission.join` (helpers approve automatically).
 - `participants.device_hash` = SHA-256 of a per-install secret (`JoinIn.device_secret`, app: `core/device_secret.dart`, SharedPreferences).
   Re-joining a callsign needs the same secret (403 otherwise, audited as `join_denied`); legacy rows without a hash bind on the next join.
   Lead releases it with `PATCH /missions/{id}/participants/{pid}` `{"reset_device": true}`.

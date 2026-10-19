@@ -55,8 +55,16 @@ Ein QR-Code zum Scannen kommt in Phase 2.
   (`PATCH …/participants/{id}` mit `{"role": "fixed"}`) oder eine Einladung mit `default_role: "fixed"`.
 - Die Leitung kann Teilnehmer entfernen (`{"is_active": false}`): Der Zugriff endet sofort, offene Verbindungen werden
   getrennt. Peilungen des Teilnehmers bleiben erhalten. Rückgängig mit `{"is_active": true}`.
+- **Freigabe durch die Leitung:** Wer über einen Link beitritt, wartet im Status „pending“ und sieht nur den Wartebildschirm
+  (keine Karte, keine Peilungen, kein Chat, kein Live-Kanal, keine Push-Meldungen). Die Leitung bekommt den Beitritt live
+  im Menü „Teilnehmer“ (Zähler am Menü-Symbol) und gibt frei oder lehnt ab. Abgelehnte können sich mit dem Link nicht
+  erneut anmelden. Für Übungen mit bekannter Gruppe gibt es Einladungen mit `auto_approve: true`.
+- Das Menü „Teilnehmer“ (nur Leitung) vergibt auch Rollen (Mobil/Fest/Leitung), gibt ein Gerät frei (neues Handy) und
+  entfernt oder lässt wieder zu. Im Einladungs-Dialog ersetzt „Link ersetzen“ alle offenen Links durch einen neuen
+  (`POST …/invites/replace`); wer schon drin ist, bleibt drin.
 - Den Link nicht in offene Gruppen posten, sondern vor Ort (QR) oder persönlich weitergeben und nach dem Aufbau des
-  Teams rotieren. Eine Freigabe-Warteschlange für neue Teilnehmer und eine Oberfläche dafür in der App sind geplant.
+  Teams ersetzen. Noch offen: Peilungen von Teilnehmern, die die Leitung noch nicht „vertraut“, aus der Schätzung
+  heraushalten, und eine Sofort-Quarantäne aller Daten eines Teilnehmers.
 
 ## Simulator (Abnahme)
 
