@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sicherheitslücke melden / Report a vulnerability
+    url: https://github.com/ceotjoe/FoxGrid/security/advisories/new
+    about: Bitte nicht öffentlich als Issue melden. / Please do not file this as a public issue.
+  - name: Fragen und Ideen / Questions and ideas
+    url: https://github.com/ceotjoe/FoxGrid/discussions
+    about: Fragen zur Nutzung, Peiltechnik und Ideen gehören in die Discussions.

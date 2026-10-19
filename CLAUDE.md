@@ -140,7 +140,7 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   data flow changes. The privacy policy is a draft until the provider details are filled in.
 
 ## Phase 5 notes (omnidirectional stations, 5a = engine only)
-- Plan: `/Users/joerg/.claude/plans/mossy-watching-barto.md` (5a engine, 5b backend/API, 5c app). Fixed stations report an
+- Plan: 5a engine, 5b backend/API, 5c app (all done). Fixed stations report an
   S-value of the interferer on the repeater **input** frequency (on the output you only hear the repeater).
 - Engine: `RssiSample(group=<station>, event=<transmission>)` marks fixed-station readings. Model
   `level = p0 + b_k - 10 n log10(d)` with a per-station offset `b_k ~ N(0, rssi_station_sigma_db)`: GLS via Woodbury in

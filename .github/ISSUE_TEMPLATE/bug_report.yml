@@ -1,0 +1,36 @@
+name: Fehler / Bug report
+description: Etwas funktioniert nicht wie erwartet. / Something does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Deutsch oder Englisch ist beides willkommen. German or English is fine.
+        **Keine Einladungslinks, Tokens oder API-Schlüssel posten.** Do not paste invite links, tokens or API keys.
+  - type: textarea
+    id: what
+    attributes:
+      label: Was ist passiert? / What happened?
+      description: Erwartetes und tatsächliches Verhalten. / Expected and actual behaviour.
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zum Nachstellen / Steps to reproduce
+    validations: { required: true }
+  - type: dropdown
+    id: component
+    attributes:
+      label: Komponente / Component
+      options: [App (Android), App (iOS), App (Web), Backend / API, Engine, MQTT / Sensoren, Doku, Unklar]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version / Commit
+      description: App-Version oder Git-Commit; Gerät und Betriebssystem. / App version or commit; device and OS.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      render: shell

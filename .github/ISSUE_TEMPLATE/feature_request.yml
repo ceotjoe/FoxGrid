@@ -1,0 +1,19 @@
+name: Idee / Feature request
+description: Ein Wunsch oder Vorschlag. / A wish or suggestion.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem soll gelöst werden? / What problem should it solve?
+      description: Beschreibe die Situation bei der Peilung, nicht nur die gewünschte Lösung.
+    validations: { required: true }
+  - type: textarea
+    id: idea
+    attributes:
+      label: Vorschlag / Proposal
+  - type: textarea
+    id: domain
+    attributes:
+      label: Funktechnischer Hintergrund / Radio background
+      description: Bei Fragen zur Peiltechnik (Bandbereich, Antenne, Messverfahren) bitte Details nennen.

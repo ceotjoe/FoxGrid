@@ -1,11 +1,24 @@
 # FoxGrid
 
+[![CI](https://github.com/ceotjoe/FoxGrid/actions/workflows/ci.yml/badge.svg)](https://github.com/ceotjoe/FoxGrid/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+*English in short:* FoxGrid is an open-source tool for radio amateurs who locate a VHF/UHF interferer together.
+Participants record bearings with an uncertainty, the backend fuses them live into the most likely transmitter
+location (with error ellipse) and pushes it to everyone. Flutter app + FastAPI/PostGIS backend, MIT licensed.
+Documentation is mostly German; code and commits are English. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+<p>
+  <img src="store/screenshots/raw/android-phone/02_capture.png" alt="Peilung erfassen" width="240">
+  <img src="store/screenshots/raw/android-phone/03_homing.png" alt="Nahpeilung" width="240">
+</p>
+
 Open-Source-Werkzeug für Funkamateure: Eine Gruppe peilt gemeinsam einen Störsender auf einem
 VHF/UHF (beliebige Frequenz, z. B. 2 m, 70 cm, 23 cm), etwa auf einem Relais. Teilnehmer erfassen Peilungen (Standort, Richtung, Unsicherheit, Feldstärke), das Backend
 berechnet live den wahrscheinlichsten Standort des Störers samt Fehlerellipse und verteilt das Ergebnis
 an alle. Lizenz: MIT.
 
-**Stand: Phase 4 (Automatisierung).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
+**Stand: Phase 5 (Rundstrahler).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
 Konventionen: [CLAUDE.md](CLAUDE.md). Store-Release: [docs/release.md](docs/release.md).
 
 ## Aufbau
