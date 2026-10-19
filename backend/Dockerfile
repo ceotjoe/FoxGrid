@@ -1,5 +1,5 @@
 # Build context is the repository root (the backend depends on ./engine).
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /srv
