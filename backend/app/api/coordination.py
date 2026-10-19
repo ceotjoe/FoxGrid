@@ -12,7 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
-from app.api.deps import current_participant, get_redis, member
+from app.api.deps import current_participant, get_redis, get_settings, member
+from app.config import Settings
 from app.db import get_session
 from app.models import Message, Participant, PushToken, Task, TaskEvent, Team
 from app.schemas.api import (
@@ -24,7 +25,7 @@ from app.schemas.api import (
     TaskPatch,
     TeamOut,
 )
-from app.services import domain
+from app.services import domain, ratelimit
 from app.services.serialize import event_json, message_out, task_out
 
 router = APIRouter()
@@ -77,8 +78,10 @@ async def post_message(
     actor: Participant = Depends(member),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
+    settings: Settings = Depends(get_settings),
 ) -> MessageOut:
     """Idempotent on the client UUID. Team messages stay inside that team's channel."""
+    await ratelimit.enforce(redis, "message", actor.id, settings.rate_message_per_min)
     existing = await session.get(Message, body.id)
     if existing is not None:
         if existing.mission_id != mission_id or existing.author_id != actor.id:

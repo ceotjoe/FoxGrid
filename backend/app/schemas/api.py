@@ -116,6 +116,19 @@ class ParticipantPatch(BaseModel):
     trusted: bool | None = None
 
 
+class PlausibilityFlag(BaseModel):
+    code: str
+    detail: str
+
+
+class PlausibilityOut(BaseModel):
+    """Hints about one participant; an empty list means nothing stands out."""
+
+    participant_id: uuid.UUID
+    bearings: int
+    flags: list[PlausibilityFlag]
+
+
 class QuarantineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

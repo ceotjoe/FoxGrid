@@ -4,7 +4,7 @@ import hmac
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import distinct_on
@@ -40,6 +40,8 @@ from app.schemas.api import (
     MissionPatch,
     ParticipantOut,
     ParticipantPatch,
+    PlausibilityFlag,
+    PlausibilityOut,
     QuarantineIn,
     QuarantineOut,
     RepeaterIn,
@@ -47,7 +49,7 @@ from app.schemas.api import (
     TeamOut,
 )
 from app.security import create_jwt, hash_token, new_invite_token
-from app.services import domain
+from app.services import domain, plausibility, ratelimit
 from app.services.recompute import RecomputeScheduler
 from app.services.serialize import (
     bearing_out,
@@ -120,10 +122,13 @@ async def create_mission(
 @router.post("/join", response_model=JoinOut)
 async def join(
     body: JoinIn,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     redis: Redis = Depends(get_redis),
 ) -> JoinOut:
+    client = request.client.host if request.client else "unknown"
+    await ratelimit.enforce(redis, "join", client, settings.rate_join_per_min)
     invite = await session.scalar(
         select(Invite).where(Invite.token_hash == hash_token(body.invite_token)).with_for_update()
     )
@@ -469,6 +474,66 @@ async def patch_participant(
         if "trusted" in changes:
             scheduler.schedule(mission_id)
     return participant_out(target, await domain.team_name(session, target.team_id))
+
+
+@router.get("/missions/{mission_id}/plausibility", response_model=list[PlausibilityOut])
+async def get_plausibility(
+    mission_id: uuid.UUID,
+    _: Participant = Depends(lead),
+    session: AsyncSession = Depends(get_session),
+) -> list[PlausibilityOut]:
+    """Lead only: which participants' data does not fit (hints only, nothing is changed)."""
+    est = await session.scalar(
+        select(Estimate)
+        .where(Estimate.mission_id == mission_id, Estimate.scope == "all")
+        .order_by(Estimate.computed_at.desc())
+        .limit(1)
+    )
+    estimate = (est.lat, est.lon, est.n_bearings) if est is not None else None
+    sensor_ids = select(Sensor.participant_id).where(Sensor.mission_id == mission_id)
+    people = (
+        await session.scalars(
+            select(Participant).where(
+                Participant.mission_id == mission_id,
+                Participant.is_active.is_(True),
+                Participant.status == "active",
+                Participant.id.not_in(sensor_ids),
+            )
+        )
+    ).all()
+    facts: dict[uuid.UUID, list[plausibility.BearingFact]] = {p.id: [] for p in people}
+    for b in (
+        await session.scalars(
+            select(Bearing).where(Bearing.mission_id == mission_id, Bearing.is_active.is_(True))
+        )
+    ).all():
+        if b.participant_id in facts:
+            facts[b.participant_id].append(
+                plausibility.BearingFact(
+                    b.lat, b.lon, float(b.azimuth_true_deg), float(b.sigma_deg), b.measured_at
+                )
+            )
+    fixes: dict[uuid.UUID, list[plausibility.Fix]] = {p.id: [] for p in people}
+    for s in (
+        await session.scalars(
+            select(PositionSample).where(PositionSample.mission_id == mission_id).limit(50_000)
+        )
+    ).all():
+        if s.participant_id in fixes:
+            fixes[s.participant_id].append(
+                plausibility.Fix(s.lat, s.lon, s.recorded_at, s.accuracy_m)
+            )
+    return [
+        PlausibilityOut(
+            participant_id=p.id,
+            bearings=len(facts[p.id]),
+            flags=[
+                PlausibilityFlag(code=f.code, detail=f.detail)
+                for f in plausibility.assess(facts[p.id], fixes[p.id], estimate)
+            ],
+        )
+        for p in people
+    ]
 
 
 @router.post(

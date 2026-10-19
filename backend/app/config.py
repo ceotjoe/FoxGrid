@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     # Defaults for invite links; a leaked link should stop working on its own.
     invite_ttl_hours: int = 24
     invite_max_uses: int = 20
+    # Requests per minute (0 = off). Joins are counted per client address (set
+    # FORWARDED_ALLOW_IPS for uvicorn behind a proxy), the rest per participant;
+    # bearings and readings count per item.
+    rate_join_per_min: int = 20
+    rate_bearing_per_min: int = 120
+    rate_rssi_per_min: int = 600
+    rate_message_per_min: int = 30
     position_min_interval_s: int = 5
     recompute_debounce_ms: int = 500
     recompute_max_wait_ms: int = 2000

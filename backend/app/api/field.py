@@ -45,7 +45,7 @@ from app.schemas.api import (
     TransmissionStart,
     TransmissionStop,
 )
-from app.services import domain, push, transmissions
+from app.services import domain, push, ratelimit, transmissions
 from app.services.recompute import (
     MIN_BEARINGS,
     RecomputeScheduler,
@@ -212,8 +212,10 @@ async def create_bearing(
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
+    settings: Settings = Depends(get_settings),
 ) -> BearingOut:
     """Idempotent on the client UUID: a retry returns 200 with the stored bearing."""
+    await ratelimit.enforce(redis, "bearing", actor.id, settings.rate_bearing_per_min)
     existing = await session.get(Bearing, body.id)
     if existing is not None:
         return _duplicate(existing, body, actor, mission_id, response)

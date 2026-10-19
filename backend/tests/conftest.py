@@ -61,6 +61,7 @@ def settings(database_url: str, redis_container: RedisContainer) -> Settings:
         recompute_debounce_ms=200,
         recompute_max_wait_ms=1000,
         position_min_interval_s=1,
+        rate_join_per_min=0,  # all tests join from one address; the limit has its own test
     )
 
 

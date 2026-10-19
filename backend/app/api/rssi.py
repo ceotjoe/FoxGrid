@@ -6,14 +6,16 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_scheduler, member
+from app.api.deps import get_redis, get_scheduler, get_settings, member
+from app.config import Settings
 from app.db import get_session
 from app.models import Mission, Participant, RssiSample
 from app.schemas.api import RssiBatchResult, RssiIn, RssiOut, RssiPatch
-from app.services import domain
+from app.services import domain, ratelimit
 from app.services.recompute import RecomputeScheduler
 from app.services.serialize import rssi_out
 
@@ -41,8 +43,11 @@ async def post_rssi(
     actor: Participant = Depends(member),
     session: AsyncSession = Depends(get_session),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
+    redis: Redis = Depends(get_redis),
+    settings: Settings = Depends(get_settings),
 ) -> RssiBatchResult:
     """Idempotent batch upload. Allowed after the mission ended so offline logs are not lost."""
+    await ratelimit.enforce(redis, "rssi", actor.id, settings.rate_rssi_per_min, cost=len(body))
     if not 1 <= len(body) <= MAX_BATCH:
         raise HTTPException(422, f"between 1 and {MAX_BATCH} samples per request")
     if any(s.receiver == "omni" for s in body) and actor.role not in ("fixed", "lead"):
