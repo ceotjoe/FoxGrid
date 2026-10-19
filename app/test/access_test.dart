@@ -5,6 +5,7 @@ import 'package:foxgrid/core/api.dart';
 import 'package:foxgrid/core/models.dart';
 import 'package:foxgrid/core/session.dart';
 import 'package:foxgrid/state/providers.dart';
+import 'package:foxgrid/ui/audit_screen.dart';
 import 'package:foxgrid/ui/participants_screen.dart';
 import 'package:foxgrid/ui/pending_screen.dart';
 
@@ -285,6 +286,105 @@ void main() {
       await pumpWith(tester, const ParticipantsScreen(), api: api);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('participant-DL2XYZ')), findsOneWidget);
+    });
+  });
+
+  group('join code and security log', () {
+    testWidgets('the joiner sees the code to read out by radio', (
+      tester,
+    ) async {
+      final api = FakeApi()
+        ..meValue = const Participant(
+          id: 'p9',
+          callsign: 'DL9NEW',
+          role: 'mobile',
+          status: 'pending',
+          joinCode: '4711',
+        );
+      await _pendingEnv(tester, api);
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.byKey(const Key('join-code')), findsOneWidget);
+      expect(find.text('4711'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('the lead sees the code next to the waiting joiner', (
+      tester,
+    ) async {
+      final api = FakeApi()
+        ..snapshotData = _snapshotWithPending()
+        ..joinCodeMap = {'p3': '0815'};
+      await pumpWith(tester, const ParticipantsScreen(), api: api);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Code 0815'), findsOneWidget);
+    });
+
+    test('log entries read as plain German', () {
+      AuditEntry e(
+        String entity,
+        String action, {
+        Map<String, dynamic> detail = const {},
+      }) => AuditEntry(
+        id: 1,
+        at: DateTime.utc(2026, 1, 1),
+        action: action,
+        entity: entity,
+        actor: 'DL1ABC',
+        subject: 'DL2XYZ',
+        detail: detail,
+      );
+      expect(describeAudit(e('participant', 'join')), 'DL1ABC ist beigetreten');
+      expect(
+        describeAudit(
+          e(
+            'participant',
+            'update',
+            detail: {
+              'status': ['pending', 'active'],
+              'trusted': true,
+              'role': ['mobile', 'fixed'],
+            },
+          ),
+        ),
+        'DL1ABC: DL2XYZ freigegeben, Rolle mobile → fixed, Vertrauen erteilt',
+      );
+      expect(
+        describeAudit(
+          e(
+            'participant',
+            'quarantine',
+            detail: {'bearings': 3, 'rssi_samples': 7, 'removed': true},
+          ),
+        ),
+        'DL1ABC: Quarantäne für DL2XYZ (3 Peilungen, 7 Messwerte, entfernt)',
+      );
+      expect(
+        describeAudit(e('participant', 'join_denied')),
+        contains('abgewiesen'),
+      );
+      expect(
+        describeAudit(e('invite', 'replace')),
+        contains('alle Einladungen'),
+      );
+      expect(describeAudit(e('mission', 'end')), 'DL1ABC: end mission');
+    });
+
+    testWidgets('the log screen lists entries and survives errors', (
+      tester,
+    ) async {
+      final api = FakeApi()
+        ..auditEntries = [
+          AuditEntry(
+            id: 7,
+            at: DateTime.utc(2026, 1, 1, 10, 0, 5),
+            action: 'join',
+            entity: 'participant',
+            actor: 'DL2XYZ',
+          ),
+        ];
+      await pumpWith(tester, const AuditScreen(), api: api);
+      await tester.pumpAndSettle();
+      expect(find.text('DL2XYZ ist beigetreten'), findsOneWidget);
     });
   });
 }

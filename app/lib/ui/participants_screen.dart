@@ -98,6 +98,14 @@ class ParticipantsScreen extends ConsumerWidget {
     final own = ref.watch(sessionProvider)?.participantId;
     final all = ref.watch(missionProvider.select((s) => s.participants)).values;
     final hints = ref.watch(plausibilityProvider).value ?? const {};
+    final waiting = [
+      for (final p in all)
+        if (p.isPending) p.id,
+    ]..sort();
+    final codes = waiting.isEmpty
+        ? const <String, String>{}
+        : ref.watch(joinCodesProvider(waiting.join(','))).value ??
+              const <String, String>{};
     int rank(Participant p) => p.isPending ? 0 : (p.isActive ? 1 : 2);
     final list = [...all]
       ..sort((a, b) {
@@ -124,7 +132,12 @@ class ParticipantsScreen extends ConsumerWidget {
                     key: Key('pending-${p.callsign}'),
                     leading: const Icon(Icons.hourglass_top),
                     title: Text(p.callsign),
-                    subtitle: const Text('wartet auf Freigabe'),
+                    subtitle: Text(
+                      codes[p.id] == null
+                          ? 'wartet auf Freigabe'
+                          : 'wartet auf Freigabe · Code ${codes[p.id]} '
+                                '(per Funk abgleichen)',
+                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

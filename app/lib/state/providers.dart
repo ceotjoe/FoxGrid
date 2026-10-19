@@ -1073,6 +1073,17 @@ final suggestionsProvider = FutureProvider.autoDispose<List<Suggestion>>((
   return ref.read(apiProvider).suggestions(scope: scope.name);
 });
 
+/// Security log for the lead (newest first).
+final auditProvider = FutureProvider.autoDispose<List<AuditEntry>>(
+  (ref) => ref.watch(apiProvider).audit(),
+);
+
+/// Join codes of waiting participants. The key lists their ids so a new joiner reloads it.
+final joinCodesProvider = FutureProvider.autoDispose
+    .family<Map<String, String>, String>(
+      (ref, pendingKey) => ref.watch(apiProvider).joinCodes(),
+    );
+
 /// Plausibility hints for the lead's participant list: participant id -> reasons.
 final plausibilityProvider =
     FutureProvider.autoDispose<Map<String, List<String>>>(

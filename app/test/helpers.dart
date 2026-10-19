@@ -218,6 +218,15 @@ class FakeApi implements FoxGridApi {
     );
   }
 
+  List<AuditEntry> auditEntries = [];
+  Map<String, String> joinCodeMap = {};
+
+  @override
+  Future<List<AuditEntry>> audit({int limit = 200}) async => auditEntries;
+
+  @override
+  Future<Map<String, String>> joinCodes() async => joinCodeMap;
+
   Map<String, List<String>> plausibilityData = {};
   Object? plausibilityError;
 

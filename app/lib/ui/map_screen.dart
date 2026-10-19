@@ -21,6 +21,7 @@ import 'capture_sheet.dart';
 import 'chat_screen.dart';
 import 'filter_sheet.dart';
 import 'homing_screen.dart';
+import 'audit_screen.dart';
 import 'participants_screen.dart';
 import 'station_screen.dart';
 import 'settings_screen.dart';
@@ -268,6 +269,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       builder: (_) => const ParticipantsScreen(),
                     ),
                   );
+                case 'audit':
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AuditScreen(),
+                    ),
+                  );
                 case 'leave':
                   ref.read(sessionProvider.notifier).leave();
                 case 'invite':
@@ -321,6 +328,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   child: Text(
                     waiting > 0 ? 'Teilnehmer ($waiting warten)' : 'Teilnehmer',
                   ),
+                ),
+              if (session.isLead)
+                const PopupMenuItem(
+                  key: Key('open-audit'),
+                  value: 'audit',
+                  child: Text('Sicherheitsprotokoll'),
                 ),
               if (session.isLead)
                 const PopupMenuItem(value: 'sensors', child: Text('Sensoren')),

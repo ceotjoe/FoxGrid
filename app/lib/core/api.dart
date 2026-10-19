@@ -52,6 +52,12 @@ abstract class FoxGridApi {
     bool resetDevice = false,
   });
 
+  /// Lead only: security log, newest first.
+  Future<List<AuditEntry>> audit({int limit});
+
+  /// Lead only: join codes of pending participants, by participant id.
+  Future<Map<String, String>> joinCodes();
+
   /// Lead only: hints per participant id (German texts); an empty list means nothing stands out.
   Future<Map<String, List<String>>> plausibility();
 
@@ -227,6 +233,25 @@ class DioFoxGridApi implements FoxGridApi {
       },
     );
     return Participant.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<List<AuditEntry>> audit({int limit = 200}) async {
+    final r = await _call('GET', '$_mission/audit?limit=$limit');
+    return [
+      for (final e in r.data as List)
+        AuditEntry.fromJson(e as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<Map<String, String>> joinCodes() async {
+    final r = await _call('GET', '$_mission/participants');
+    return {
+      for (final p in r.data as List)
+        if ((p as Map<String, dynamic>)['join_code'] != null)
+          p['id'] as String: p['join_code'] as String,
+    };
   }
 
   @override

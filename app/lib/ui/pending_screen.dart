@@ -22,6 +22,7 @@ class PendingScreen extends ConsumerStatefulWidget {
 class _PendingScreenState extends ConsumerState<PendingScreen> {
   Timer? _timer;
   bool _rejected = false;
+  String? _code;
 
   @override
   void initState() {
@@ -42,6 +43,7 @@ class _PendingScreenState extends ConsumerState<PendingScreen> {
     try {
       final me = await ref.read(apiProvider).me();
       if (!mounted) return;
+      if (me.joinCode != _code) setState(() => _code = me.joinCode);
       if (me.status == 'active') {
         await ref
             .read(sessionProvider.notifier)
@@ -84,6 +86,20 @@ class _PendingScreenState extends ConsumerState<PendingScreen> {
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
+              if (_code != null && !_rejected) ...[
+                const SizedBox(height: 16),
+                Text(
+                  _code!,
+                  key: const Key('join-code'),
+                  style: Theme.of(context).textTheme.displayMedium
+                      ?.copyWith(letterSpacing: 8),
+                ),
+                const Text(
+                  'Dein Code. Nenne ihn der Einsatzleitung per Funk, '
+                  'damit sie weiß, dass du es bist.',
+                  textAlign: TextAlign.center,
+                ),
+              ],
               if (session != null && !_rejected) ...[
                 const SizedBox(height: 8),
                 Text(

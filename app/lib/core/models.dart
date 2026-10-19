@@ -77,12 +77,16 @@ class Participant {
     this.isActive = true,
     this.deviceBound = false,
     this.trusted = true,
+    this.joinCode,
   });
 
   final String id;
   final String callsign;
   final String role;
   final String? team;
+
+  /// 4 digits to compare by radio while the join is pending (own and lead view only).
+  final String? joinCode;
 
   /// Only trusted participants' data moves the estimate; the rest is logged and shown.
   final bool trusted;
@@ -105,6 +109,40 @@ class Participant {
     isActive: j['is_active'] as bool? ?? true,
     deviceBound: j['device_bound'] as bool? ?? false,
     trusted: j['trusted'] as bool? ?? true,
+    joinCode: j['join_code'] as String?,
+  );
+}
+
+/// One line of the lead's security log.
+class AuditEntry {
+  const AuditEntry({
+    required this.id,
+    required this.at,
+    required this.action,
+    required this.entity,
+    this.actor,
+    this.subject,
+    this.detail = const {},
+  });
+
+  final int id;
+  final DateTime at;
+  final String action;
+  final String entity;
+  final String? actor;
+
+  /// Callsign when the entry is about a participant.
+  final String? subject;
+  final Map<String, dynamic> detail;
+
+  factory AuditEntry.fromJson(Map<String, dynamic> j) => AuditEntry(
+    id: j['id'] as int,
+    at: DateTime.parse(j['at'] as String),
+    action: j['action'] as String,
+    entity: j['entity'] as String,
+    actor: j['actor'] as String?,
+    subject: j['subject'] as String?,
+    detail: (j['detail'] as Map?)?.cast<String, dynamic>() ?? const {},
   );
 }
 
