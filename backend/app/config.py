@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     jwt_secret: str  # required, no default on purpose
     jwt_ttl_hours: int = 72
+    # Defaults for invite links; a leaked link should stop working on its own.
+    invite_ttl_hours: int = 24
+    invite_max_uses: int = 20
     position_min_interval_s: int = 5
     recompute_debounce_ms: int = 500
     recompute_max_wait_ms: int = 2000

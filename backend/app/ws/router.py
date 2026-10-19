@@ -18,10 +18,25 @@ from app.services import domain
 router = APIRouter()
 
 
-async def _forward(ws: WebSocket, pubsub: object) -> None:
+async def _forward(ws: WebSocket, pubsub: object, participant_id: uuid.UUID) -> None:
     async for message in pubsub.listen():  # type: ignore[attr-defined]
-        if message["type"] == "message":
-            await ws.send_text(message["data"])
+        if message["type"] != "message":
+            continue
+        if _is_own_removal(message["data"], participant_id):
+            await ws.close(code=4403)
+            return
+        await ws.send_text(message["data"])
+
+
+def _is_own_removal(raw: str | bytes, participant_id: uuid.UUID) -> bool:
+    try:
+        event = json.loads(raw)
+    except ValueError:
+        return False
+    return (
+        event.get("type") == "participant_removed"
+        and event.get("data", {}).get("participant_id") == str(participant_id)
+    )
 
 
 @router.websocket("/ws/missions/{mission_id}")
@@ -49,7 +64,7 @@ async def mission_socket(
     await pubsub.subscribe(events.channel(mission_id))
     if participant.team_id is not None:
         await pubsub.subscribe(events.channel(mission_id, participant.team_id))
-    forwarder = asyncio.create_task(_forward(ws, pubsub))
+    forwarder = asyncio.create_task(_forward(ws, pubsub, participant.id))
     try:
         while True:
             raw = await ws.receive_text()

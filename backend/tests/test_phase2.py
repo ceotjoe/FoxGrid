@@ -15,7 +15,7 @@ import websockets
 from app.services import exporter
 from app.services.push import FcmPushSender, PushTarget
 from tests.conftest import BACKEND_DIR, Server
-from tests.helpers import Mission, auth, bearing_payload, offset, wait_for
+from tests.helpers import Mission, auth, bearing_payload, device_secret, offset, wait_for
 from tests.test_field import STATIONS, TARGET, _full_estimate
 
 
@@ -26,7 +26,12 @@ def now_iso() -> str:
 async def _join_team(m: Mission, callsign: str, team: str) -> tuple[str, dict]:
     r = await m.client.post(
         "/join",
-        json={"invite_token": m.invite, "callsign": callsign, "role": "mobile", "team": team},
+        json={
+            "invite_token": m.invite,
+            "callsign": callsign,
+            "team": team,
+            "device_secret": device_secret(callsign),
+        },
     )
     assert r.status_code == 200, r.text
     return r.json()["token"], r.json()["participant"]

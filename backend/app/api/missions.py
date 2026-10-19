@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -9,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import events
 from app.api.deps import get_redis, get_scheduler, get_settings, lead, member
 from app.config import Settings
 from app.db import get_session
@@ -36,6 +38,7 @@ from app.schemas.api import (
     MissionOut,
     MissionPatch,
     ParticipantOut,
+    ParticipantPatch,
     RepeaterIn,
     SnapshotOut,
     TeamOut,
@@ -81,11 +84,22 @@ async def create_mission(
     _set_repeater(mission, body.repeater)
     session.add(mission)
     await session.flush()
-    creator = Participant(mission_id=mission.id, callsign=body.callsign, role="lead")
+    creator = Participant(
+        mission_id=mission.id,
+        callsign=body.callsign,
+        role="lead",
+        device_hash=hash_token(body.device_secret) if body.device_secret else None,
+    )
     session.add(creator)
     invite_token = new_invite_token()
     session.add(
-        Invite(mission_id=mission.id, token_hash=hash_token(invite_token), default_role="mobile")
+        Invite(
+            mission_id=mission.id,
+            token_hash=hash_token(invite_token),
+            default_role="mobile",
+            max_uses=settings.invite_max_uses,
+            expires_at=datetime.now(UTC) + timedelta(hours=settings.invite_ttl_hours),
+        )
     )
     await session.flush()
     await domain.audit(session, mission.id, creator.id, "create", "mission", mission.id)
@@ -129,18 +143,32 @@ async def join(
         select(Sensor.id).where(Sensor.participant_id == participant.id)
     ):
         raise HTTPException(403, "this callsign belongs to a sensor")
+    device_hash = hash_token(body.device_secret)
     if participant is None:
         if invite.max_uses is not None and invite.uses >= invite.max_uses:
             raise HTTPException(403, "invalid or expired invite")
-        role = body.role if invite.default_role == "lead" or body.role != "lead" else "mobile"
-        participant = Participant(mission_id=mission.id, callsign=body.callsign, role=role)
+        # The invite decides the role; a joiner cannot pick `fixed` or `lead` for themselves.
+        participant = Participant(
+            mission_id=mission.id,
+            callsign=body.callsign,
+            role=invite.default_role,
+            device_hash=device_hash,
+        )
         session.add(participant)
         invite.uses += 1
         await session.flush()
         await domain.audit(
             session, mission.id, participant.id, "join", "participant", participant.id
         )
-    elif not participant.is_active:
+    elif participant.device_hash is None:
+        participant.device_hash = device_hash  # created before device binding existed
+    elif not hmac.compare_digest(participant.device_hash, device_hash):
+        await domain.audit(
+            session, mission.id, participant.id, "join_denied", "participant", participant.id
+        )
+        await session.commit()
+        raise HTTPException(403, "callsign is bound to another device; ask the lead to release it")
+    if not participant.is_active:
         raise HTTPException(403, "participant deactivated")
     if body.team:
         team = await domain.get_or_create_team(session, mission.id, body.team)
@@ -223,23 +251,43 @@ async def create_invite(
     body: InviteCreate,
     actor: Participant = Depends(lead),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> InviteOut:
-    token = new_invite_token()
-    expires = (
-        datetime.now(UTC) + timedelta(hours=body.expires_in_hours)
-        if body.expires_in_hours
-        else None
+    return await _issue_invite(
+        session,
+        settings,
+        mission_id,
+        actor,
+        role=body.default_role,
+        max_uses=body.max_uses,
+        ttl_hours=body.expires_in_hours,
     )
+
+
+async def _issue_invite(
+    session: AsyncSession,
+    settings: Settings,
+    mission_id: uuid.UUID,
+    actor: Participant,
+    *,
+    role: str,
+    max_uses: int | None,
+    ttl_hours: int | None,
+    action: str = "create",
+) -> InviteOut:
+    """New invite; omitted limits fall back to the server defaults, so links always expire."""
+    token = new_invite_token()
     invite = Invite(
         mission_id=mission_id,
         token_hash=hash_token(token),
-        default_role=body.default_role,
-        max_uses=body.max_uses,
-        expires_at=expires,
+        default_role=role,
+        max_uses=max_uses if max_uses is not None else settings.invite_max_uses,
+        expires_at=datetime.now(UTC)
+        + timedelta(hours=ttl_hours if ttl_hours is not None else settings.invite_ttl_hours),
     )
     session.add(invite)
     await session.flush()
-    await domain.audit(session, mission_id, actor.id, "create", "invite", invite.id)
+    await domain.audit(session, mission_id, actor.id, action, "invite", invite.id)
     await session.commit()
     return InviteOut(
         id=invite.id,
@@ -247,6 +295,35 @@ async def create_invite(
         default_role=invite.default_role,
         max_uses=invite.max_uses,
         expires_at=invite.expires_at,
+    )
+
+
+@router.post(
+    "/missions/{mission_id}/invites/{invite_id}/rotate", response_model=InviteOut, status_code=201
+)
+async def rotate_invite(
+    mission_id: uuid.UUID,
+    invite_id: uuid.UUID,
+    actor: Participant = Depends(lead),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> InviteOut:
+    """Replaces a leaked link: the old one stops working, joined participants stay in."""
+    old = await session.get(Invite, invite_id)
+    if old is None or old.mission_id != mission_id:
+        raise HTTPException(404, "invite not found")
+    if old.revoked_at is None:
+        old.revoked_at = datetime.now(UTC)
+        await domain.audit(session, mission_id, actor.id, "revoke", "invite", invite_id)
+    return await _issue_invite(
+        session,
+        settings,
+        mission_id,
+        actor,
+        role=old.default_role,
+        max_uses=old.max_uses,
+        ttl_hours=None,
+        action="rotate",
     )
 
 
@@ -281,6 +358,49 @@ async def list_participants(
         )
     ).all()
     return [participant_out(p, await domain.team_name(session, p.team_id)) for p in rows]
+
+
+@router.patch("/missions/{mission_id}/participants/{participant_id}", response_model=ParticipantOut)
+async def patch_participant(
+    mission_id: uuid.UUID,
+    participant_id: uuid.UUID,
+    body: ParticipantPatch,
+    actor: Participant = Depends(lead),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+) -> ParticipantOut:
+    """Lead only: change the role, remove (or reinstate) a participant, release the device."""
+    target = await session.get(Participant, participant_id)
+    if target is None or target.mission_id != mission_id:
+        raise HTTPException(404, "participant not found")
+    if await session.scalar(select(Sensor.id).where(Sensor.participant_id == target.id)):
+        raise HTTPException(409, "sensors are managed under /sensors")
+    if target.id == actor.id and (
+        body.is_active is False or (body.role is not None and body.role != "lead")
+    ):
+        raise HTTPException(409, "the lead cannot remove or demote themselves")
+
+    changes: dict[str, object] = {}
+    if body.role is not None and body.role != target.role:
+        changes["role"] = [target.role, body.role]
+        target.role = body.role
+    if body.is_active is not None and body.is_active != target.is_active:
+        changes["is_active"] = body.is_active
+        target.is_active = body.is_active
+    if body.reset_device and target.device_hash is not None:
+        changes["device_released"] = True
+        target.device_hash = None
+    if changes:
+        await domain.audit(
+            session, mission_id, actor.id, "update", "participant", target.id, **changes
+        )
+        await session.commit()
+        if changes.get("is_active") is False:
+            # Closes the participant's open WebSockets on every worker.
+            await events.publish(
+                redis, mission_id, "participant_removed", {"participant_id": str(target.id)}
+            )
+    return participant_out(target, await domain.team_name(session, target.team_id))
 
 
 @router.get("/missions/{mission_id}/snapshot", response_model=SnapshotOut)

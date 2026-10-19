@@ -94,6 +94,8 @@ class Participant(Base):
     joined_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     last_seen_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # SHA-256 of the secret the joining device generated; binds the callsign to that device.
+    device_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("mission_id", "callsign", name="uq_participant_callsign"),

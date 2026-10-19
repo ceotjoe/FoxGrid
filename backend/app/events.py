@@ -12,6 +12,7 @@ from redis.asyncio import Redis
 EVENT_TYPES = frozenset(
     {
         "participant_position",
+        "participant_removed",
         "bearing_created",
         "bearing_updated",
         "transmission_started",

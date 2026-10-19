@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from tests.helpers import Mission, auth
+from tests.helpers import Mission, auth, device_secret
 
 
 async def test_create_join_and_roles(client: httpx.AsyncClient) -> None:
@@ -23,7 +23,14 @@ async def test_create_join_and_roles(client: httpx.AsyncClient) -> None:
 
 async def test_invite_rules(client: httpx.AsyncClient) -> None:
     m = await Mission.create(client)
-    bad = await client.post("/join", json={"invite_token": "nope", "callsign": "DL3AAA"})
+    bad = await client.post(
+        "/join",
+        json={
+            "invite_token": "nope",
+            "callsign": "DL3AAA",
+            "device_secret": device_secret("DL3AAA"),
+        },
+    )
     assert bad.status_code == 403
 
     r = await client.post(
@@ -31,14 +38,35 @@ async def test_invite_rules(client: httpx.AsyncClient) -> None:
     )
     assert r.status_code == 201
     inv = r.json()
-    ok = await client.post("/join", json={"invite_token": inv["token"], "callsign": "DL3AAA"})
+    ok = await client.post(
+        "/join",
+        json={
+            "invite_token": inv["token"],
+            "callsign": "DL3AAA",
+            "device_secret": device_secret("DL3AAA"),
+        },
+    )
     assert ok.status_code == 200
-    full = await client.post("/join", json={"invite_token": inv["token"], "callsign": "DL3BBB"})
+    full = await client.post(
+        "/join",
+        json={
+            "invite_token": inv["token"],
+            "callsign": "DL3BBB",
+            "device_secret": device_secret("DL3BBB"),
+        },
+    )
     assert full.status_code == 403
 
     rev = await client.delete(m.url(f"/invites/{inv['id']}"), headers=auth(m.lead_token))
     assert rev.status_code == 204
-    after = await client.post("/join", json={"invite_token": inv["token"], "callsign": "DL3AAA"})
+    after = await client.post(
+        "/join",
+        json={
+            "invite_token": inv["token"],
+            "callsign": "DL3AAA",
+            "device_secret": device_secret("DL3AAA"),
+        },
+    )
     assert after.status_code == 403
 
     token, _ = await m.join("DL3CCC")
@@ -67,7 +95,14 @@ async def test_end_mission(client: httpx.AsyncClient) -> None:
     r = await client.post(m.url("/end"), headers=auth(m.lead_token))
     assert r.status_code == 200 and r.json()["status"] == "ended"
     assert (await client.post(m.url("/end"), headers=auth(m.lead_token))).status_code == 409
-    join = await client.post("/join", json={"invite_token": m.invite, "callsign": "DL4NEW"})
+    join = await client.post(
+        "/join",
+        json={
+            "invite_token": m.invite,
+            "callsign": "DL4NEW",
+            "device_secret": device_secret("DL4NEW"),
+        },
+    )
     assert join.status_code == 409
     start = await client.post(m.url("/transmissions/start"), headers=auth(m.lead_token))
     assert start.status_code == 409

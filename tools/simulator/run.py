@@ -138,7 +138,12 @@ def main() -> int:
     with httpx.Client(timeout=15) as http:
         r = http.post(
             f"{api}/missions",
-            json={"name": args.mission_name, "frequency_mhz": 433.5, "callsign": "SIM1"},
+            json={
+                "name": args.mission_name,
+                "frequency_mhz": 433.5,
+                "callsign": "SIM1",
+                "device_secret": "simulator-SIM1-0123456789",
+            },
         )
         r.raise_for_status()
         created = r.json()
@@ -149,7 +154,11 @@ def main() -> int:
         for i in range(2, args.bearers + 1):
             j = http.post(
                 f"{api}/join",
-                json={"invite_token": invite, "callsign": f"SIM{i}", "role": "mobile"},
+                json={
+                    "invite_token": invite,
+                    "callsign": f"SIM{i}",
+                    "device_secret": f"simulator-SIM{i}-0123456789",
+                },
             )
             j.raise_for_status()
             tokens.append(j.json()["token"])

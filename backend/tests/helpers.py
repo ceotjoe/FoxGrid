@@ -45,6 +45,11 @@ def bearing_payload(
     }
 
 
+def device_secret(callsign: str) -> str:
+    """A stable per-callsign secret, standing in for the one the app generates."""
+    return f"device-secret-{callsign.upper()}-0123456789"
+
+
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -61,17 +66,40 @@ class Mission:
 
     @classmethod
     async def create(cls, client: httpx.AsyncClient, **kwargs: Any) -> Mission:
-        body = {"name": "Test hunt", "frequency_mhz": 433.5, "callsign": "dl1abc", **kwargs}
+        callsign = kwargs.get("callsign", "dl1abc")
+        body = {
+            "name": "Test hunt",
+            "frequency_mhz": 433.5,
+            "callsign": "dl1abc",
+            "device_secret": device_secret(callsign),
+            **kwargs,
+        }
         r = await client.post("/missions", json=body)
         assert r.status_code == 201, r.text
         return cls(client, r.json())
 
     async def join(self, callsign: str, role: str = "mobile") -> tuple[str, dict[str, Any]]:
+        """Joins as `mobile`; other roles are granted by the lead afterwards, as in real use."""
         r = await self.client.post(
-            "/join", json={"invite_token": self.invite, "callsign": callsign, "role": role}
+            "/join",
+            json={
+                "invite_token": self.invite,
+                "callsign": callsign,
+                "role": role,
+                "device_secret": device_secret(callsign),
+            },
         )
         assert r.status_code == 200, r.text
-        return r.json()["token"], r.json()["participant"]
+        participant = r.json()["participant"]
+        if role == "fixed":
+            p = await self.client.patch(
+                self.url(f"/participants/{participant['id']}"),
+                json={"role": "fixed"},
+                headers=auth(self.lead_token),
+            )
+            assert p.status_code == 200, p.text
+            participant = p.json()
+        return r.json()["token"], participant
 
     def url(self, path: str) -> str:
         return f"/missions/{self.id}{path}"

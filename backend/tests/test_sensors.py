@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from tests.helpers import Mission, auth, bearing_payload, offset
+from tests.helpers import Mission, auth, bearing_payload, device_secret, offset
 from tests.test_field import STATIONS, TARGET
 
 
@@ -76,7 +76,12 @@ async def test_callsigns_of_sensors_cannot_be_claimed_by_humans(client: httpx.As
     m = await Mission.create(client)
     s = await make_sensor(client, m, "Nord")
     r = await client.post(
-        "/join", json={"invite_token": m.invite, "callsign": s["callsign"], "role": "mobile"}
+        "/join",
+        json={
+            "invite_token": m.invite,
+            "callsign": s["callsign"],
+            "device_secret": device_secret(s["callsign"]),
+        },
     )
     assert r.status_code == 403
     # a clash with an existing human callsign gets a numbered callsign for the sensor
