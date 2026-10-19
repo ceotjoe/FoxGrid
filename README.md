@@ -20,6 +20,7 @@ an alle. Lizenz: MIT.
 
 **Stand: Phase 5 (Rundstrahler).** Plan und offene Fragen: [docs/phase0-plan.md](docs/phase0-plan.md),
 Konventionen: [CLAUDE.md](CLAUDE.md). Store-Release: [docs/release.md](docs/release.md).
+Server produktiv betreiben (HTTPS, Backup, Updates): [docs/deployment.md](docs/deployment.md).
 
 ## Aufbau
 
