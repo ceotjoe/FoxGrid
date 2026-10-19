@@ -11,6 +11,7 @@ import '../core/models.dart';
 import '../core/signal.dart';
 import '../state/providers.dart';
 import 'app_tile_layer.dart';
+import 'map_palette.dart';
 import 'rssi_chart.dart';
 
 /// Close-range homing: arrow and distance to the estimated emitter, signal strength history,
@@ -391,6 +392,7 @@ class _TrackMap extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final pal = MapPalette.of(context, ref.watch(settingsProvider));
     final points = [
       for (final s in samples) s.point,
       if (own != null) own!.point,
@@ -418,7 +420,7 @@ class _TrackMap extends ConsumerWidget {
               Polyline(
                 points: [own!.point, estimate!.point],
                 strokeWidth: 2,
-                color: Colors.red.withValues(alpha: 0.6),
+                color: pal.estimate.withValues(alpha: 0.6),
                 pattern: StrokePattern.dashed(segments: const [8, 8]),
               ),
             ],
@@ -428,8 +430,8 @@ class _TrackMap extends ConsumerWidget {
             polygons: [
               Polygon(
                 points: estimate!.ellipse1s.ring,
-                color: Colors.red.withValues(alpha: 0.18),
-                borderColor: Colors.red,
+                color: pal.estimate.withValues(alpha: 0.18),
+                borderColor: pal.estimate,
                 borderStrokeWidth: 2,
               ),
             ],
@@ -443,8 +445,8 @@ class _TrackMap extends ConsumerWidget {
               CircleMarker(
                 point: s.point,
                 radius: 6,
-                color: rssiColor(s.correctedDbm, min: lo, max: hi),
-                borderColor: Colors.white,
+                color: pal.signal(s.correctedDbm, min: lo, max: hi),
+                borderColor: pal.outline,
                 borderStrokeWidth: 1,
               ),
           ],
@@ -456,18 +458,14 @@ class _TrackMap extends ConsumerWidget {
                 point: estimate!.point,
                 width: 40,
                 height: 40,
-                child: const Icon(Icons.gps_fixed, color: Colors.red, size: 36),
+                child: Icon(Icons.gps_fixed, color: pal.estimate, size: 36),
               ),
             if (own != null)
               Marker(
                 point: own!.point,
                 width: 36,
                 height: 36,
-                child: const Icon(
-                  Icons.navigation,
-                  color: Colors.blue,
-                  size: 32,
-                ),
+                child: Icon(Icons.navigation, color: pal.self, size: 32),
               ),
           ],
         ),

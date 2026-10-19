@@ -25,25 +25,13 @@ import 'audit_screen.dart';
 import 'participants_screen.dart';
 import 'station_screen.dart';
 import 'settings_screen.dart';
+import 'map_palette.dart';
 import 'sensors_screen.dart';
 import 'suggestions_sheet.dart';
 import 'sync_sheet.dart';
 import 'tasks_screen.dart';
 
 const _rayLengthM = 25000.0;
-const _palette = [
-  Colors.indigo,
-  Colors.teal,
-  Colors.deepOrange,
-  Colors.purple,
-  Colors.brown,
-  Colors.blueGrey,
-  Colors.pink,
-  Colors.green,
-];
-
-Color participantColor(String id) =>
-    _palette[id.hashCode.abs() % _palette.length];
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -57,6 +45,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _centered = false;
   bool _fitted = false;
   bool _declinationRequested = false;
+  late MapPalette _pal;
 
   /// Everything worth showing: estimate area, bearing stations and participants.
   List<LatLng> _interestingPoints(MissionState state, Estimate? estimate) => [
@@ -313,6 +302,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       syncProvider,
     ); // keeps the offline queue running while the map is open
     final settings = ref.watch(settingsProvider);
+    _pal = MapPalette.of(context, settings);
     final filter = ref.watch(filterProvider);
     final showSuggestions = ref.watch(showSuggestionsProvider);
     final suggestions = showSuggestions
@@ -555,7 +545,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     Polygon(
                       points: state.mission!.searchArea!,
                       color: Colors.transparent,
-                      borderColor: Colors.black54,
+                      borderColor: _pal.searchArea,
                       borderStrokeWidth: 2,
                       pattern: StrokePattern.dashed(segments: const [10, 8]),
                     ),
@@ -572,14 +562,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   polygons: [
                     Polygon(
                       points: estimate.ellipse2s.ring,
-                      color: Colors.red.withValues(alpha: 0.08),
-                      borderColor: Colors.red.withValues(alpha: 0.6),
+                      color: _pal.estimate.withValues(alpha: 0.08),
+                      borderColor: _pal.estimate.withValues(alpha: 0.6),
                       borderStrokeWidth: 1.5,
                     ),
                     Polygon(
                       points: estimate.ellipse1s.ring,
-                      color: Colors.red.withValues(alpha: 0.18),
-                      borderColor: Colors.red,
+                      color: _pal.estimate.withValues(alpha: 0.18),
+                      borderColor: _pal.estimate,
                       borderStrokeWidth: 2,
                     ),
                   ],
@@ -593,7 +583,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       Polyline(
                         points: e.value,
                         strokeWidth: 3,
-                        color: participantColor(e.key).withValues(alpha: 0.6),
+                        color: _pal.participant(e.key).withValues(alpha: 0.6),
                       ),
                 ],
               ),
@@ -608,8 +598,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         key: Key('suggestion-marker-${i + 1}'),
                         onTap: _openSuggestions,
                         child: CircleAvatar(
-                          backgroundColor: Colors.green.shade700,
-                          foregroundColor: Colors.white,
+                          backgroundColor: _pal.suggestion,
+                          foregroundColor: _pal.isNight
+                              ? const Color(0xFFFF8A80)
+                              : Colors.white,
                           child: Text('${i + 1}'),
                         ),
                       ),
@@ -620,9 +612,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       point: state.mission!.repeater!.point,
                       width: 40,
                       height: 40,
-                      child: const Icon(
+                      child: Icon(
                         Icons.cell_tower,
-                        color: Colors.deepPurple,
+                        color: _pal.repeater,
                         size: 32,
                         key: Key('repeater-marker'),
                       ),
@@ -632,9 +624,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       point: estimate.point,
                       width: 44,
                       height: 44,
-                      child: const Icon(
+                      child: Icon(
                         Icons.gps_fixed,
-                        color: Colors.red,
+                        color: _pal.estimate,
                         size: 40,
                         key: Key('mle-marker'),
                       ),
@@ -644,13 +636,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       _participantMarker(
                         e.value.point,
                         state.participants[e.key]?.callsign ?? '?',
-                        participantColor(e.key),
+                        _pal.participant(e.key),
                       ),
                   if (own != null)
                     _participantMarker(
                       own.point,
                       session.callsign,
-                      Colors.blue,
+                      _pal.self,
                       self: true,
                     ),
                 ],
@@ -807,12 +799,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.85),
+            color: _pal.labelBackground,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Text(
             callsign,
-            style: const TextStyle(fontSize: 11, color: Colors.black),
+            style: TextStyle(fontSize: 11, color: _pal.labelText),
           ),
         ),
       ],
@@ -861,7 +853,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         offsetDb: offset,
         deltaDb: delta,
       );
-      final color = rssiColor(r.correctedDbm, min: lo, max: hi);
+      final color = _pal.signal(r.correctedDbm, min: lo, max: hi);
       CircleMarker ring(double radius, double alpha, double width) =>
           CircleMarker(
             point: r.point,
@@ -892,14 +884,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             key: Key('station-marker-${r.participantId}'),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: rssiColor(r.correctedDbm, min: lo, max: hi),
+              color: _pal.signal(r.correctedDbm, min: lo, max: hi),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white, width: 1.5),
+              border: Border.all(color: _pal.outline, width: 1.5),
             ),
             child: Text(
               dbmToSLabel(r.correctedDbm),
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: _pal.isNight ? Colors.black : Colors.white,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -920,8 +912,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           CircleMarker(
             point: r.point,
             radius: 4,
-            color: rssiColor(r.correctedDbm, min: lo, max: hi),
-            borderColor: Colors.white,
+            color: _pal.signal(r.correctedDbm, min: lo, max: hi),
+            borderColor: _pal.outline,
             borderStrokeWidth: 0.8,
           ),
       ],
@@ -933,8 +925,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       for (final ring in e.contours[entry.$1] ?? const <List<LatLng>>[])
         Polygon(
           points: ring,
-          color: Colors.deepOrange.withValues(alpha: entry.$2),
-          borderColor: Colors.deepOrange.withValues(alpha: 0.7),
+          color: _pal.contour.withValues(alpha: entry.$2),
+          borderColor: _pal.contour.withValues(alpha: 0.7),
           borderStrokeWidth: 1,
         ),
   ];
@@ -977,7 +969,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               b.sigmaDeg,
               _rayLengthM,
             ),
-            color: participantColor(b.participantId)
+            color: _pal
+                .participant(b.participantId)
                 .withValues(alpha: 0.10 * _alpha(b, now)),
           ),
       ];
@@ -994,7 +987,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           destination(b.station, b.azimuthTrueDeg, _rayLengthM),
         ],
         strokeWidth: 2.5,
-        color: participantColor(b.participantId)
+        color: _pal
+            .participant(b.participantId)
             .withValues(alpha: (b.isOutlier ? 0.7 : 1) * _alpha(b, now)),
         pattern: b.isOutlier
             ? StrokePattern.dashed(segments: const [8, 8])
