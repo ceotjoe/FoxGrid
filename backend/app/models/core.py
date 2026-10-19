@@ -100,6 +100,9 @@ class Participant(Base):
     device_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # `pending` joiners wait for the lead; only `active` ones see or write mission data.
     status: Mapped[str] = mapped_column(String(10), default="active", server_default="active")
+    # Only trusted participants' bearings and readings feed the estimate; the others stay
+    # visible (and logged) but do not move the result. See `domain.trusted_only`.
+    trusted: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
     __table_args__ = (
         UniqueConstraint("mission_id", "callsign", name="uq_participant_callsign"),

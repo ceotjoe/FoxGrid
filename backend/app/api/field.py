@@ -420,7 +420,10 @@ async def query_estimate(
     mission = await session.get(Mission, mission_id)
     if mission is None:
         raise HTTPException(404, "mission not found")
-    stmt = select(Bearing).where(Bearing.mission_id == mission_id, Bearing.is_active.is_(True))
+    stmt = domain.trusted_only(
+        select(Bearing).where(Bearing.mission_id == mission_id, Bearing.is_active.is_(True)),
+        Bearing,
+    )
     if not include_outliers:
         stmt = stmt.where(Bearing.is_outlier.is_(False))
     if transmission:
@@ -432,8 +435,11 @@ async def query_estimate(
     bearings = list((await session.scalars(stmt)).all())
     rssi_rows: list[RssiSample] = []
     if include_rssi and uses_rssi(mission):
-        rstmt = select(RssiSample).where(
-            RssiSample.mission_id == mission_id, RssiSample.is_active.is_(True)
+        rstmt = domain.trusted_only(
+            select(RssiSample).where(
+                RssiSample.mission_id == mission_id, RssiSample.is_active.is_(True)
+            ),
+            RssiSample,
         )
         if transmission:
             rstmt = rstmt.where(RssiSample.transmission_id.in_(transmission))

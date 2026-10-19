@@ -11,7 +11,9 @@ import pytest
 import websockets
 
 from tests.conftest import Server
-from tests.helpers import Mission, auth, device_secret
+from tests.helpers import Mission, auth, bearing_payload, device_secret, wait_for
+from tests.test_field import STATIONS, TARGET, _full_estimate
+from tests.test_rssi_api import track
 
 
 def _join(m: Mission, callsign: str, secret: str | None = None, **extra: object) -> dict:  # type: ignore[type-arg]
@@ -269,3 +271,112 @@ async def test_replace_revokes_every_open_invite(client: httpx.AsyncClient) -> N
     assert (await client.post("/join", json=body)).status_code == 200
     forbidden = await client.post(m.url("/invites/replace"), headers=auth(member_token))
     assert forbidden.status_code == 403
+
+
+async def _post_bearing(client: httpx.AsyncClient, m: Mission, token: str, station: int) -> dict:  # type: ignore[type-arg]
+    r = await client.post(
+        m.url("/bearings"),
+        json=bearing_payload(STATIONS[station], TARGET),
+        headers=auth(token),
+    )
+    assert r.status_code == 201, r.text
+    return r.json()  # type: ignore[no-any-return]
+
+
+async def test_open_link_joiners_do_not_move_the_estimate(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    # a lobby-approved joiner is trusted, an auto-approved one is not
+    _, approved = await m.join("DL2APP")
+    assert approved["trusted"] is True
+    inv = (await client.post(m.url("/invites"), json={"auto_approve": True}, headers=h)).json()
+    r = await client.post(
+        "/join",
+        json={"invite_token": inv["token"], "callsign": "DL2OPEN", "device_secret": "p" * 20},
+    )
+    open_token, open_p = r.json()["token"], r.json()["participant"]
+    assert open_p["status"] == "active" and open_p["trusted"] is False
+
+    await _post_bearing(client, m, m.lead_token, 0)
+    await _post_bearing(client, m, m.lead_token, 1)
+    assert await wait_for(lambda: _full_estimate(client, m, 2))
+
+    # the untrusted bearing is logged and visible, but the estimate ignores it
+    mine = await _post_bearing(client, m, open_token, 2)
+    listed = await client.get(m.url("/bearings"), headers=h)
+    assert mine["id"] in {b["id"] for b in listed.json()}
+    await asyncio.sleep(1.5)
+    assert (await client.get(m.url("/estimate?scope=all"), headers=h)).json()["n_bearings"] == 2
+    adhoc = await client.get(m.url("/estimate/query"), headers=h)
+    assert adhoc.json()["n_bearings"] == 2
+
+    # trusting them recomputes with their bearing
+    trust = await client.patch(
+        m.url(f"/participants/{open_p['id']}"), json={"trusted": True}, headers=h
+    )
+    assert trust.status_code == 200 and trust.json()["trusted"] is True
+    assert await wait_for(lambda: _full_estimate(client, m, 3))
+    # ... and withdrawing trust takes it out again
+    await client.patch(m.url(f"/participants/{open_p['id']}"), json={"trusted": False}, headers=h)
+    assert await wait_for(lambda: _full_estimate(client, m, 2))
+
+
+async def test_promotion_implies_trust_but_not_for_yourself(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    inv = (await client.post(m.url("/invites"), json={"auto_approve": True}, headers=h)).json()
+    r = await client.post(
+        "/join",
+        json={"invite_token": inv["token"], "callsign": "DL2PRO", "device_secret": "q" * 20},
+    )
+    pid = r.json()["participant"]["id"]
+    assert r.json()["participant"]["trusted"] is False
+    up = await client.patch(m.url(f"/participants/{pid}"), json={"role": "fixed"}, headers=h)
+    assert up.json()["trusted"] is True and up.json()["role"] == "fixed"
+    me = await client.patch(m.url(f"/participants/{m.lead_id}"), json={"trusted": False}, headers=h)
+    assert me.status_code == 409
+
+
+async def test_quarantine_pulls_everything_out_at_once(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    saboteur_token, saboteur = await m.join("DL2SAB")
+    await _post_bearing(client, m, m.lead_token, 0)
+    await _post_bearing(client, m, m.lead_token, 1)
+    bad = await _post_bearing(client, m, saboteur_token, 2)
+    samples = track(TARGET, n=3)
+    uploaded = await client.post(m.url("/rssi"), json=samples, headers=auth(saboteur_token))
+    assert uploaded.status_code == 200, uploaded.text
+    assert await wait_for(lambda: _full_estimate(client, m, 3))
+
+    q = await client.post(m.url(f"/participants/{saboteur['id']}/quarantine"), json={}, headers=h)
+    assert q.status_code == 200, q.text
+    out = q.json()
+    assert out["bearings_deactivated"] == 1 and out["rssi_deactivated"] == 3
+    assert out["participant"]["trusted"] is False and out["participant"]["is_active"] is True
+    assert await wait_for(lambda: _full_estimate(client, m, 2))
+
+    # nothing is deleted: the bearing is still there, inactive, with a revision that says why
+    listed = {b["id"]: b for b in (await client.get(m.url("/bearings"), headers=h)).json()}
+    assert listed[bad["id"]]["is_active"] is False
+    revs = (await client.get(m.url(f"/bearings/{bad['id']}/revisions"), headers=h)).json()
+    assert any(r["changes"].get("reason") == "quarantine" for r in revs)
+    # a second run finds nothing left to do
+    again = await client.post(
+        m.url(f"/participants/{saboteur['id']}/quarantine"), json={}, headers=h
+    )
+    assert again.json()["bearings_deactivated"] == 0
+
+    # removal can be combined, the lead cannot quarantine themselves, members cannot at all
+    gone = await client.post(
+        m.url(f"/participants/{saboteur['id']}/quarantine"), json={"remove": True}, headers=h
+    )
+    assert gone.json()["participant"]["is_active"] is False
+    assert (await client.get(m.url("/snapshot"), headers=auth(saboteur_token))).status_code == 401
+    own = await client.post(m.url(f"/participants/{m.lead_id}/quarantine"), json={}, headers=h)
+    assert own.status_code == 409
+    other_token, other = await m.join("DL2OTH")
+    denied = await client.post(
+        m.url(f"/participants/{saboteur['id']}/quarantine"), json={}, headers=auth(other_token)
+    )
+    assert denied.status_code == 403

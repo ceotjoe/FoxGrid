@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from geoalchemy2 import WKTElement
 from redis.asyncio import Redis
-from sqlalchemy import ColumnElement, delete, func, or_, select, text
+from sqlalchemy import ColumnElement, Select, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
@@ -25,6 +26,12 @@ from app.schemas.api import PositionIn
 from app.services.serialize import event_json, position_out
 
 ASSIGN_SLACK = timedelta(seconds=5)
+
+
+def trusted_only[S: Select[Any]](stmt: S, model: type) -> S:
+    """Restrict a Bearing/RssiSample query to participants whose data may move the estimate."""
+    trusted = select(Participant.id).where(Participant.trusted.is_(True))
+    return stmt.where(model.participant_id.in_(trusted))  # type: ignore[attr-defined]
 
 
 async def audit(

@@ -99,6 +99,7 @@ class ParticipantOut(ORM):
     is_active: bool = True
     device_bound: bool = False
     status: Literal["pending", "active", "rejected"] = "active"
+    trusted: bool = True
 
 
 class ParticipantPatch(BaseModel):
@@ -110,6 +111,21 @@ class ParticipantPatch(BaseModel):
     is_active: bool | None = None
     reset_device: bool = False
     status: Literal["active", "rejected"] | None = None  # approve or reject a joiner
+    # Whether this participant's data feeds the estimate. Approving a joiner or promoting to
+    # `fixed`/`lead` trusts them unless this says otherwise.
+    trusted: bool | None = None
+
+
+class QuarantineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    remove: bool = False  # also remove the participant (as `is_active=false`)
+
+
+class QuarantineOut(BaseModel):
+    participant: ParticipantOut
+    bearings_deactivated: int
+    rssi_deactivated: int
 
 
 class MissionCreated(BaseModel):

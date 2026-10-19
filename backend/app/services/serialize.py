@@ -65,6 +65,7 @@ def participant_out(p: Participant, team: str | None = None) -> ParticipantOut:
         is_active=p.is_active,
         device_bound=p.device_hash is not None,
         status=p.status,  # type: ignore[arg-type]
+        trusted=p.trusted,
     )
 
 

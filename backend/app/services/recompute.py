@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app import events
 from app.config import Settings
 from app.models import Bearing, Estimate, Mission, RssiSample, Transmission, utcnow
+from app.services.domain import trusted_only
 from app.services.serialize import estimate_out, event_json
 
 log = logging.getLogger(__name__)
@@ -84,10 +85,13 @@ async def load_calibration(session: AsyncSession, mission: Mission) -> dict[uuid
     """Station offsets from the mission's calibration readings (independent of any time filter)."""
     rows = (
         await session.scalars(
-            select(RssiSample).where(
-                RssiSample.mission_id == mission.id,
-                RssiSample.is_calibration.is_(True),
-                RssiSample.is_active.is_(True),
+            trusted_only(
+                select(RssiSample).where(
+                    RssiSample.mission_id == mission.id,
+                    RssiSample.is_calibration.is_(True),
+                    RssiSample.is_active.is_(True),
+                ),
+                RssiSample,
             )
         )
     ).all()
@@ -238,10 +242,13 @@ async def compute_mission(
 
     rows = (
         await session.scalars(
-            select(Bearing).where(
-                Bearing.mission_id == mission_id,
-                Bearing.is_active.is_(True),
-                Bearing.is_outlier.is_(False),
+            trusted_only(
+                select(Bearing).where(
+                    Bearing.mission_id == mission_id,
+                    Bearing.is_active.is_(True),
+                    Bearing.is_outlier.is_(False),
+                ),
+                Bearing,
             )
         )
     ).all()
@@ -251,8 +258,11 @@ async def compute_mission(
         all_rssi = list(
             (
                 await session.scalars(
-                    select(RssiSample).where(
-                        RssiSample.mission_id == mission_id, RssiSample.is_active.is_(True)
+                    trusted_only(
+                        select(RssiSample).where(
+                            RssiSample.mission_id == mission_id, RssiSample.is_active.is_(True)
+                        ),
+                        RssiSample,
                     )
                 )
             ).all()

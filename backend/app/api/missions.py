@@ -16,6 +16,7 @@ from app.config import Settings
 from app.db import get_session
 from app.models import (
     Bearing,
+    BearingRevision,
     Estimate,
     Invite,
     Message,
@@ -39,6 +40,8 @@ from app.schemas.api import (
     MissionPatch,
     ParticipantOut,
     ParticipantPatch,
+    QuarantineIn,
+    QuarantineOut,
     RepeaterIn,
     SnapshotOut,
     TeamOut,
@@ -49,6 +52,7 @@ from app.services.recompute import RecomputeScheduler
 from app.services.serialize import (
     bearing_out,
     estimate_out,
+    event_json,
     message_out,
     mission_out,
     participant_out,
@@ -156,6 +160,8 @@ async def join(
             role=invite.default_role,
             device_hash=device_hash,
             status="active" if invite.auto_approve else "pending",
+            # An open link says nothing about the person; the lead has to trust them first.
+            trusted=not invite.auto_approve,
         )
         session.add(participant)
         joined_new = True
@@ -410,6 +416,7 @@ async def patch_participant(
     actor: Participant = Depends(lead),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> ParticipantOut:
     """Lead only: change the role, remove (or reinstate) a participant, release the device."""
     target = await session.get(Participant, participant_id)
@@ -420,6 +427,7 @@ async def patch_participant(
     if target.id == actor.id and (
         body.is_active is False
         or body.status == "rejected"
+        or body.trusted is False
         or (body.role is not None and body.role != "lead")
     ):
         raise HTTPException(409, "the lead cannot remove or demote themselves")
@@ -431,9 +439,17 @@ async def patch_participant(
     if body.is_active is not None and body.is_active != target.is_active:
         changes["is_active"] = body.is_active
         target.is_active = body.is_active
+    trusted = body.trusted
+    if trusted is None and (
+        (body.status == "active" and target.status == "pending") or body.role in ("fixed", "lead")
+    ):
+        trusted = True  # the lead let them in or gave them a post: that is trust
     if body.status is not None and body.status != target.status:
         changes["status"] = [target.status, body.status]
         target.status = body.status
+    if trusted is not None and trusted != target.trusted:
+        changes["trusted"] = trusted
+        target.trusted = trusted
     if body.reset_device and target.device_hash is not None:
         changes["device_released"] = True
         target.device_hash = None
@@ -450,7 +466,89 @@ async def patch_participant(
                 redis, mission_id, "participant_removed", {"participant_id": str(target.id)}
             )
         await _announce(redis, mission_id, target)
+        if "trusted" in changes:
+            scheduler.schedule(mission_id)
     return participant_out(target, await domain.team_name(session, target.team_id))
+
+
+@router.post(
+    "/missions/{mission_id}/participants/{participant_id}/quarantine",
+    response_model=QuarantineOut,
+)
+async def quarantine_participant(
+    mission_id: uuid.UUID,
+    participant_id: uuid.UUID,
+    body: QuarantineIn,
+    actor: Participant = Depends(lead),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> QuarantineOut:
+    """Takes everything a participant contributed out of the estimate at once.
+
+    Their data stays in the log: bearings are deactivated through revisions (like a manual flag),
+    readings are deactivated, and the participant is no longer trusted. Optionally the
+    participant is removed as well.
+    """
+    target = await session.get(Participant, participant_id)
+    if target is None or target.mission_id != mission_id:
+        raise HTTPException(404, "participant not found")
+    if target.id == actor.id:
+        raise HTTPException(409, "the lead cannot quarantine themselves")
+    if await session.scalar(select(Sensor.id).where(Sensor.participant_id == target.id)):
+        raise HTTPException(409, "sensors are managed under /sensors")
+
+    bearings = (
+        await session.scalars(
+            select(Bearing).where(Bearing.participant_id == target.id, Bearing.is_active.is_(True))
+        )
+    ).all()
+    for b in bearings:
+        b.is_active = False
+        session.add(
+            BearingRevision(
+                bearing_id=b.id,
+                changed_by=actor.id,
+                changes={"is_active": {"from": True, "to": False}, "reason": "quarantine"},
+            )
+        )
+    samples = (
+        await session.scalars(
+            select(RssiSample).where(
+                RssiSample.participant_id == target.id, RssiSample.is_active.is_(True)
+            )
+        )
+    ).all()
+    for r in samples:
+        r.is_active = False
+    target.trusted = False
+    if body.remove:
+        target.is_active = False
+    await domain.audit(
+        session,
+        mission_id,
+        actor.id,
+        "quarantine",
+        "participant",
+        target.id,
+        bearings=len(bearings),
+        rssi_samples=len(samples),
+        removed=body.remove,
+    )
+    await session.commit()
+    for b in bearings:
+        await events.publish(redis, mission_id, "bearing_updated", event_json(bearing_out(b)))
+    if body.remove:
+        await events.publish(
+            redis, mission_id, "participant_removed", {"participant_id": str(target.id)}
+        )
+    await _announce(redis, mission_id, target)
+    scheduler.schedule(mission_id)
+    return QuarantineOut(
+        participant=participant_out(target, await domain.team_name(session, target.team_id)),
+        bearings_deactivated=len(bearings),
+        rssi_deactivated=len(samples),
+    )
 
 
 async def _announce(redis: Redis, mission_id: uuid.UUID, p: Participant) -> None:
