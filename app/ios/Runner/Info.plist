@@ -14,6 +14,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>FoxGrid zeigt deinen Standort im Einsatz und speichert ihn bei Peilungen. Der Standort wird nur verwendet, solange die App geöffnet ist.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>FoxGrid zeigt deinen Standort im Einsatz und speichert ihn bei Peilungen.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
