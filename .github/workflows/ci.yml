@@ -20,7 +20,7 @@ jobs:
     defaults: { run: { working-directory: engine } }
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.12
       - run: uv sync
       - run: uv run ruff check .
@@ -32,7 +32,7 @@ jobs:
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.12
       - run: uv sync
       - run: uv run ruff check .
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.12
       - run: uv run --python 3.12 --with pytest --with aiomqtt pytest tools/relay_hook
       - run: uv run --python 3.12 --with pytest --with aiomqtt --with pyproj pytest tools/sensor_client
