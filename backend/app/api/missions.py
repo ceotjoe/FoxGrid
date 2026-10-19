@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hmac
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import distinct_on
@@ -15,6 +17,7 @@ from app.api.deps import current_participant, get_redis, get_scheduler, get_sett
 from app.config import Settings
 from app.db import get_session
 from app.models import (
+    AuditLog,
     Bearing,
     BearingRevision,
     Estimate,
@@ -30,6 +33,7 @@ from app.models import (
     Transmission,
 )
 from app.schemas.api import (
+    AuditOut,
     InviteCreate,
     InviteOut,
     JoinIn,
@@ -167,6 +171,7 @@ async def join(
             status="active" if invite.auto_approve else "pending",
             # An open link says nothing about the person; the lead has to trust them first.
             trusted=not invite.auto_approve,
+            join_code=None if invite.auto_approve else f"{secrets.randbelow(10_000):04d}",
         )
         session.add(participant)
         joined_new = True
@@ -197,7 +202,7 @@ async def join(
     return JoinOut(
         mission=mission_out(mission, area),
         participant=participant_out(
-            participant, await domain.team_name(session, participant.team_id)
+            participant, await domain.team_name(session, participant.team_id), show_code=True
         ),
         token=create_jwt(settings, participant.id, mission.id, participant.role),
     )
@@ -400,7 +405,7 @@ async def revoke_invite(
 @router.get("/missions/{mission_id}/participants", response_model=list[ParticipantOut])
 async def list_participants(
     mission_id: uuid.UUID,
-    _: Participant = Depends(member),
+    actor: Participant = Depends(member),
     session: AsyncSession = Depends(get_session),
 ) -> list[ParticipantOut]:
     rows = (
@@ -410,7 +415,10 @@ async def list_participants(
             .order_by(Participant.joined_at)
         )
     ).all()
-    return [participant_out(p, await domain.team_name(session, p.team_id)) for p in rows]
+    show = actor.role == "lead"
+    return [
+        participant_out(p, await domain.team_name(session, p.team_id), show_code=show) for p in rows
+    ]
 
 
 @router.patch("/missions/{mission_id}/participants/{participant_id}", response_model=ParticipantOut)
@@ -452,6 +460,7 @@ async def patch_participant(
     if body.status is not None and body.status != target.status:
         changes["status"] = [target.status, body.status]
         target.status = body.status
+        target.join_code = None  # decided: the code has served its purpose
     if trusted is not None and trusted != target.trusted:
         changes["trusted"] = trusted
         target.trusted = trusted
@@ -474,6 +483,52 @@ async def patch_participant(
         if "trusted" in changes:
             scheduler.schedule(mission_id)
     return participant_out(target, await domain.team_name(session, target.team_id))
+
+
+SECURITY_ENTITIES = ("participant", "invite")
+
+
+@router.get("/missions/{mission_id}/audit", response_model=list[AuditOut])
+async def get_audit(
+    mission_id: uuid.UUID,
+    scope: Literal["security", "all"] = "security",
+    limit: int = Query(default=200, ge=1, le=1000),
+    _: Participant = Depends(lead),
+    session: AsyncSession = Depends(get_session),
+) -> list[AuditOut]:
+    """Lead only: who did what, newest first. ``security`` = joins, approvals, roles, invites."""
+    stmt = select(AuditLog).where(AuditLog.mission_id == mission_id)
+    if scope == "security":
+        stmt = stmt.where(AuditLog.entity.in_(SECURITY_ENTITIES))
+    rows = (await session.scalars(stmt.order_by(AuditLog.id.desc()).limit(limit))).all()
+    callsigns = {
+        p.id: p.callsign
+        for p in (
+            await session.scalars(select(Participant).where(Participant.mission_id == mission_id))
+        ).all()
+    }
+    out = []
+    for r in rows:
+        subject = None
+        if r.entity == "participant" and r.entity_id:
+            try:
+                subject = callsigns.get(uuid.UUID(r.entity_id))
+            except ValueError:
+                subject = None
+        out.append(
+            AuditOut(
+                id=r.id,
+                at=r.at,
+                actor_id=r.actor_id,
+                actor=callsigns.get(r.actor_id) if r.actor_id else None,
+                action=r.action,
+                entity=r.entity,
+                entity_id=r.entity_id,
+                subject=subject,
+                detail=r.detail,
+            )
+        )
+    return out
 
 
 @router.get("/missions/{mission_id}/plausibility", response_model=list[PlausibilityOut])
@@ -631,7 +686,7 @@ async def whoami(
     """Own state, also for joiners still waiting for approval (they cannot use anything else)."""
     if me.mission_id != mission_id:
         raise HTTPException(403, "not a member of this mission")
-    return participant_out(me, await domain.team_name(session, me.team_id))
+    return participant_out(me, await domain.team_name(session, me.team_id), show_code=True)
 
 
 @router.get("/missions/{mission_id}/snapshot", response_model=SnapshotOut)
@@ -704,7 +759,10 @@ async def snapshot(
     return SnapshotOut(
         mission=mission_out(mission, await domain.search_area_ring(session, mission_id)),
         participants=[
-            participant_out(p, await domain.team_name(session, p.team_id)) for p in participants
+            participant_out(
+                p, await domain.team_name(session, p.team_id), show_code=actor.role == "lead"
+            )
+            for p in participants
         ],
         positions=[position_out(p) for p in latest],
         bearings=[bearing_out(b) for b in bearings],

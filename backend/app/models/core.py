@@ -103,6 +103,8 @@ class Participant(Base):
     # Only trusted participants' bearings and readings feed the estimate; the others stay
     # visible (and logged) but do not move the result. See `domain.trusted_only`.
     trusted: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # 4 digits shown to a pending joiner and to the lead, to be compared by voice on the radio.
+    join_code: Mapped[str | None] = mapped_column(String(4), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("mission_id", "callsign", name="uq_participant_callsign"),

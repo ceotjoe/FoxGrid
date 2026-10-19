@@ -54,7 +54,9 @@ def mission_out(m: Mission, area: list[tuple[float, float]] | None = None) -> Mi
     )
 
 
-def participant_out(p: Participant, team: str | None = None) -> ParticipantOut:
+def participant_out(
+    p: Participant, team: str | None = None, *, show_code: bool = False
+) -> ParticipantOut:
     return ParticipantOut(
         id=p.id,
         callsign=p.callsign,
@@ -66,6 +68,7 @@ def participant_out(p: Participant, team: str | None = None) -> ParticipantOut:
         device_bound=p.device_hash is not None,
         status=p.status,  # type: ignore[arg-type]
         trusted=p.trusted,
+        join_code=p.join_code if show_code and p.status == "pending" else None,
     )
 
 

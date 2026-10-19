@@ -380,3 +380,78 @@ async def test_quarantine_pulls_everything_out_at_once(client: httpx.AsyncClient
         m.url(f"/participants/{saboteur['id']}/quarantine"), json={}, headers=auth(other_token)
     )
     assert denied.status_code == 403
+
+
+async def test_join_code_is_for_the_joiner_and_the_lead_only(
+    client: httpx.AsyncClient, server: Server
+) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    member_token, _ = await m.join("DL2MEM")
+    async with websockets.connect(f"{server.ws_url}/ws/missions/{m.id}?token={member_token}") as ws:
+        r = await client.post("/join", json=_fresh(m, "DL2CODE"))
+        token, mine = r.json()["token"], r.json()["participant"]
+        code = mine["join_code"]
+        assert code is not None and len(code) == 4 and code.isdigit()
+        # the joiner sees it again when polling, the lead sees it in the list ...
+        assert (await client.get(m.url("/me"), headers=auth(token))).json()["join_code"] == code
+        lead_view = {
+            p["id"]: p for p in (await client.get(m.url("/participants"), headers=h)).json()
+        }
+        assert lead_view[mine["id"]]["join_code"] == code
+        snap = (await client.get(m.url("/snapshot"), headers=h)).json()["participants"]
+        assert {p["id"]: p["join_code"] for p in snap}[mine["id"]] == code
+        # ... but other members and the live feed do not
+        seen = {
+            p["id"]: p
+            for p in (await client.get(m.url("/participants"), headers=auth(member_token))).json()
+        }
+        assert seen[mine["id"]]["join_code"] is None
+        event = {}
+        while event.get("type") != "participant_updated":
+            event = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+        assert event["data"]["callsign"] == "DL2CODE" and event["data"]["join_code"] is None
+
+    await client.patch(m.url(f"/participants/{mine['id']}"), json={"status": "active"}, headers=h)
+    after = {p["id"]: p for p in (await client.get(m.url("/participants"), headers=h)).json()}
+    assert after[mine["id"]]["join_code"] is None  # decided, so the code is gone
+    # open links skip the lobby and need no code
+    inv = (await client.post(m.url("/invites"), json={"auto_approve": True}, headers=h)).json()
+    open_join = await client.post(
+        "/join",
+        json={"invite_token": inv["token"], "callsign": "DL2NOCODE", "device_secret": "c" * 20},
+    )
+    assert open_join.json()["participant"]["join_code"] is None
+
+
+async def test_audit_trail_for_the_lead(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    token, p = await m.join("DL2LOG")  # joins and is approved
+    await client.post(m.url(f"/participants/{p['id']}/quarantine"), json={}, headers=h)
+    await client.post(m.url("/invites/replace"), headers=h)
+    await client.post("/join", json=_fresh(m, "DL2LOG"))  # revoked link: refused, not logged
+    bad = _fresh(m, "DL2LOG")
+    inv = (await client.post(m.url("/invites"), json={}, headers=h)).json()
+    bad.update(invite_token=inv["token"], device_secret="z" * 20)
+    assert (await client.post("/join", json=bad)).status_code == 403  # wrong device
+
+    entries = (await client.get(m.url("/audit"), headers=h)).json()
+    seen = [(e["entity"], e["action"], e["subject"], e["actor"]) for e in entries]
+    assert ("participant", "join_denied", "DL2LOG", "DL2LOG") in seen
+    assert ("participant", "quarantine", "DL2LOG", "DL1ABC") in seen
+    assert ("participant", "update", "DL2LOG", "DL1ABC") in seen  # the approval
+    assert ("participant", "join", "DL2LOG", "DL2LOG") in seen
+    assert {e["action"] for e in entries if e["entity"] == "invite"} >= {"create", "replace"}
+    ids = [e["id"] for e in entries]
+    assert ids == sorted(ids, reverse=True)  # newest first
+    approval = next(e for e in entries if e["action"] == "update" and e["entity"] == "participant")
+    assert approval["detail"]["status"] == ["pending", "active"]
+
+    # bearing edits only show up in the full log
+    sec_entities = {e["entity"] for e in entries}
+    assert sec_entities <= {"participant", "invite"}
+    full = (await client.get(m.url("/audit?scope=all&limit=500"), headers=h)).json()
+    assert {e["entity"] for e in full} >= {"mission", "participant", "invite"}
+    assert len((await client.get(m.url("/audit?limit=2"), headers=h)).json()) == 2
+    assert (await client.get(m.url("/audit"), headers=auth(token))).status_code == 403

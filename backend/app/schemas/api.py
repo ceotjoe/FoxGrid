@@ -100,6 +100,8 @@ class ParticipantOut(ORM):
     device_bound: bool = False
     status: Literal["pending", "active", "rejected"] = "active"
     trusted: bool = True
+    # Only filled for the participant themself and for the lead, while the join is pending.
+    join_code: str | None = None
 
 
 class ParticipantPatch(BaseModel):
@@ -114,6 +116,18 @@ class ParticipantPatch(BaseModel):
     # Whether this participant's data feeds the estimate. Approving a joiner or promoting to
     # `fixed`/`lead` trusts them unless this says otherwise.
     trusted: bool | None = None
+
+
+class AuditOut(BaseModel):
+    id: int
+    at: datetime
+    actor_id: uuid.UUID | None
+    actor: str | None  # callsign
+    action: str
+    entity: str
+    entity_id: str | None
+    subject: str | None  # callsign when the entry is about a participant
+    detail: dict[str, Any]
 
 
 class PlausibilityFlag(BaseModel):
