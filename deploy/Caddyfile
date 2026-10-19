@@ -1,0 +1,23 @@
+# TLS reverse proxy for FoxGrid (automatic Let's Encrypt certificates).
+# Replace the host name, point DNS at the server and open ports 80/443 only.
+# Run uvicorn with FORWARDED_ALLOW_IPS set to the proxy's address (e.g. the Docker network
+# gateway), never "*": otherwise clients can forge X-Forwarded-For and dodge the rate limits.
+foxgrid.example.org {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	# Keep tokens (WebSocket ?token=) out of access logs.
+	log {
+		output file /var/log/caddy/foxgrid.log
+		format filter {
+			request>uri query {
+				replace token REDACTED
+			}
+		}
+	}
+	reverse_proxy 127.0.0.1:8000
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,7 @@ class Settings(BaseSettings):
     # FORWARDED_ALLOW_IPS for uvicorn behind a proxy), the rest per participant;
     # bearings and readings count per item.
     rate_join_per_min: int = 20
+    rate_mission_per_min: int = 5  # mission creation is unauthenticated, per client address
     rate_bearing_per_min: int = 120
     rate_rssi_per_min: int = 600
     rate_message_per_min: int = 30
@@ -38,3 +40,13 @@ class Settings(BaseSettings):
     mqtt_password: str | None = None
     mqtt_max_msgs_per_s: int = 30  # per sensor; floods are dropped
     cors_origins: list[str] = ["*"]
+    enable_docs: bool = False  # /docs, /redoc and /openapi.json
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _strong_secret(cls, v: str) -> str:
+        if len(v) < 32 or v.lower().startswith("change-me"):
+            raise ValueError(
+                "FOXGRID_JWT_SECRET must be at least 32 characters and not the example value"
+            )
+        return v

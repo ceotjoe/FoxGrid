@@ -81,9 +81,13 @@ def _set_repeater(mission: Mission, repeater: RepeaterIn | None) -> None:
 @router.post("/missions", response_model=MissionCreated, status_code=201)
 async def create_mission(
     body: MissionCreate,
+    request: Request,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    redis: Redis = Depends(get_redis),
 ) -> MissionCreated:
+    client = request.client.host if request.client else "unknown"
+    await ratelimit.enforce(redis, "mission", client, settings.rate_mission_per_min)
     mission = Mission(
         name=body.name,
         frequency_mhz=body.frequency_mhz,
