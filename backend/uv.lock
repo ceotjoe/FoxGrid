@@ -538,7 +538,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "foxgrid-engine" },
     { name = "geoalchemy2" },
-    { name = "google-auth" },
+    { name = "google-auth", extra = ["requests"] },
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -569,7 +569,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "foxgrid-engine", editable = "../engine" },
     { name = "geoalchemy2", specifier = ">=0.15" },
-    { name = "google-auth", specifier = ">=2.62.0" },
+    { name = "google-auth", extras = ["requests"], specifier = ">=2.62.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pydantic-settings", specifier = ">=2.4" },
@@ -639,6 +639,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f5/b9/4b2528f30114b106e3c3a7298ba38d85e682fd1f83fe7c4a5b77c7677082/google_auth-2.62.0.tar.gz", hash = "sha256:0bef0ce54bdf9ce226c5d66e4264413bd918141c31bbe49fb52eac882f513d69", size = 398180, upload-time = "2026-10-12T19:20:48.328Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/eb/a3/87fe9b7203ec2e56ea6a57c75e6d632eaf9487c7f7978cdad1d801bee0af/google_auth-2.62.0-py3-none-any.whl", hash = "sha256:4ff4319aeb4ad128409759d397a9fcafad126d0031d241cc0dd6b9a00b43e3f3", size = 267911, upload-time = "2026-10-12T19:20:46.355Z" },
+]
+
+[package.optional-dependencies]
+requests = [
+    { name = "requests" },
 ]
 
 [[package]]

@@ -17,7 +17,7 @@ dependencies = [
     "redis>=5.0",
     "foxgrid-engine",
     "httpx>=0.28.1",
-    "google-auth>=2.62.0",
+    "google-auth[requests]>=2.62.0",
     "pygeomag>=1.1.0",
     "reportlab>=5.0.1",
     "aiomqtt>=2.5.1",
