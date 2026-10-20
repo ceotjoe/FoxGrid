@@ -323,4 +323,6 @@ async def _transmission(
         )
     except transmissions.NotRunningError:
         return "duplicate"
+    except transmissions.NotAllowedError:
+        raise RejectedError("not_allowed") from None
     return "ok"

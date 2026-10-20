@@ -27,6 +27,10 @@ class NotRunningError(Exception):
     """There is no running transmission to stop."""
 
 
+class NotAllowedError(Exception):
+    """Only the participant who started the transmission, or the lead, may stop it."""
+
+
 async def start_transmission(
     session: AsyncSession,
     redis: Redis,
@@ -88,6 +92,10 @@ async def stop_transmission(
     )
     if tx is None:
         raise NotRunningError
+    if actor.role != "lead" and tx.started_by != actor.id:
+        await domain.audit(session, mission_id, actor.id, "stop_denied", "transmission", tx.id)
+        await session.commit()
+        raise NotAllowedError
     tx.ended_at = max(at or datetime.now(UTC), tx.started_at)
     tx.ended_by = actor.id
     await domain.audit(session, mission_id, actor.id, "stop", "transmission", tx.id)

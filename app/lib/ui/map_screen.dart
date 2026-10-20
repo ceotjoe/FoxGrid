@@ -403,6 +403,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final scope = ref.watch(estimateScopeProvider);
     final theme = Theme.of(context);
     final running = state.running;
+    final canToggleTx =
+        running == null ||
+        state.canStopRunning(session.participantId, session.role);
     final waiting = session.isLead
         ? state.participants.values.where((p) => p.isPending).length
         : 0;
@@ -769,7 +772,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             right: 0,
             child: Column(
               children: [
-                if (running != null) const _TransmissionBanner(),
+                if (running != null)
+                  _TransmissionBanner(
+                    startedBy: running.startedBy == session.participantId
+                        ? null
+                        : state.participants[running.startedBy]?.callsign,
+                  ),
                 Padding(
                   padding: const EdgeInsets.all(8),
                   child: Row(
@@ -875,7 +883,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               foregroundColor: running != null
                   ? Colors.white
                   : theme.colorScheme.onSecondaryContainer,
-              onPressed: state.mission?.isActive ?? false
+              onPressed: (state.mission?.isActive ?? false) && canToggleTx
                   ? ref.read(missionProvider.notifier).toggleTransmission
                   : null,
               icon: Icon(running != null ? Icons.stop : Icons.podcasts),
@@ -1146,7 +1154,10 @@ class _ConnectionDot extends StatelessWidget {
 }
 
 class _TransmissionBanner extends StatefulWidget {
-  const _TransmissionBanner();
+  const _TransmissionBanner({this.startedBy});
+
+  /// Callsign of another participant who started it; null for the own one.
+  final String? startedBy;
 
   @override
   State<_TransmissionBanner> createState() => _TransmissionBannerState();
@@ -1178,15 +1189,26 @@ class _TransmissionBannerState extends State<_TransmissionBanner>
           Colors.red.shade400,
           _pulse.value,
         ),
-        child: const Text(
-          'STÖRER SENDET',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            fontSize: 22,
-            letterSpacing: 2,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'STÖRER SENDET',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 22,
+                letterSpacing: 2,
+              ),
+            ),
+            if (widget.startedBy != null)
+              Text(
+                'gestartet von ${widget.startedBy}',
+                key: const Key('tx-started-by'),
+                style: const TextStyle(color: Colors.white),
+              ),
+          ],
         ),
       ),
     );

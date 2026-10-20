@@ -242,6 +242,7 @@ class Transmission {
     required this.seq,
     required this.startedAt,
     this.endedAt,
+    this.startedBy,
     this.local = false,
   });
 
@@ -249,6 +250,9 @@ class Transmission {
   final int seq;
   final DateTime startedAt;
   final DateTime? endedAt;
+
+  /// Participant who started it; only they and the lead may stop it.
+  final String? startedBy;
 
   /// Created on this device and not yet confirmed by the server.
   final bool local;
@@ -258,6 +262,7 @@ class Transmission {
     seq: seq,
     startedAt: startedAt,
     endedAt: endedAt ?? this.endedAt,
+    startedBy: startedBy,
     local: local,
   );
 
@@ -268,6 +273,7 @@ class Transmission {
     seq: j['seq'] as int,
     startedAt: _time(j['started_at']),
     endedAt: j['ended_at'] == null ? null : _time(j['ended_at']),
+    startedBy: j['started_by'] as String?,
   );
 }
 

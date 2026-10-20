@@ -162,6 +162,29 @@ async def test_transmissions_and_assignment(client: httpx.AsyncClient) -> None:
     assert [t["seq"] for t in listed.json()] == [1, 2]
 
 
+async def test_only_starter_or_lead_can_stop_transmission(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    lead = auth(m.lead_token)
+    token_a, _ = await m.join("DL1AAA")
+    token_b, _ = await m.join("DL1BBB")
+    a, b = auth(token_a), auth(token_b)
+
+    await client.post(m.url("/transmissions/start"), headers=a)
+    denied = await client.post(m.url("/transmissions/stop"), headers=b)
+    assert denied.status_code == 403
+    running = [t for t in (await client.get(m.url("/transmissions"), headers=lead)).json()]
+    assert running[-1]["ended_at"] is None
+    assert (await client.post(m.url("/transmissions/stop"), headers=a)).status_code == 200
+
+    # the lead may stop a transmission started by someone else
+    await client.post(m.url("/transmissions/start"), headers=b)
+    assert (await client.post(m.url("/transmissions/stop"), headers=lead)).status_code == 200
+
+    # and a participant cannot stop one the lead started
+    await client.post(m.url("/transmissions/start"), headers=lead)
+    assert (await client.post(m.url("/transmissions/stop"), headers=a)).status_code == 403
+
+
 async def test_current_scope_follows_latest_transmission(client: httpx.AsyncClient) -> None:
     m = await Mission.create(client)
     h = auth(m.lead_token)

@@ -292,6 +292,14 @@ class MissionState {
     return null;
   }
 
+  /// Whether [participantId] with [role] may stop the running transmission:
+  /// its starter and the lead (the server enforces the same rule).
+  bool canStopRunning(String participantId, String role) {
+    final t = running;
+    return t != null &&
+        (role == 'lead' || t.startedBy == null || t.startedBy == participantId);
+  }
+
   MissionState copyWith({
     Mission? mission,
     Map<String, Participant>? participants,
@@ -527,7 +535,7 @@ class MissionNotifier extends Notifier<MissionState> {
               s = s.copyWith(
                 transmissions: [
                   ...s.transmissions,
-                  _localTransmission(s, body),
+                  _localTransmission(s, body, _session.participantId),
                 ],
               );
             }
@@ -736,7 +744,9 @@ class MissionNotifier extends Notifier<MissionState> {
   static Transmission _localTransmission(
     MissionState s,
     Map<String, dynamic> body,
+    String startedBy,
   ) => Transmission(
+    startedBy: startedBy,
     id: 'local-${body['at']}',
     seq: s.transmissions.fold(0, (m, t) => t.seq > m ? t.seq : m) + 1,
     startedAt: DateTime.parse(body['at'] as String).toUtc(),
@@ -915,11 +925,15 @@ class MissionNotifier extends Notifier<MissionState> {
   Future<void> toggleTransmission() async {
     final at = DateTime.now().toUtc();
     final body = {'at': at.toIso8601String()};
+    if (state.running != null &&
+        !state.canStopRunning(_session.participantId, _session.role)) {
+      return;
+    }
     if (state.running == null) {
       state = state.copyWith(
         transmissions: [
           ...state.transmissions,
-          _localTransmission(state, body),
+          _localTransmission(state, body, _session.participantId),
         ],
       );
       await _enqueue(

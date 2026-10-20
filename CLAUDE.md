@@ -180,6 +180,8 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   The app join screen therefore has no role picker, and there is no app UI yet for a lead to promote someone to `fixed` (planned with step B).
 - Invites always expire/limit: defaults `FOXGRID_INVITE_TTL_HOURS` (24) and `FOXGRID_INVITE_MAX_USES` (20), also for the first invite of a mission.
   `POST .../invites/{id}/rotate` revokes and replaces.
+- Stopping a transmission (`POST .../transmissions/stop`) is allowed only for `started_by` and the lead (403 + audit `stop_denied`, MQTT relay: `RejectedError("not_allowed")`).
+  Sensor/relay transmissions are therefore stoppable by the lead only (or the same sensor). App: `MissionState.canStopRunning` disables the button, the banner names the starter.
 - Removal = `is_active=false` (token check is per request); event `participant_removed` makes the WebSocket of that participant close with 4403.
 - Trust (step C): `participants.trusted`. Every query that feeds an estimate goes through `domain.trusted_only(stmt, Bearing|RssiSample)`
   (recompute incl. calibration offsets, `/estimate/query`, `/suggestions`); a new such query must use it too. New joiners via `auto_approve` links start untrusted,

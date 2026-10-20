@@ -171,6 +171,10 @@ async def stop_transmission(
         )
     except transmissions.NotRunningError as exc:
         raise HTTPException(409, "no transmission is running") from exc
+    except transmissions.NotAllowedError as exc:
+        raise HTTPException(
+            403, "only the participant who started the transmission or the lead can stop it"
+        ) from exc
 
 
 @router.get("/transmissions", response_model=list[TransmissionOut])
