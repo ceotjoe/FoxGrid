@@ -24,3 +24,7 @@ android/key.properties
 # FCM service-account key (secret)
 fcm-service-account.json
 *-firebase-adminsdk-*.json
+
+# Firebase app config (per-project, provided via CI secrets)
+app/android/app/google-services.json
+app/ios/Runner/GoogleService-Info.plist
