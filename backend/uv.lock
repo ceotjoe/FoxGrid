@@ -529,7 +529,7 @@ wheels = [
 
 [[package]]
 name = "foxgrid-backend"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiomqtt" },
@@ -594,7 +594,7 @@ dev = [
 
 [[package]]
 name = "foxgrid-engine"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "../engine" }
 dependencies = [
     { name = "numpy" },

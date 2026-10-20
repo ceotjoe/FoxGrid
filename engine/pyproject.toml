@@ -1,6 +1,6 @@
 [project]
 name = "foxgrid-engine"
-version = "0.2.0"
+version = "0.3.0"
 description = "Bearing fusion engine for FoxGrid (no web or DB dependencies)"
 requires-python = ">=3.12"
 license = { text = "MIT" }
