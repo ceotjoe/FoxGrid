@@ -38,6 +38,12 @@ services:
       FOXGRID_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       FOXGRID_JWT_SECRET: ${FOXGRID_JWT_SECRET:?set FOXGRID_JWT_SECRET in .env}
       FOXGRID_JWT_TTL_HOURS: ${FOXGRID_JWT_TTL_HOURS:-72}
+      FOXGRID_FCM_PROJECT_ID: ${FOXGRID_FCM_PROJECT_ID:-}
+      FOXGRID_FCM_CREDENTIALS_FILE: ${FOXGRID_FCM_CREDENTIALS_FILE:-}
+    volumes:
+      # Optional FCM service-account key (push). Docker creates a directory if the file is missing, so
+      # create it first (an empty file is fine) or remove this line when push is not used.
+      - ./fcm-service-account.json:/run/secrets/fcm-service-account.json:ro
     restart: on-failure
     ports:
       # Bound to localhost: put a TLS reverse proxy in front (deploy/Caddyfile). Use
