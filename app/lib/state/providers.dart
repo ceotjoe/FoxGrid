@@ -500,6 +500,11 @@ class MissionNotifier extends Notifier<MissionState> {
         if (!state.participants.containsKey(fix.participantId)) {
           unawaited(_loadSnapshot(ref.read(apiProvider)));
         }
+      case 'mission_ended':
+        final mission = state.mission;
+        if (mission != null) {
+          state = state.copyWith(mission: mission.withStatus('ended'));
+        }
       case 'participant_updated':
         _applyParticipant(Participant.fromJson(data));
       case 'bearing_created' || 'bearing_updated':

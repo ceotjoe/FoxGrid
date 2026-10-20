@@ -225,6 +225,14 @@ void main() {
     },
   );
 
+  test('a mission_ended event ends the mission for members', () async {
+    await start();
+    expect(env.state.mission!.isActive, isTrue);
+    env.channel.push('mission_ended', {'id': 'm1', 'status': 'ended'});
+    await env.settle();
+    expect(env.state.mission!.isActive, isFalse);
+  });
+
   test('live events update bearings, estimate, chat and tasks', () async {
     await start();
     env.channel
