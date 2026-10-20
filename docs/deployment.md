@@ -114,7 +114,8 @@ docker compose --profile mqtt up -d --build
 
 Serverseitig reichen zwei Werte in `.env`: `FOXGRID_FCM_PROJECT_ID` und `FOXGRID_FCM_CREDENTIALS_FILE`. Die Datei mit dem Service-Account-
 Schlüssel muss im `api`-Container unter diesem Pfad liegen (z. B. als schreibgeschütztes Volume nach `/run/secrets/…` einhängen und nie ins
-Repository legen). Ohne Konfiguration werden Pushes nur geloggt. Die App registriert ihr Token selbst, wenn sie mit den Firebase-Dateien gebaut wurde, siehe README, Abschnitt
+Repository legen). Der Container läuft als UID 10001, die Datei muss für ihn lesbar sein (`chmod 644` oder `chown 10001` + `chmod 400`),
+sonst steht `PermissionError` im API-Log. Ohne Konfiguration werden Pushes nur geloggt. Die App registriert ihr Token selbst, wenn sie mit den Firebase-Dateien gebaut wurde, siehe README, Abschnitt
 „Push-Benachrichtigungen einrichten“.
 
 ## 7. Betrieb
