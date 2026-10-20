@@ -31,10 +31,11 @@ nur für die App-Funktion. Apple verlangt die Angabe trotzdem, sobald Daten die 
 | Genauer Standort | erhoben, nicht an Dritte weitergegeben, Zweck: App-Funktionalität, nicht optional |
 | Nutzer-IDs (Rufzeichen) | erhoben, Zweck: App-Funktionalität |
 | Nachrichten / Sonstige Inhalte | erhoben, Zweck: App-Funktionalität |
-| Weitergabe an Dritte | nein (OSM-Kachel-Server erhalten nur IP und Kartenausschnitt, das ist keine Weitergabe von Nutzerdaten im Sinne des Formulars; im Zweifel unter „Ungefährer Standort/IP“ nachsehen) |
+| Geräte- oder andere IDs (Push-Token) | erhoben, Zweck: App-Funktionalität (Benachrichtigung bei Aussendung); wird für die Zustellung an Google FCM übergeben (Dienstleister) |
+| Weitergabe an Dritte | nein (Push-Zustellung über Google FCM/Apple APNs ist Auftragsverarbeitung; OSM-Kachel-Server erhalten nur IP und Kartenausschnitt, das ist keine Weitergabe von Nutzerdaten im Sinne des Formulars; im Zweifel unter „Ungefährer Standort/IP“ nachsehen) |
 
 - Datenschutzerklärung-URL: `https://ceotjoe.github.io/FoxGrid/privacy` (nach Aktivieren von GitHub Pages).
-- Berechtigungen: `INTERNET`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `VIBRATE`. Kein Hintergrundstandort,
+- Berechtigungen: `INTERNET`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `VIBRATE`, `POST_NOTIFICATIONS`. Kein Hintergrundstandort,
   daher keine Sondererklärung zu `ACCESS_BACKGROUND_LOCATION` nötig.
 - Inhaltseinstufung (IARC): Kategorie „Dienstprogramm/Produktivität“, Nutzerinteraktion: ja (Chat),
   keine Standortweitergabe an andere Nutzer außerhalb der Einsatzgruppe.

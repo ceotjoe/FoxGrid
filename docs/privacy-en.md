@@ -41,10 +41,13 @@ When you join an operation and while you use it, the app sends the following to 
 | Access token (JWT) | Password-less sign-in to the server | Joining |
 | Device secret (random, per installation; the server stores only a hash) | A callsign can only be re-joined from the same device | Joining |
 | 4-digit join code (only until approval) | Compare by radio with the mission lead | Joining through a link that needs approval |
+| Push token (identifier of this device at Google Firebase Cloud Messaging, via Apple APNs on iOS) | Background notification when the interferer starts transmitting | After approval, only if you allowed notifications; removed when you leave the mission |
 | Security log (who joined, was approved, removed or quarantined, and when) | Accountability for the mission lead | Ongoing, visible to the mission lead only |
 
-The app does **not** request background location access. There are no ads, no analytics or tracking tools, and
-the app does not share data with third parties.
+The app does **not** request background location access. There are no ads and no analytics or tracking tools.
+Data is only passed on for push notifications: the server hands the title, text and push token of a notification to
+Google (Firebase Cloud Messaging) and, on iPhones, to Apple (APNs), which deliver it. If you decline notifications,
+this does not happen.
 
 ## 4. Storage on your device
 

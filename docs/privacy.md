@@ -43,10 +43,13 @@ Beim Beitritt zu einem Einsatz und während der Nutzung sendet die App an den vo
 | Zugangstoken (JWT) | Anmeldung am Server ohne Passwort | Beitritt |
 | Geräte-Geheimnis (zufällig, pro Installation; der Server speichert nur einen Hash) | Ein Rufzeichen kann nur vom selben Gerät erneut betreten werden | Beitritt |
 | 4-stelliger Beitritts-Code (nur bis zur Freigabe) | Abgleich per Funk mit der Einsatzleitung | Beitritt über einen Link mit Freigabe |
+| Push-Token (Kennung dieses Geräts bei Google Firebase Cloud Messaging, auf iOS über Apple APNs) | Benachrichtigung im Hintergrund, wenn die Aussendung des Störers beginnt | nach der Freigabe, nur wenn ihr Benachrichtigungen erlaubt habt; beim Verlassen des Einsatzes wird es abgemeldet |
 | Sicherheitsprotokoll (wer ist wann beigetreten, freigegeben, entfernt, unter Quarantäne gestellt) | Nachvollziehbarkeit für die Einsatzleitung | laufend, nur für die Einsatzleitung einsehbar |
 
-Die App fragt **keinen Standortzugriff im Hintergrund** an. Es gibt keine Werbung, keine Analyse- und
-Tracking-Werkzeuge und keine Weitergabe an Dritte durch die App.
+Die App fragt **keinen Standortzugriff im Hintergrund** an. Es gibt keine Werbung und keine Analyse- und
+Tracking-Werkzeuge. Eine Weitergabe an Dritte findet nur für Push-Benachrichtigungen statt: Der Server übergibt
+Titel, Text und Push-Token einer Benachrichtigung an Google (Firebase Cloud Messaging), auf iPhones zusätzlich an
+Apple (APNs), die sie zustellen. Lehnt ihr Benachrichtigungen ab, entfällt das.
 
 ## 4. Speicherung auf dem Gerät
 
