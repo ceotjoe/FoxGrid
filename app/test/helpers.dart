@@ -301,6 +301,21 @@ class FakeApi implements FoxGridApi {
     return sensorList.firstWhere((s) => s.id == id);
   }
 
+  final pushRegistered = <String>[];
+  final pushUnregistered = <String>[];
+  Object? pushError;
+
+  @override
+  Future<void> registerPushToken(String token) async {
+    if (pushError != null) throw pushError!;
+    pushRegistered.add(token);
+  }
+
+  @override
+  Future<void> unregisterPushToken(String token) async {
+    pushUnregistered.add(token);
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

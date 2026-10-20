@@ -99,6 +99,11 @@ abstract class FoxGridApi {
   });
 
   Future<SensorInfo> setSensorActive(String id, {required bool active});
+
+  /// Tells the server where to send pushes for this participant (FCM token, any platform).
+  Future<void> registerPushToken(String token);
+
+  Future<void> unregisterPushToken(String token);
 }
 
 class DioFoxGridApi implements FoxGridApi {
@@ -406,6 +411,23 @@ class DioFoxGridApi implements FoxGridApi {
       data: {'is_active': active},
     );
     return SensorInfo.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<void> registerPushToken(String token) async {
+    await _call(
+      'POST',
+      '/api/v1/push-tokens',
+      data: {'platform': 'fcm', 'token': token},
+    );
+  }
+
+  @override
+  Future<void> unregisterPushToken(String token) async {
+    await _call(
+      'DELETE',
+      '/api/v1/push-tokens?token=${Uri.encodeQueryComponent(token)}',
+    );
   }
 
   @override

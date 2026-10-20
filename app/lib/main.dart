@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/push.dart';
 import 'state/providers.dart';
+import 'state/push.dart';
 import 'ui/join_screen.dart';
 import 'ui/map_screen.dart';
 import 'ui/pending_screen.dart';
@@ -10,9 +12,13 @@ import 'ui/pending_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
+  final push = await FirebasePushMessaging.tryInit();
   runApp(
     ProviderScope(
-      overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+      overrides: [
+        sharedPrefsProvider.overrideWithValue(prefs),
+        if (push != null) pushMessagingProvider.overrideWithValue(push),
+      ],
       child: const FoxGridApp(),
     ),
   );
@@ -24,6 +30,7 @@ class FoxGridApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
+    ref.watch(pushRegistrarProvider);
     final night = ref.watch(settingsProvider.select((s) => s.nightMode));
     final themeMode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(
