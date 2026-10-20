@@ -55,6 +55,13 @@ Nur Texte, Grafiken und Screenshots aktualisieren: Actions > Store metadata > Ru
 | `ANDROID_KEY_PASSWORD` | Passwort des Schlüssels |
 | `PLAY_SERVICE_ACCOUNT_JSON` | gesamter Inhalt der JSON-Datei |
 
+Für Push-Benachrichtigungen zusätzlich die Firebase-App-Konfiguration (liegt nicht im Repository, siehe README „Push-Benachrichtigungen einrichten“):
+
+| Secret | Inhalt |
+|---|---|
+| `GOOGLE_SERVICES_JSON_BASE64` | `base64 -i google-services.json` (Android-App `com.itwebservice.foxgrid`) |
+| `GOOGLE_SERVICE_INFO_PLIST_BASE64` | `base64 -i GoogleService-Info.plist` (iOS-App `com.itwebservice.foxgrid`) |
+
 Lokaler Release-Build: `app/android/key.properties.example` nach `key.properties` kopieren und ausfüllen.
 Ohne Keystore signiert Gradle mit dem Debug-Schlüssel; CI weist solche Bundles ab.
 
