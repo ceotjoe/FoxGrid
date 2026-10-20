@@ -20,3 +20,7 @@ build/
 *.jks
 *.keystore
 android/key.properties
+
+# FCM service-account key (secret)
+fcm-service-account.json
+*-firebase-adminsdk-*.json
