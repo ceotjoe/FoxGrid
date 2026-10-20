@@ -17,6 +17,7 @@ class PushRegistrar extends Notifier<String?> {
   // The api of the last registration: its session is still valid when the participant leaves.
   FoxGridApi? _api;
   String? _token;
+  String? _pending;
 
   @override
   String? build() {
@@ -33,6 +34,9 @@ class PushRegistrar extends Notifier<String?> {
       return null;
     }
     final api = ref.read(apiProvider);
+    // New session (possibly another participant): the token must be registered for it again.
+    _token = null;
+    _pending = null;
     final refreshes = messaging.tokenRefreshes.listen(
       (token) => _register(api, token),
     );
@@ -46,6 +50,9 @@ class PushRegistrar extends Notifier<String?> {
   }
 
   Future<void> _register(FoxGridApi api, String token) async {
+    // requestToken() and the first token refresh often deliver the same token.
+    if (token == _token || token == _pending) return;
+    _pending = token;
     try {
       await api.registerPushToken(token);
       _api = api;
@@ -53,6 +60,8 @@ class PushRegistrar extends Notifier<String?> {
       if (ref.mounted) state = token;
     } on Object {
       // Offline or server down: the token is sent again on the next start or token refresh.
+    } finally {
+      if (_pending == token) _pending = null;
     }
   }
 

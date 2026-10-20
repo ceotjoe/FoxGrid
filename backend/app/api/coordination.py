@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from redis.asyncio import Redis
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -249,12 +250,16 @@ async def register_push_token(
     actor: Participant = Depends(current_participant),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    existing = await session.scalar(select(PushToken).where(PushToken.token == body.token))
-    if existing is None:
-        session.add(PushToken(participant_id=actor.id, platform=body.platform, token=body.token))
-    else:  # device handed over to another participant
-        existing.participant_id = actor.id
-        existing.platform = body.platform
+    # Atomic upsert: the app may register the same token twice at once (start + token refresh).
+    stmt = pg_insert(PushToken).values(
+        participant_id=actor.id, platform=body.platform, token=body.token
+    )
+    await session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[PushToken.token],  # device handed over to another participant
+            set_={"participant_id": actor.id, "platform": body.platform},
+        )
+    )
     await session.commit()
 
 

@@ -210,6 +210,21 @@ async def test_push_on_transmission_start(client: httpx.AsyncClient, server: Ser
     assert un.status_code == 204
 
 
+async def test_push_token_registration_is_idempotent_and_race_free(
+    client: httpx.AsyncClient,
+) -> None:
+    m = await Mission.create(client)
+    a_token, _ = await m.join("DL3RAC")
+    body = {"platform": "fcm", "token": "fcm-token-race"}
+    results = await asyncio.gather(
+        *(client.post("/push-tokens", json=body, headers=auth(a_token)) for _ in range(5))
+    )
+    assert [r.status_code for r in results] == [204] * 5
+    # device handed over to another participant
+    again = await client.post("/push-tokens", json=body, headers=auth(m.lead_token))
+    assert again.status_code == 204
+
+
 async def test_fcm_sender_builds_messages_and_flags_invalid_tokens() -> None:
     seen: list[dict] = []
 
