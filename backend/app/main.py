@@ -59,7 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="FoxGrid",
-        version="0.3.0",
+        version="0.3.1",
         lifespan=lifespan,
         docs_url="/docs" if settings.enable_docs else None,
         redoc_url="/redoc" if settings.enable_docs else None,
