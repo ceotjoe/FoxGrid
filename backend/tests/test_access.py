@@ -455,3 +455,57 @@ async def test_audit_trail_for_the_lead(client: httpx.AsyncClient) -> None:
     assert {e["entity"] for e in full} >= {"mission", "participant", "invite"}
     assert len((await client.get(m.url("/audit?limit=2"), headers=h)).json()) == 2
     assert (await client.get(m.url("/audit"), headers=auth(token))).status_code == 403
+
+
+async def test_lead_returns_without_a_valid_invite(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    # the lead's own link is dead (here: revoked by a replace; expiry behaves the same)
+    await client.post(m.url("/invites/replace"), headers=h)
+    assert (await client.post("/join", json=_join(m, "DL1ABC"))).status_code == 403
+
+    body = {"callsign": "DL1ABC", "device_secret": device_secret("DL1ABC")}
+    r = await client.post(f"/missions/{m.id}/rejoin", json=body)
+    assert r.status_code == 200
+    assert r.json()["participant"]["role"] == "lead"
+    new = auth(r.json()["token"])
+    assert (await client.get(m.url("/snapshot"), headers=new)).status_code == 200
+
+
+async def test_rejoin_needs_the_original_device_and_never_creates(
+    client: httpx.AsyncClient,
+) -> None:
+    m = await Mission.create(client)
+    _, p = await m.join("DL2OWN")
+    url = f"/missions/{m.id}/rejoin"
+    good = {"callsign": "DL2OWN", "device_secret": device_secret("DL2OWN")}
+    assert (await client.post(url, json=good)).status_code == 200
+    # wrong device, unknown callsign: same answer
+    other = await client.post(url, json={**good, "device_secret": "z" * 20})
+    unknown = await client.post(url, json={**good, "callsign": "DL9NEW"})
+    assert other.status_code == unknown.status_code == 403
+    assert other.json() == unknown.json()
+    # the other mission does not know this participant
+    foreign = await Mission.create(client, callsign="DL9FOR")
+    assert (await client.post(f"/missions/{foreign.id}/rejoin", json=good)).status_code == 403
+    # released device: no rejoin until somebody binds again
+    await client.patch(
+        m.url(f"/participants/{p['id']}"), json={"reset_device": True}, headers=auth(m.lead_token)
+    )
+    assert (await client.post(url, json=good)).status_code == 403
+
+
+async def test_rejoin_respects_removal_rejection_and_end(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    _, gone = await m.join("DL2GON")
+    _, bad = await m.join("DL2BAD")
+    await client.patch(m.url(f"/participants/{gone['id']}"), json={"is_active": False}, headers=h)
+    await client.patch(m.url(f"/participants/{bad['id']}"), json={"status": "rejected"}, headers=h)
+    for cs in ("DL2GON", "DL2BAD"):
+        body = {"callsign": cs, "device_secret": device_secret(cs)}
+        assert (await client.post(f"/missions/{m.id}/rejoin", json=body)).status_code == 403
+
+    assert (await client.post(m.url("/end"), headers=h)).status_code == 200
+    body = {"callsign": "DL1ABC", "device_secret": device_secret("DL1ABC")}
+    assert (await client.post(f"/missions/{m.id}/rejoin", json=body)).status_code == 409

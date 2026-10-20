@@ -162,6 +162,18 @@ class MissionCreated(BaseModel):
     invite_token: str
 
 
+class RejoinIn(BaseModel):
+    """Return to a mission without an invite: callsign plus the secret of the original device."""
+
+    callsign: str
+    device_secret: str = Field(min_length=16, max_length=128)
+
+    @field_validator("callsign")
+    @classmethod
+    def _cs(cls, v: str) -> str:
+        return normalize_callsign(v)
+
+
 class JoinIn(BaseModel):
     invite_token: str
     callsign: str

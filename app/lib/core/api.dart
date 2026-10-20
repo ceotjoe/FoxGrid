@@ -34,6 +34,14 @@ abstract class FoxGridApi {
     required String deviceSecret,
   });
 
+  /// New token for a participant that is already bound to this device; needs no invite.
+  Future<Session> rejoin({
+    required String baseUrl,
+    required String missionId,
+    required String callsign,
+    required String deviceSecret,
+  });
+
   Future<Map<String, dynamic>> snapshot();
 
   /// Lead only: revokes every open invite and returns the token of a fresh one.
@@ -160,6 +168,7 @@ class DioFoxGridApi implements FoxGridApi {
       role: p['role'] as String,
       inviteToken: inviteToken,
       status: p['status'] as String? ?? 'active',
+      missionName: (j['mission'] as Map)['name'] as String?,
     );
   }
 
@@ -204,6 +213,23 @@ class DioFoxGridApi implements FoxGridApi {
         'callsign': callsign,
         'device_secret': deviceSecret,
       },
+    );
+    return _sessionFrom(r.data as Map<String, dynamic>, baseUrl);
+  }
+
+  @override
+  Future<Session> rejoin({
+    required String baseUrl,
+    required String missionId,
+    required String callsign,
+    required String deviceSecret,
+  }) async {
+    final r = await _call(
+      'POST',
+      '/api/v1/missions/$missionId/rejoin',
+      baseUrl: baseUrl,
+      auth: false,
+      data: {'callsign': callsign, 'device_secret': deviceSecret},
     );
     return _sessionFrom(r.data as Map<String, dynamic>, baseUrl);
   }

@@ -199,3 +199,7 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 - Invite dialog shows the link as QR (`QrPainter` in a `CustomPaint`; `QrImageView` crashes inside `AlertDialog` because of its `LayoutBuilder`).
 - Deep link: scheme `foxgrid://join?server=&token=` is registered in `Info.plist` and `AndroidManifest.xml`; `state/deep_link.dart` (`app_links`) offers it
   via `pendingInviteProvider`, the join screen only fills server + invite and switches to the join tab. It never joins automatically. Not yet tried on a real device.
+- Return without invite: `POST /missions/{id}/rejoin` (callsign + device secret) issues a new JWT for an existing, active, non-rejected, non-sensor participant whose
+  `device_hash` matches (legacy rows without a hash are refused); all refusals are the same 403, ended mission 409. App: `SessionNotifier.refresh()` runs when the
+  JWT has < 12 h left (checked every 5 s tick, at most every 5 min) and on a 401 snapshot; only `denied` logs out, offline keeps the session. `RecentMissionsStore`
+  (SharedPreferences, no secrets) feeds the "Zuletzt benutzt" list on the join screen, which calls `rejoin` on tap.

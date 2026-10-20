@@ -119,6 +119,24 @@ class FakeApi implements FoxGridApi {
   double declinationValue = 4.5;
   Object? declinationError;
 
+  /// What `rejoin` answers: a new session, or (default) a refusal.
+  Session? rejoinResult;
+  Object rejoinError = ApiException(403, 'cannot rejoin');
+  int rejoinCalls = 0;
+
+  @override
+  Future<Session> rejoin({
+    required String baseUrl,
+    required String missionId,
+    required String callsign,
+    required String deviceSecret,
+  }) async {
+    rejoinCalls++;
+    final result = rejoinResult;
+    if (result != null) return result;
+    throw rejoinError;
+  }
+
   @override
   Future<Map<String, dynamic>> snapshot() async {
     if (snapshotError != null) throw snapshotError!;

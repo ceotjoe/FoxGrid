@@ -41,6 +41,7 @@ When you join an operation and while you use it, the app sends the following to 
 | Access token (JWT) | Password-less sign-in to the server | Joining |
 | Device secret (random, per installation; the server stores only a hash) | A callsign can only be re-joined from the same device | Joining |
 | Last used server and callsign (stored only on the device, never transmitted) | Prefill the fields on the next start | Creating / joining a mission |
+| List of recently used missions (server, mission ID, name, callsign; local only, no secrets) | Returning to a mission after the session expired | Joining |
 | 4-digit join code (only until approval) | Compare by radio with the mission lead | Joining through a link that needs approval |
 | Push token (identifier of this device at Google Firebase Cloud Messaging, via Apple APNs on iOS) | Background notification when the interferer starts transmitting | After approval, only if you allowed notifications; removed when you leave the mission |
 | Security log (who joined, was approved, removed or quarantined, and when) | Accountability for the mission lead | Ongoing, visible to the mission lead only |

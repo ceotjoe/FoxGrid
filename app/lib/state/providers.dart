@@ -12,23 +12,31 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../core/api.dart';
 import '../core/database.dart';
+import '../core/device_secret.dart';
 import '../core/homing.dart';
 import '../core/live.dart';
 import '../core/models.dart';
 import '../core/outbox.dart';
+import '../core/recent_missions.dart';
 import '../core/session.dart';
 import '../core/sync.dart';
 import 'settings.dart';
 
 export 'settings.dart' show sharedPrefsProvider, settingsProvider;
 
+/// Outcome of asking the server for a fresh token without an invite.
+enum RefreshResult { renewed, denied, unreachable }
+
 /// Current login; `null` means show the join screen.
 class SessionNotifier extends Notifier<Session?> {
+  Future<RefreshResult>? _refreshing;
+
   @override
   Session? build() => SessionStore(ref.watch(sharedPrefsProvider)).load();
 
   Future<void> set(Session s) async {
     await SessionStore(ref.read(sharedPrefsProvider)).save(s);
+    await ref.read(recentMissionsProvider.notifier).remember(s);
     state = s;
   }
 
@@ -36,7 +44,59 @@ class SessionNotifier extends Notifier<Session?> {
     await SessionStore(ref.read(sharedPrefsProvider)).clear();
     state = null;
   }
+
+  /// Asks for a new token with the device secret (the JWT lives 72 h). Concurrent calls share one
+  /// request. `denied` means the server will not take this device back (removed, ended, released).
+  Future<RefreshResult> refresh() =>
+      _refreshing ??= _refresh().whenComplete(() => _refreshing = null);
+
+  Future<RefreshResult> _refresh() async {
+    final s = state;
+    if (s == null) return RefreshResult.denied;
+    final prefs = ref.read(sharedPrefsProvider);
+    try {
+      final fresh = await ref
+          .read(apiProvider)
+          .rejoin(
+            baseUrl: s.baseUrl,
+            missionId: s.missionId,
+            callsign: s.callsign,
+            deviceSecret: deviceSecret(prefs),
+          );
+      if (state?.missionId != s.missionId) return RefreshResult.denied;
+      await set(fresh.copyWith(inviteToken: s.inviteToken));
+      return RefreshResult.renewed;
+    } on ApiException catch (e) {
+      final code = e.statusCode;
+      if (code == null || code >= 500 || code == 408 || code == 429) {
+        return RefreshResult.unreachable;
+      }
+      if (code == 409) {
+        await ref.read(recentMissionsProvider.notifier).forget(s.missionId);
+      }
+      return RefreshResult.denied;
+    }
+  }
 }
+
+/// Missions this device can return to (see [RecentMissionsStore]).
+class RecentMissionsNotifier extends Notifier<List<RecentMission>> {
+  RecentMissionsStore get _store =>
+      RecentMissionsStore(ref.read(sharedPrefsProvider));
+
+  @override
+  List<RecentMission> build() => _store.load();
+
+  Future<void> remember(Session s) async => state = await _store.remember(s);
+
+  Future<void> forget(String missionId) async =>
+      state = await _store.forget(missionId);
+}
+
+final recentMissionsProvider =
+    NotifierProvider<RecentMissionsNotifier, List<RecentMission>>(
+      RecentMissionsNotifier.new,
+    );
 
 final sessionProvider = NotifierProvider<SessionNotifier, Session?>(
   SessionNotifier.new,
@@ -109,6 +169,8 @@ class SyncNotifier extends Notifier<SyncStatus> {
     _service = SyncService(store: store, send: api.sendQueued);
     _sub = store.watch().listen(_onEntries);
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => kick());
+    // The token is renewed before it runs out, so queued writes never hit a 401.
+    Timer.run(_renewSoon);
     ref.onDispose(() {
       _disposed = true;
       _sub?.cancel();
@@ -132,8 +194,24 @@ class SyncNotifier extends Notifier<SyncStatus> {
     );
   }
 
+  DateTime? _lastRenew;
+
+  Future<void> _renewSoon() async {
+    final session = ref.read(sessionProvider);
+    if (_disposed || session == null) return;
+    if (!tokenExpiresWithin(session.token, const Duration(hours: 12))) return;
+    final now = DateTime.now();
+    final last = _lastRenew;
+    if (last != null && now.difference(last) < const Duration(minutes: 5)) {
+      return; // do not hammer the server (or its rate limit) while it says no
+    }
+    _lastRenew = now;
+    await ref.read(sessionProvider.notifier).refresh();
+  }
+
   /// Try to deliver the queue now (called after every write and when back online).
   Future<void> kick() async {
+    unawaited(_renewSoon());
     final session = ref.read(sessionProvider);
     if (_disposed || session == null || state.syncing) return;
     state = state.copyWith(syncing: true);
@@ -312,7 +390,19 @@ class MissionNotifier extends Notifier<MissionState> {
       unawaited(_store.putCached(_cacheKey(_session.missionId), jsonEncode(s)));
       await _apply(s, stale: false);
     } on ApiException catch (e) {
-      if (e.statusCode == 401 || e.statusCode == 403) {
+      if (e.statusCode == 401) {
+        // Token expired: the device secret gets us back in without an invite.
+        final result = await ref.read(sessionProvider.notifier).refresh();
+        if (result == RefreshResult.unreachable) {
+          if (!state.loaded) state = state.copyWith(error: e.message);
+          return;
+        }
+        if (result == RefreshResult.denied) {
+          await ref.read(sessionProvider.notifier).leave();
+        }
+        return; // renewed: the new session rebuilds this notifier and reloads
+      }
+      if (e.statusCode == 403) {
         await ref.read(sessionProvider.notifier).leave();
         return;
       }

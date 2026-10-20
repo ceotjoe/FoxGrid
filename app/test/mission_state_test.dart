@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxgrid/core/api.dart';
+import 'package:foxgrid/core/session.dart';
 import 'package:foxgrid/core/live.dart';
 import 'package:foxgrid/core/models.dart';
 import 'package:foxgrid/core/outbox.dart';
@@ -304,6 +305,36 @@ void main() {
     final api = FakeApi()..snapshotError = ApiException(401, 'invalid token');
     await start(api: api);
     expect(env.container.read(sessionProvider), isNull);
+  });
+
+  test(
+    'an expired token is renewed with the device secret, no logout',
+    () async {
+      final api = FakeApi()
+        ..snapshotError = ApiException(401, 'invalid token')
+        ..rejoinResult = const Session(
+          baseUrl: 'http://localhost:8000',
+          token: 'fresh',
+          missionId: 'm1',
+          participantId: 'p1',
+          callsign: 'DL1ABC',
+          role: 'lead',
+        );
+      await start(api: api);
+      api.snapshotError = null;
+      await env.settle();
+      final s = env.container.read(sessionProvider);
+      expect(api.rejoinCalls, greaterThan(0));
+      expect(s?.token, 'fresh');
+    },
+  );
+
+  test('an offline renewal keeps the session', () async {
+    final api = FakeApi()
+      ..snapshotError = ApiException(401, 'invalid token')
+      ..rejoinError = ApiException(null, 'offline');
+    await start(api: api);
+    expect(env.container.read(sessionProvider), isNotNull);
   });
 
   test('declination is fetched, cached and survives offline', () async {

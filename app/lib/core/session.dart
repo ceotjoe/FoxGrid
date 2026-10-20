@@ -13,6 +13,7 @@ class Session {
     required this.role,
     this.inviteToken,
     this.status = 'active',
+    this.missionName,
   });
 
   final String baseUrl;
@@ -28,6 +29,9 @@ class Session {
   /// `pending` until the lead lets the joiner in; `rejected` if the lead said no.
   final String status;
 
+  /// For the list of recent missions; absent in sessions stored by older versions.
+  final String? missionName;
+
   bool get isLead => role == 'lead';
   bool get isPending => status == 'pending';
 
@@ -41,6 +45,7 @@ class Session {
         role: role ?? this.role,
         inviteToken: inviteToken ?? this.inviteToken,
         status: status ?? this.status,
+        missionName: missionName,
       );
 
   Uri get wsUri {
@@ -61,6 +66,7 @@ class Session {
     'role': role,
     'inviteToken': inviteToken,
     'status': status,
+    'missionName': missionName,
   };
 
   factory Session.fromJson(Map<String, dynamic> j) => Session(
@@ -72,6 +78,7 @@ class Session {
     role: j['role'] as String,
     inviteToken: j['inviteToken'] as String?,
     status: j['status'] as String? ?? 'active',
+    missionName: j['missionName'] as String?,
   );
 }
 
@@ -115,3 +122,20 @@ String inviteLink(String server, String token) => Uri(
   host: 'join',
   queryParameters: {'server': server, 'token': token},
 ).toString();
+
+/// Whether the JWT expires within [margin] (or is unreadable/expired already).
+bool tokenExpiresWithin(String jwt, Duration margin, {DateTime? now}) {
+  try {
+    final payload = utf8.decode(
+      base64Url.decode(base64Url.normalize(jwt.split('.')[1])),
+    );
+    final exp = (jsonDecode(payload) as Map<String, dynamic>)['exp'] as num;
+    final expires = DateTime.fromMillisecondsSinceEpoch(
+      exp.toInt() * 1000,
+      isUtc: true,
+    );
+    return expires.isBefore((now ?? DateTime.now().toUtc()).add(margin));
+  } on Object {
+    return false; // not a JWT we can read: let the server decide
+  }
+}

@@ -72,7 +72,7 @@ void main() {
     await tester.pumpAndSettle();
     final prefs = container.read(sharedPrefsProvider);
     expect(prefs.getString(lastServerKey), testSession.baseUrl);
-    expect(prefs.getString(lastCallsignKey), 'DL9ZZ');
+    expect(prefs.getString(lastCallsignKey), testSession.callsign);
   });
 
   testWidgets('a scanned invite link fills server and invite', (tester) async {

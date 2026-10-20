@@ -48,6 +48,7 @@ from app.schemas.api import (
     PlausibilityOut,
     QuarantineIn,
     QuarantineOut,
+    RejoinIn,
     RepeaterIn,
     SnapshotOut,
     TeamOut,
@@ -203,6 +204,53 @@ async def join(
     if joined_new:
         await _announce(redis, mission.id, participant)
     area = await domain.search_area_ring(session, mission.id)
+    return JoinOut(
+        mission=mission_out(mission, area),
+        participant=participant_out(
+            participant, await domain.team_name(session, participant.team_id), show_code=True
+        ),
+        token=create_jwt(settings, participant.id, mission.id, participant.role),
+    )
+
+
+@router.post("/missions/{mission_id}/rejoin", response_model=JoinOut)
+async def rejoin(
+    mission_id: uuid.UUID,
+    body: RejoinIn,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    redis: Redis = Depends(get_redis),
+) -> JoinOut:
+    """New JWT for a participant already bound to this device (e.g. expired session).
+
+    Needs no invite: the device secret is the proof. Never creates a participant.
+    """
+    client = request.client.host if request.client else "unknown"
+    await ratelimit.enforce(redis, "join", client, settings.rate_join_per_min)
+    participant = await session.scalar(
+        select(Participant).where(
+            Participant.mission_id == mission_id, Participant.callsign == body.callsign
+        )
+    )
+    # One answer for every reason, so nobody can probe which callsigns exist.
+    denied = HTTPException(403, "cannot rejoin; use an invite or ask the lead")
+    if (
+        participant is None
+        or participant.device_hash is None
+        or not hmac.compare_digest(participant.device_hash, hash_token(body.device_secret))
+        or not participant.is_active
+        or participant.status == "rejected"
+        or await session.scalar(select(Sensor.id).where(Sensor.participant_id == participant.id))
+    ):
+        raise denied
+    mission = await session.get(Mission, mission_id)
+    assert mission is not None
+    if mission.status != "active":
+        raise HTTPException(409, "mission has ended")
+    await domain.audit(session, mission_id, participant.id, "rejoin", "participant", participant.id)
+    await session.commit()
+    area = await domain.search_area_ring(session, mission_id)
     return JoinOut(
         mission=mission_out(mission, area),
         participant=participant_out(

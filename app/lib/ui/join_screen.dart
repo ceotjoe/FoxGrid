@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api.dart';
 import '../core/device_secret.dart';
+import '../core/recent_missions.dart';
 import '../core/session.dart';
 import '../state/deep_link.dart';
 import '../state/providers.dart';
@@ -113,17 +114,40 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
       final session = await action(ref.read(apiProvider));
       final prefs = ref.read(sharedPrefsProvider);
       await prefs.setString(lastServerKey, session.baseUrl);
-      await prefs.setString(lastCallsignKey, _callsign.text.trim());
+      await prefs.setString(lastCallsignKey, session.callsign);
       await ref.read(sessionProvider.notifier).set(session);
     } on ApiException catch (e) {
-      setState(
-        () => _error = e.message.contains('bound to another device')
-            ? 'Dieses Rufzeichen ist an ein anderes Gerät gebunden. '
-                  'Die Einsatzleitung muss das Gerät freigeben.'
-            : e.message,
-      );
+      setState(() => _error = _describe(e));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _describe(ApiException e) {
+    if (e.message.contains('bound to another device')) {
+      return 'Dieses Rufzeichen ist an ein anderes Gerät gebunden. '
+          'Die Einsatzleitung muss das Gerät freigeben.';
+    }
+    if (e.message.contains('cannot rejoin')) {
+      return 'Rückkehr nicht möglich. Tritt mit einem neuen Einladungslink bei '
+          'oder bitte die Einsatzleitung um Freigabe.';
+    }
+    if (e.statusCode == 409) return 'Dieser Einsatz ist beendet.';
+    return e.message;
+  }
+
+  Future<void> _return(RecentMission m) async {
+    await _run(
+      (api) => api.rejoin(
+        baseUrl: m.baseUrl,
+        missionId: m.missionId,
+        callsign: m.callsign,
+        deviceSecret: deviceSecret(ref.read(sharedPrefsProvider)),
+      ),
+    );
+    // An ended mission cannot be entered again; drop it from the list.
+    if (mounted && _error == 'Dieser Einsatz ist beendet.') {
+      await ref.read(recentMissionsProvider.notifier).forget(m.missionId);
     }
   }
 
@@ -166,6 +190,34 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
         deviceSecret: deviceSecret(ref.read(sharedPrefsProvider)),
       ),
     );
+  }
+
+  List<Widget> _recentList() {
+    final recent = ref.watch(recentMissionsProvider);
+    if (recent.isEmpty) return const [];
+    return [
+      Text('Zuletzt benutzt', style: Theme.of(context).textTheme.titleSmall),
+      for (final m in recent)
+        Card(
+          key: Key('recent-${m.missionId}'),
+          child: ListTile(
+            enabled: !_busy,
+            leading: const Icon(Icons.history),
+            title: Text(m.name),
+            subtitle: Text(
+              '${m.callsign} · ${Uri.tryParse(m.baseUrl)?.host ?? m.baseUrl}',
+            ),
+            onTap: () => _return(m),
+            trailing: IconButton(
+              tooltip: 'Aus der Liste entfernen',
+              icon: const Icon(Icons.close),
+              onPressed: () =>
+                  ref.read(recentMissionsProvider.notifier).forget(m.missionId),
+            ),
+          ),
+        ),
+      const SizedBox(height: 16),
+    ];
   }
 
   @override
@@ -216,6 +268,7 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
                     children: [
                       ListView(
                         children: [
+                          ..._recentList(),
                           TextField(
                             key: const Key('invite'),
                             controller: _invite,

@@ -24,6 +24,9 @@ dagegen tut, was die Einsatzleitung selbst tun sollte und was bewusst nicht abge
    nicht beigetreten ist, kann ihn nicht nennen.
 3. **Gerätebindung.** Jede Installation erzeugt ein zufälliges Geheimnis; der Server speichert nur einen Hash. Ein bestehendes
    Rufzeichen lässt sich nur mit demselben Geheimnis erneut betreten. Beim Handywechsel gibt die Leitung das Gerät frei.
+   Dasselbe Geheimnis erlaubt auch die Rückkehr ohne Einladung (`POST /missions/{id}/rejoin`): so kommt auch die Leitung wieder
+   in den eigenen Einsatz, wenn Sitzung (72 h) und Einladung (24 h) abgelaufen sind. Das legt nie einen Teilnehmer an; entfernte,
+   abgelehnte, freigegebene (ohne Bindung) und Sensor-Teilnehmer bekommen immer dieselbe Absage.
 4. **Rollen nur von der Leitung.** Über einen Link tritt man immer als „Mobil“ bei. „Fest“ und „Leitung“ vergibt die Leitung.
 5. **Vertrauen.** Nur vertraute Teilnehmer bewegen die Schätzung. Freigabe und Beförderung durch die Leitung gelten als Vertrauen.
    Links mit `auto_approve` (für Übungen) liefern zunächst nicht vertraute Teilnehmer: ihre Peilungen sind sichtbar und im

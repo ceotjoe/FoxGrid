@@ -43,6 +43,7 @@ Beim Beitritt zu einem Einsatz und während der Nutzung sendet die App an den vo
 | Zugangstoken (JWT) | Anmeldung am Server ohne Passwort | Beitritt |
 | Geräte-Geheimnis (zufällig, pro Installation; der Server speichert nur einen Hash) | Ein Rufzeichen kann nur vom selben Gerät erneut betreten werden | Beitritt |
 | Zuletzt benutzter Server und Rufzeichen (nur lokal auf dem Gerät, werden nicht übertragen) | Felder beim nächsten Start vorbelegen | Einsatz anlegen / Beitreten |
+| Liste zuletzt benutzter Einsätze (Server, Einsatz-ID, Name, Rufzeichen; nur lokal, ohne Geheimnisse) | Rückkehr in einen Einsatz nach abgelaufener Sitzung | Beitritt |
 | 4-stelliger Beitritts-Code (nur bis zur Freigabe) | Abgleich per Funk mit der Einsatzleitung | Beitritt über einen Link mit Freigabe |
 | Push-Token (Kennung dieses Geräts bei Google Firebase Cloud Messaging, auf iOS über Apple APNs) | Benachrichtigung im Hintergrund, wenn die Aussendung des Störers beginnt | nach der Freigabe, nur wenn ihr Benachrichtigungen erlaubt habt; beim Verlassen des Einsatzes wird es abgemeldet |
 | Sicherheitsprotokoll (wer ist wann beigetreten, freigegeben, entfernt, unter Quarantäne gestellt) | Nachvollziehbarkeit für die Einsatzleitung | laufend, nur für die Einsatzleitung einsehbar |
