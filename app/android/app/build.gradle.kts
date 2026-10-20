@@ -6,6 +6,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Push: the Google services plugin needs google-services.json (not in the repo, see docs/release.md).
+// Without it the app still builds, Firebase fails to initialise and push stays off.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Release signing: android/key.properties locally, FOXGRID_* environment variables in CI.
 val keyProps = Properties().apply {
     val file = rootProject.file("key.properties")
