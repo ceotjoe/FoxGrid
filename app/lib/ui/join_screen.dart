@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/api.dart';
 import '../core/device_secret.dart';
 import '../core/session.dart';
+import '../state/deep_link.dart';
 import '../state/providers.dart';
 
 /// Release builds talk to servers over HTTPS only; plain HTTP stays available
@@ -53,9 +54,20 @@ class JoinScreen extends ConsumerStatefulWidget {
   ConsumerState<JoinScreen> createState() => _JoinScreenState();
 }
 
-class _JoinScreenState extends ConsumerState<JoinScreen> {
-  final _server = TextEditingController(text: defaultServerUrl());
-  final _callsign = TextEditingController();
+const lastServerKey = 'foxgrid.last_server';
+const lastCallsignKey = 'foxgrid.last_callsign';
+
+class _JoinScreenState extends ConsumerState<JoinScreen>
+    with SingleTickerProviderStateMixin {
+  late final _tabs = TabController(length: 2, vsync: this);
+  late final _server = TextEditingController(
+    text:
+        ref.read(sharedPrefsProvider).getString(lastServerKey) ??
+        defaultServerUrl(),
+  );
+  late final _callsign = TextEditingController(
+    text: ref.read(sharedPrefsProvider).getString(lastCallsignKey) ?? '',
+  );
   final _invite = TextEditingController();
   final _name = TextEditingController();
   final _frequency = TextEditingController();
@@ -63,7 +75,29 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    // Cold start: the link may have arrived before this screen existed.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _takeInvite(ref.read(pendingInviteProvider)),
+    );
+  }
+
+  void _takeInvite(String? link) {
+    if (link == null || !mounted) return;
+    final parsed = parseInvite(link);
+    setState(() {
+      _invite.text = link;
+      if (parsed.server != null) _server.text = parsed.server!;
+      _error = null;
+    });
+    ref.read(pendingInviteProvider.notifier).clear();
+    _tabs.animateTo(0);
+  }
+
+  @override
   void dispose() {
+    _tabs.dispose();
     for (final c in [_server, _callsign, _invite, _name, _frequency]) {
       c.dispose();
     }
@@ -76,7 +110,10 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
       _error = null;
     });
     try {
-      final session = await action(DioFoxGridApi());
+      final session = await action(ref.read(apiProvider));
+      final prefs = ref.read(sharedPrefsProvider);
+      await prefs.setString(lastServerKey, session.baseUrl);
+      await prefs.setString(lastCallsignKey, _callsign.text.trim());
       await ref.read(sessionProvider.notifier).set(session);
     } on ApiException catch (e) {
       setState(
@@ -133,116 +170,115 @@ class _JoinScreenState extends ConsumerState<JoinScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('FoxGrid'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Beitreten'),
-              Tab(text: 'Einsatz anlegen'),
-            ],
-          ),
+    ref.listen(pendingInviteProvider, (_, link) => _takeInvite(link));
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('FoxGrid'),
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: [
+            Tab(text: 'Beitreten'),
+            Tab(text: 'Einsatz anlegen'),
+          ],
         ),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  TextField(
-                    key: const Key('server'),
-                    controller: _server,
-                    keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
-                      labelText: 'Server',
-                      hintText: 'https://foxgrid.example.org',
-                      border: OutlineInputBorder(),
-                    ),
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                TextField(
+                  key: const Key('server'),
+                  controller: _server,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Server',
+                    hintText: 'https://foxgrid.example.org',
+                    border: OutlineInputBorder(),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    key: const Key('callsign'),
-                    controller: _callsign,
-                    textCapitalization: TextCapitalization.characters,
-                    decoration: const InputDecoration(
-                      labelText: 'Rufzeichen',
-                      border: OutlineInputBorder(),
-                    ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const Key('callsign'),
+                  controller: _callsign,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: 'Rufzeichen',
+                    border: OutlineInputBorder(),
                   ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        ListView(
-                          children: [
-                            TextField(
-                              key: const Key('invite'),
-                              controller: _invite,
-                              decoration: const InputDecoration(
-                                labelText: 'Einladung (Token oder Link)',
-                                border: OutlineInputBorder(),
-                              ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabs,
+                    children: [
+                      ListView(
+                        children: [
+                          TextField(
+                            key: const Key('invite'),
+                            controller: _invite,
+                            decoration: const InputDecoration(
+                              labelText: 'Einladung (Token oder Link)',
+                              border: OutlineInputBorder(),
                             ),
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              key: const Key('join'),
-                              onPressed: _busy ? null : _join,
-                              child: const Text('Beitreten'),
-                            ),
-                          ],
-                        ),
-                        ListView(
-                          children: [
-                            TextField(
-                              key: const Key('mission-name'),
-                              controller: _name,
-                              decoration: const InputDecoration(
-                                labelText: 'Name des Einsatzes',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            TextField(
-                              key: const Key('frequency'),
-                              controller: _frequency,
-                              onChanged: (_) => setState(() {}),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              decoration: InputDecoration(
-                                labelText: 'Frequenz in MHz',
-                                hintText: 'z. B. 145.500 oder 433.500',
-                                helperText: frequencyHint(
-                                  parseFrequencyMhz(_frequency.text),
-                                ),
-                                helperMaxLines: 3,
-                                border: const OutlineInputBorder(),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              key: const Key('create'),
-                              onPressed: _busy ? null : _create,
-                              child: const Text('Einsatz anlegen'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_error != null)
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            key: const Key('join'),
+                            onPressed: _busy ? null : _join,
+                            child: const Text('Beitreten'),
+                          ),
+                        ],
                       ),
+                      ListView(
+                        children: [
+                          TextField(
+                            key: const Key('mission-name'),
+                            controller: _name,
+                            decoration: const InputDecoration(
+                              labelText: 'Name des Einsatzes',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            key: const Key('frequency'),
+                            controller: _frequency,
+                            onChanged: (_) => setState(() {}),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: 'Frequenz in MHz',
+                              hintText: 'z. B. 145.500 oder 433.500',
+                              helperText: frequencyHint(
+                                parseFrequencyMhz(_frequency.text),
+                              ),
+                              helperMaxLines: 3,
+                              border: const OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            key: const Key('create'),
+                            onPressed: _busy ? null : _create,
+                            child: const Text('Einsatz anlegen'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (_error != null)
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
         ),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/push.dart';
+import 'state/deep_link.dart';
 import 'state/providers.dart';
 import 'state/push.dart';
 import 'ui/join_screen.dart';
@@ -31,6 +32,7 @@ class FoxGridApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
     ref.watch(pushRegistrarProvider);
+    ref.watch(deepLinkListenerProvider);
     final night = ref.watch(settingsProvider.select((s) => s.nightMode));
     final themeMode = ref.watch(settingsProvider.select((s) => s.themeMode));
     return MaterialApp(

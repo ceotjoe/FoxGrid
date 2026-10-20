@@ -7,6 +7,7 @@ environment:
   sdk: ^3.13.2
 
 dependencies:
+  app_links: ^7.2.2
   crypto: ^3.0.7
   dio: ^5.11.1
   drift: ^2.35.2
@@ -21,6 +22,7 @@ dependencies:
   geolocator: ^14.1.1
   latlong2: ^0.10.1
   path_provider: ^2.1.6
+  qr_flutter: ^4.1.0
   share_plus: ^13.3.1
   shared_preferences: ^2.5.6
   uuid: ^4.6.0

@@ -206,6 +206,28 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets('the invite dialog shows the link as a QR code', (tester) async {
+    await _open(tester, session: testSession.copyWith(inviteToken: 'tok123'));
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-manage')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-invite')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('invite-qr')),
+        matching: find.byType(CustomPaint),
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.textContaining(inviteLink(testSession.baseUrl, 'tok123')),
+      findsOneWidget,
+    );
+    await _unmount(tester);
+  });
+
   testWidgets('exports are bundled into one sheet', (tester) async {
     await _open(tester);
     await tester.tap(find.byType(PopupMenuButton<String>));

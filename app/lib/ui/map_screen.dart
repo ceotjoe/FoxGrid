@@ -1,3 +1,4 @@
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -313,11 +314,42 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Einladung'),
-        content: SelectableText(
-          'Token: $token\n\nLink: $link\n\n'
-          'Der Link läuft nach 24 Stunden ab. Neue Teilnehmer warten auf deine Freigabe '
-          '(Menü „Teilnehmer“). Ist er in falsche Hände geraten, ersetze ihn: '
-          'der alte Link wird ungültig, wer schon drin ist, bleibt drin.',
+        content: SingleChildScrollView(
+          child: Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                key: const Key('invite-qr'),
+                color: Colors.white,
+                padding: const EdgeInsets.all(8),
+                // QrPainter instead of QrImageView: the latter uses a LayoutBuilder, which
+                // AlertDialog's intrinsic sizing cannot handle.
+                child: CustomPaint(
+                  size: const Size.square(160),
+                  painter: QrPainter(
+                    data: link,
+                    version: QrVersions.auto,
+                    errorCorrectionLevel: QrErrorCorrectLevel.M,
+                    eyeStyle: const QrEyeStyle(color: Colors.black),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: SelectableText(
+                  'Token: $token\n\nLink: $link\n\n'
+                  'Der Link läuft nach 24 Stunden ab. Neue Teilnehmer warten auf deine Freigabe '
+                  '(Menü „Teilnehmer“). Ist er in falsche Hände geraten, ersetze ihn: '
+                  'der alte Link wird ungültig, wer schon drin ist, bleibt drin.',
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(

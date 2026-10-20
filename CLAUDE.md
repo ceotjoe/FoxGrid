@@ -193,3 +193,9 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
 - Join code (step E): `participants.join_code` (4 digits, only for pending joiners of non-`auto_approve` invites, cleared on approve/reject). `participant_out(..., show_code=True)` only for the
   joiner (join response, `/me`) and the lead (`/participants`, `/snapshot`); events and other members never carry it. Audit: `GET /missions/{id}/audit?scope=security|all&limit=` (lead).
   Privacy docs (`docs/privacy*.md`) list the device-secret hash, join code and security log; keep them in sync.
+
+## Join screen notes
+- `JoinScreen` remembers the last server and callsign (SharedPreferences `foxgrid.last_server` / `foxgrid.last_callsign`, written after a successful join/create).
+- Invite dialog shows the link as QR (`QrPainter` in a `CustomPaint`; `QrImageView` crashes inside `AlertDialog` because of its `LayoutBuilder`).
+- Deep link: scheme `foxgrid://join?server=&token=` is registered in `Info.plist` and `AndroidManifest.xml`; `state/deep_link.dart` (`app_links`) offers it
+  via `pendingInviteProvider`, the join screen only fills server + invite and switches to the join tab. It never joins automatically. Not yet tried on a real device.
