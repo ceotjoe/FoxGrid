@@ -706,6 +706,14 @@ class MissionNotifier extends Notifier<MissionState> {
     );
   }
 
+  /// Lead only: ends the mission on the server. Not queued offline: it is irreversible
+  /// and the lead has to see that it really happened.
+  Future<void> endMission() async {
+    final ended = await ref.read(apiProvider).endMission();
+    if (_disposed) return;
+    state = state.copyWith(mission: ended);
+  }
+
   /// Lead only: sets where the repeater is and on which frequencies it works.
   Future<void> setRepeater(Repeater repeater) async {
     final mission = state.mission;

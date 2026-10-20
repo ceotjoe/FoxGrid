@@ -51,6 +51,15 @@ class Mission {
     repeater: value,
   );
 
+  Mission withStatus(String value) => Mission(
+    id: id,
+    name: name,
+    frequencyMhz: frequencyMhz,
+    status: value,
+    searchArea: searchArea,
+    repeater: repeater,
+  );
+
   bool get isActive => status == 'active';
 
   factory Mission.fromJson(Map<String, dynamic> j) => Mission(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:foxgrid/core/api.dart';
 import 'package:foxgrid/core/session.dart';
 import 'package:foxgrid/state/providers.dart';
 import 'package:foxgrid/ui/filter_sheet.dart';
@@ -50,6 +51,65 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SensorsScreen), findsOneWidget);
     expect(find.byKey(const Key('sensor-Nord')), findsOneWidget);
+    await _unmount(tester);
+  });
+
+  testWidgets('the lead ends the mission after confirming', (tester) async {
+    final api = FakeApi();
+    final env = await _open(tester, api: api);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-manage')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('end-mission')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Abbrechen'));
+    await tester.pumpAndSettle();
+    expect(api.endCalls, 0);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-manage')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('end-mission')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-end')));
+    await tester.pumpAndSettle();
+    expect(api.endCalls, 1);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(MapScreen)),
+    );
+    expect(container.read(missionProvider).mission?.isActive, isFalse);
+
+    // An ended mission no longer offers the button.
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-manage')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('end-mission')), findsNothing);
+    expect(env, isNotNull);
+    await _unmount(tester);
+  });
+
+  testWidgets('a failed end shows the error and keeps the mission active', (
+    tester,
+  ) async {
+    final api = FakeApi()
+      ..endError = ApiException(409, 'mission already ended');
+    await _open(tester, api: api);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-manage')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('end-mission')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-end')));
+    await tester.pumpAndSettle();
+    expect(find.text('mission already ended'), findsOneWidget);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(MapScreen)),
+    );
+    expect(container.read(missionProvider).mission?.isActive, isTrue);
     await _unmount(tester);
   });
 

@@ -186,6 +186,21 @@ class FakeApi implements FoxGridApi {
   @override
   Future<String> replaceInvite() async => replacedInvite = 'new-invite-token';
 
+  Object? endError;
+  int endCalls = 0;
+
+  @override
+  Future<Mission> endMission() async {
+    endCalls++;
+    if (endError != null) throw endError!;
+    return const Mission(
+      id: 'm1',
+      name: 'Test',
+      frequencyMhz: 145.5,
+      status: 'ended',
+    );
+  }
+
   @override
   Future<Participant> patchParticipant(
     String id, {

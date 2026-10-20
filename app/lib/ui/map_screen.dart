@@ -164,10 +164,65 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 _push(const AuditScreen());
               },
             ),
+            if (ref.read(missionProvider).mission?.isActive ?? false)
+              ListTile(
+                key: const Key('end-mission'),
+                leading: Icon(
+                  Icons.flag_outlined,
+                  color: Theme.of(ctx).colorScheme.error,
+                ),
+                title: Text(
+                  'Einsatz beenden',
+                  style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+                ),
+                subtitle: const Text('Für alle Teilnehmer, nicht umkehrbar'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmEnd();
+                },
+              ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _confirmEnd() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Einsatz für alle beenden?'),
+        content: const Text(
+          'Danach sind keine neuen Peilungen, Aussendungen oder Beitritte '
+          'mehr möglich, auch nicht für andere Teilnehmer. Das lässt sich '
+          'nicht rückgängig machen. Die Daten bleiben erhalten und '
+          'exportierbar.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            key: const Key('confirm-end'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Beenden',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!(ok ?? false)) return;
+    try {
+      await ref.read(missionProvider.notifier).endMission();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   void _showExport() {

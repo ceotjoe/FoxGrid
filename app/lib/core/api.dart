@@ -39,6 +39,9 @@ abstract class FoxGridApi {
   /// Lead only: revokes every open invite and returns the token of a fresh one.
   Future<String> replaceInvite();
 
+  /// Lead only: ends the mission for everyone (irreversible); returns the ended mission.
+  Future<Mission> endMission();
+
   /// Own state; works while the join is still waiting for the lead's approval.
   Future<Participant> me();
 
@@ -204,6 +207,12 @@ class DioFoxGridApi implements FoxGridApi {
   Future<String> replaceInvite() async {
     final r = await _call('POST', '$_mission/invites/replace');
     return (r.data as Map<String, dynamic>)['token'] as String;
+  }
+
+  @override
+  Future<Mission> endMission() async {
+    final r = await _call('POST', '$_mission/end');
+    return Mission.fromJson(r.data as Map<String, dynamic>);
   }
 
   @override
