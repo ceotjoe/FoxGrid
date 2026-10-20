@@ -47,6 +47,9 @@ abstract class FoxGridApi {
   /// Lead only: revokes every open invite and returns the token of a fresh one.
   Future<String> replaceInvite();
 
+  /// Lead only: issues one more invite (server defaults for expiry and uses); others stay valid.
+  Future<String> createInvite();
+
   /// Lead only: ends the mission for everyone (irreversible); returns the ended mission.
   Future<Mission> endMission();
 
@@ -232,6 +235,16 @@ class DioFoxGridApi implements FoxGridApi {
       data: {'callsign': callsign, 'device_secret': deviceSecret},
     );
     return _sessionFrom(r.data as Map<String, dynamic>, baseUrl);
+  }
+
+  @override
+  Future<String> createInvite() async {
+    final r = await _call(
+      'POST',
+      '$_mission/invites',
+      data: <String, dynamic>{},
+    );
+    return (r.data as Map<String, dynamic>)['token'] as String;
   }
 
   @override

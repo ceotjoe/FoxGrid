@@ -119,6 +119,14 @@ class FakeApi implements FoxGridApi {
   double declinationValue = 4.5;
   Object? declinationError;
 
+  int createInviteCalls = 0;
+
+  @override
+  Future<String> createInvite() async {
+    createInviteCalls++;
+    return 'newtok';
+  }
+
   /// What `rejoin` answers: a new session, or (default) a refusal.
   Session? rejoinResult;
   Object rejoinError = ApiException(403, 'cannot rejoin');

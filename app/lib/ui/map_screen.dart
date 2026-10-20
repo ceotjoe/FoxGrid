@@ -84,6 +84,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  /// The token only exists on the device that created the mission (or after a replace), so a lead
+  /// who came back via rejoin asks the server for a new link; existing links stay valid.
+  Future<void> _openInvite(Session session) async {
+    if (session.inviteToken != null) return _showInvite(session);
+    try {
+      final token = await ref.read(apiProvider).createInvite();
+      final next = session.copyWith(inviteToken: token);
+      await ref.read(sessionProvider.notifier).set(next);
+      if (mounted) _showInvite(next);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   Future<void> _replaceInvite(Session session) async {
     try {
       final token = await ref.read(apiProvider).replaceInvite();
@@ -134,15 +151,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 _push(const ParticipantsScreen());
               },
             ),
-            if (session.inviteToken != null)
+            if (session.isLead || session.inviteToken != null)
               ListTile(
                 key: const Key('open-invite'),
                 leading: const Icon(Icons.qr_code_2),
                 title: const Text('Einladung'),
-                subtitle: const Text('Link und Token anzeigen'),
+                subtitle: Text(
+                  session.inviteToken != null
+                      ? 'Link und Token anzeigen'
+                      : 'Neuen Einladungslink erzeugen',
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _showInvite(session);
+                  _openInvite(session);
                 },
               ),
             ListTile(

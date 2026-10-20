@@ -228,6 +228,23 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets('a lead without a stored invite can create a new link', (
+    tester,
+  ) async {
+    final env = await _open(tester);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-manage')));
+    await tester.pumpAndSettle();
+    expect(find.text('Neuen Einladungslink erzeugen'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('open-invite')));
+    await tester.pumpAndSettle();
+    expect(env.api.createInviteCalls, 1);
+    expect(find.byKey(const Key('invite-qr')), findsOneWidget);
+    expect(find.textContaining('newtok'), findsWidgets);
+    await _unmount(tester);
+  });
+
   testWidgets('exports are bundled into one sheet', (tester) async {
     await _open(tester);
     await tester.tap(find.byType(PopupMenuButton<String>));
