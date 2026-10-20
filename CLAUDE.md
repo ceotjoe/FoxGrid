@@ -85,7 +85,9 @@ cd backend && uv run alembic revision --autogenerate -m "..."   # needs FOXGRID_
   them on `estimates.contours` as GeoJSON polygons keyed "50"/"80"/"95".
 - Team chat messages are published on the Redis channel `mission:{id}:team:{team}`; the WebSocket subscribes to the
   caller's team channel only. `GET /snapshot` also returns only the messages the caller may see.
-- Push: `app/services/push.py` (FCM HTTP v1 or log-only). The app does not register tokens yet (needs Firebase files).
+- Push: `app/services/push.py` (FCM HTTP v1 or log-only). The app registers its FCM token (`PushRegistrar` in `lib/state/push.dart`, `lib/core/push.dart`);
+  `firebase_messaging` is pinned to ^16 on purpose (17 only offers installation IDs, not the FCM registration token the server sends to). Firebase
+  config files are gitignored and come from CI secrets; Android builds without `google-services.json` (plugin applied conditionally), iOS does not.
 - App offline queue: `OutboxStore` (Drift on native, memory on web) + `SyncService` (head-of-line, exponential
   backoff, 4xx = failed and visible, 409 on tx start/stop = success). All writes go through `MissionNotifier`.
 - `app/lib/core/database.g.dart` is generated (`dart run build_runner build`) and committed.

@@ -187,12 +187,22 @@ uv run tools/relay_hook/hook.py --help         # Relais-Hook
 
 ## Push-Benachrichtigungen einrichten
 
-Der Server verschickt bei Aussendungsstart einen Push an alle anderen Teilnehmer, sobald
-`FOXGRID_FCM_PROJECT_ID` und `FOXGRID_FCM_CREDENTIALS_FILE` (Service-Account-Schlüssel eines Firebase-Projekts)
-gesetzt sind; ohne Konfiguration wird der Push nur geloggt. Geräte melden ihr Token per
-`POST /api/v1/push-tokens`. **Die App registriert noch kein Token:** dafür braucht sie die
-Firebase-Konfigurationsdateien deines Projekts (`google-services.json`, `GoogleService-Info.plist`) und das
-Paket `firebase_messaging`. Bis dahin gibt es Vibration und Banner nur bei geöffneter App.
+Bei Aussendungsstart schickt der Server einen Push an alle anderen aktiven Teilnehmer. Die App registriert dafür
+nach dem Beitritt (sobald die Einsatzleitung freigegeben hat) ihr FCM-Token und meldet es beim Verlassen des Einsatzes
+wieder ab. Bei geöffneter App zeigt wie bisher das Banner die Aussendung, der Push erscheint nur im Hintergrund.
+
+1. **Firebase-Projekt** anlegen, darin eine Android-App und eine iOS-App mit der ID `com.itwebservice.foxgrid`
+   registrieren und deren Konfigurationsdateien laden: `google-services.json` nach `app/android/app/`,
+   `GoogleService-Info.plist` nach `app/ios/Runner/` (beide stehen in der `.gitignore`).
+2. **iOS:** APNs-Authentifizierungsschlüssel (`.p8`) im Apple-Developer-Konto erzeugen und in Firebase unter
+   Projekteinstellungen → Cloud Messaging hochladen. Die Capabilities „Push Notifications“ und „Remote notifications“
+   sind im Xcode-Projekt gesetzt. Push funktioniert nur auf einem echten iPhone.
+3. **Server:** `FOXGRID_FCM_PROJECT_ID` und `FOXGRID_FCM_CREDENTIALS_FILE` (Service-Account-Schlüssel) setzen, siehe
+   `docs/deployment.md`.
+4. **Release-Builds:** die beiden Dateien als Base64-Secrets hinterlegen (`docs/release.md`).
+
+Fehlen die Dateien, baut die Android-App trotzdem und läuft ohne Push; der iOS-Build braucht die `GoogleService-Info.plist`.
+Web hat keinen Push (benötigt einen VAPID-Schlüssel und Service-Worker).
 
 ## Bekannte Grenzen
 
