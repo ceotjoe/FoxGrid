@@ -249,6 +249,7 @@ async def end_mission(
     mission_id: uuid.UUID,
     actor: Participant = Depends(lead),
     session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
 ) -> MissionOut:
     mission = await session.get(Mission, mission_id)
     if mission is None:
@@ -270,7 +271,13 @@ async def end_mission(
     mission.ended_at = now
     await domain.audit(session, mission_id, actor.id, "end", "mission", mission_id)
     await session.commit()
-    return mission_out(mission, await domain.search_area_ring(session, mission_id))
+    out = mission_out(mission, await domain.search_area_ring(session, mission_id))
+    for tx in open_tx:
+        await events.publish(
+            redis, mission_id, "transmission_ended", event_json(transmission_out(tx))
+        )
+    await events.publish(redis, mission_id, "mission_ended", event_json(out))
+    return out
 
 
 @router.post("/missions/{mission_id}/invites", response_model=InviteOut, status_code=201)

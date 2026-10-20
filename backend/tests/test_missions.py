@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
+
 import httpx
 import pytest
+import websockets
 
+from tests.conftest import Server
 from tests.helpers import Mission, auth, device_secret
 
 
@@ -88,6 +93,24 @@ async def test_invalid_callsign(client: httpx.AsyncClient, callsign: str) -> Non
         "/missions", json={"name": "x", "frequency_mhz": 433.5, "callsign": callsign}
     )
     assert r.status_code == 422
+
+
+async def test_end_mission_notifies_connected_members(
+    client: httpx.AsyncClient, server: Server
+) -> None:
+    m = await Mission.create(client)
+    member_token, _ = await m.join("DL2MEM")
+    await client.post(m.url("/transmissions/start"), headers=auth(m.lead_token))
+    async with websockets.connect(f"{server.ws_url}/ws/missions/{m.id}?token={member_token}") as ws:
+        await client.post(m.url("/end"), headers=auth(m.lead_token))
+        seen: dict[str, dict[str, object]] = {}
+        while "mission_ended" not in seen:
+            event = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+            seen[event["type"]] = event
+    assert seen["mission_ended"]["data"]["status"] == "ended"
+    assert seen["transmission_ended"]["data"]["ended_at"] is not None
+    # A repeated end is refused and must not announce again.
+    assert (await client.post(m.url("/end"), headers=auth(m.lead_token))).status_code == 409
 
 
 async def test_end_mission(client: httpx.AsyncClient) -> None:
