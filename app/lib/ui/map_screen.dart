@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,6 +49,52 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _fitted = false;
   bool _declinationRequested = false;
   late MapPalette _pal;
+  Timer? _saveViewTimer;
+
+  /// Last camera (centre + zoom) of this mission, kept across app restarts.
+  ({LatLng center, double zoom})? _savedView;
+
+  String? get _viewKey {
+    final id = ref.read(sessionProvider)?.missionId;
+    return id == null ? null : 'foxgrid.mapview.$id';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final parts = _viewKey == null
+        ? null
+        : ref.read(sharedPrefsProvider).getString(_viewKey!)?.split(',');
+    if (parts != null && parts.length == 3) {
+      final lat = double.tryParse(parts[0]);
+      final lon = double.tryParse(parts[1]);
+      final zoom = double.tryParse(parts[2]);
+      if (lat != null && lon != null && zoom != null) {
+        _savedView = (center: LatLng(lat, lon), zoom: zoom);
+        // The user's own view wins over the automatic fit / centre-on-me.
+        _fitted = true;
+        _centered = true;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _saveViewTimer?.cancel();
+    super.dispose();
+  }
+
+  void _saveViewSoon(MapCamera camera) {
+    final key = _viewKey;
+    if (key == null) return;
+    final value =
+        '${camera.center.latitude},${camera.center.longitude},${camera.zoom}';
+    _saveViewTimer?.cancel();
+    _saveViewTimer = Timer(
+      const Duration(seconds: 1),
+      () => ref.read(sharedPrefsProvider).setString(key, value),
+    );
+  }
 
   /// Everything worth showing: estimate area, bearing stations and participants.
   List<LatLng> _interestingPoints(MissionState state, Estimate? estimate) => [
@@ -634,12 +682,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             mapController: _controller,
             options: MapOptions(
               initialCenter:
-                  state.mission?.searchArea?.first ?? const LatLng(51.0, 10.0),
-              initialZoom: state.mission?.searchArea != null ? 11 : 6,
+                  _savedView?.center ??
+                  state.mission?.searchArea?.first ??
+                  const LatLng(51.0, 10.0),
+              initialZoom:
+                  _savedView?.zoom ??
+                  (state.mission?.searchArea != null ? 11 : 6),
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
               onPositionChanged: (camera, _) {
+                _saveViewSoon(camera);
                 final b = camera.visibleBounds;
                 Future.microtask(
                   () => ref
