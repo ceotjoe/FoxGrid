@@ -101,7 +101,7 @@ jobs:
             echo "::error::The bundle is signed with the debug key"
             exit 1
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-aab
           path: app/build/app/outputs/bundle/release/app-release.aab
@@ -144,7 +144,7 @@ jobs:
         run: |
           mkdir -p build
           bundle exec fastlane ios build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios-ipa
           path: build/ios/FoxGrid.ipa
