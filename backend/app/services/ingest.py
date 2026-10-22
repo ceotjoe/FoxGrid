@@ -2,7 +2,8 @@
 
 Topics (QoS 1) are ``foxgrid/<mission_id>/<sensor_id>/<kind>`` with ``kind`` one of ``bearing``,
 ``rssi``, ``status`` and ``transmission``. Every payload is JSON and carries the sensor's API key in
-``key``; the broker credentials only decide who may talk to the broker at all. See docs/reference/mqtt.md.
+``key``; the broker credentials only decide who may talk to the broker at all.
+See docs/reference/mqtt.md.
 """
 
 from __future__ import annotations
