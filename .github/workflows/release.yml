@@ -3,7 +3,7 @@ name: Release
 # Tag v<version> (must match app/pubspec.yaml) builds signed Android and iOS releases, uploads them to
 # Google Play (internal track) and TestFlight, and attaches them to a GitHub release.
 # Manual run: builds both and keeps them as artifacts; tick "publish" to upload to the stores as well.
-# Secrets and one-time setup: docs/release.md
+# Secrets and one-time setup: docs/operations/release.md
 
 on:
   push:

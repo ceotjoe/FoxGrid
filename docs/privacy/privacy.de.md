@@ -1,11 +1,11 @@
 ---
 title: Datenschutzerklärung – FoxGrid
-permalink: /privacy
+permalink: /privacy-de
 ---
 
 # Datenschutzerklärung FoxGrid
 
-*English version: [Privacy policy](privacy-en)*
+*English version: [Privacy policy](privacy)*
 
 Stand: 17. Oktober 2026
 

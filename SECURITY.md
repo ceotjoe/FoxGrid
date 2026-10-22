@@ -1,23 +1,22 @@
-# Sicherheitsrichtlinie / Security policy
+# Security policy
 
-## Sicherheitslücke melden / Reporting a vulnerability
+## Reporting a vulnerability
 
-Bitte **kein öffentliches Issue** anlegen. Nutze stattdessen die private Meldung über GitHub:
+Please **do not open a public issue**. Use GitHub's private vulnerability reporting instead:
 [Report a vulnerability](https://github.com/ceotjoe/FoxGrid/security/advisories/new)
-(Reiter *Security* → *Report a vulnerability*).
+(tab *Security* → *Report a vulnerability*).
 
-Please do not open a public issue. Use GitHub's private vulnerability reporting (link above).
+Helpful details: affected component (backend, app, engine, MQTT), version or commit, steps to reproduce and the
+possible impact. I usually acknowledge receipt within a few days; FoxGrid is a volunteer project, so deadlines are
+guidelines.
 
-Hilfreich sind: betroffene Komponente (Backend, App, Engine, MQTT), Version oder Commit, Schritte zum Nachstellen
-und mögliche Auswirkungen. Ich bestätige den Eingang in der Regel innerhalb weniger Tage; FoxGrid ist ein
-ehrenamtliches Projekt, Fristen sind Richtwerte.
+## Supported versions
 
-## Unterstützte Versionen / Supported versions
+Only the current state of `main` and the latest release are supported.
 
-Es wird jeweils nur der aktuelle Stand von `main` und das jüngste Release unterstützt.
+## Operating a server
 
-## Betrieb / Operating a server
-
-Hinweise zum sicheren Betrieb (Einladungslinks, Freigabe, Rate-Limits, Reverse-Proxy) stehen in
-[docs/sicherheit.md](docs/sicherheit.md). Secrets gehören nie ins Repository; `.env` ist ignoriert,
-`.env.example` enthält nur Platzhalter.
+Guidance for secure operation (invite links, approval, rate limits, reverse proxy) is in
+[docs/user-guide/mission-lead-security.md](docs/user-guide/mission-lead-security.md) and
+[docs/operations/deployment.md](docs/operations/deployment.md). Secrets never belong in the repository; `.env` is ignored,
+`.env.example` contains placeholders only.

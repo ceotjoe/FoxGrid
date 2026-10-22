@@ -1,11 +1,11 @@
 ---
 title: Privacy policy – FoxGrid
-permalink: /privacy-en
+permalink: /privacy
 ---
 
 # FoxGrid privacy policy
 
-*Deutsche Fassung: [Datenschutzerklärung](privacy)*
+*Deutsche Fassung: [Datenschutzerklärung](privacy-de)*
 
 Last updated: 17 October 2026
 
@@ -29,7 +29,7 @@ person or club that gave you the invite link). Contact them for access, correcti
 
 ## 3. What the app processes
 
-When you join an operation and while you use it, the app sends the following to the server you entered:
+When you join a mission and while you use it, the app sends the following to the server you entered:
 
 | Data | Purpose | When |
 |---|---|---|
@@ -59,7 +59,7 @@ device. They are removed when you uninstall the app.
 ## 5. Retention on the server
 
 The server operator decides. Default of the FoxGrid software: position tracks are deleted 30 days after an
-operation ends. Bearings are kept for traceability (they are never deleted, only flagged as outliers or
+mission ends. Bearings are kept for traceability (they are never deleted, only flagged as outliers or
 deactivated). To have your data deleted, contact the server operator.
 
 ## 6. Map tiles
@@ -76,7 +76,7 @@ Store builds of the app connect to the server over HTTPS/WSS only.
 
 Under the GDPR you may request access, correction, deletion, restriction, portability and object to processing,
 and you may lodge a complaint with a supervisory authority. Exercise these rights against the server operator;
-the app can export an operation for this purpose.
+the app can export a mission for this purpose.
 
 ## 9. Contact
 

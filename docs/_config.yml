@@ -1,9 +1,16 @@
 # GitHub Pages (Settings > Pages > Deploy from branch > /docs): serves the privacy policy for the stores.
+# /privacy (English), /privacy-de (German); /privacy-en redirects to /privacy.
 title: FoxGrid
 theme: jekyll-theme-minimal
+plugins:
+  - jekyll-redirect-from
+# Only the privacy policy is published; everything else is documentation for GitHub readers.
 exclude:
-  - phase0-plan.md
+  - adr
+  - concepts
+  - development
+  - operations
+  - reference
+  - user-guide
+  - README.md
   - branding
-  - mqtt.md
-  - release.md
-  - store-compliance.md

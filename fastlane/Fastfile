@@ -1,5 +1,5 @@
 # Store delivery for FoxGrid. Run from the repository root through the GitHub workflows
-# (.github/workflows/release.yml, store-metadata.yml); how to set up the secrets: docs/release.md.
+# (.github/workflows/release.yml, store-metadata.yml); how to set up the secrets: docs/operations/release.md.
 #
 #   bundle exec fastlane android beta           upload app/build/app/outputs/bundle/release/app-release.aab
 #   bundle exec fastlane android metadata       listing texts, graphics and screenshots only

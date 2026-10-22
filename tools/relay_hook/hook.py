@@ -14,7 +14,7 @@ Input (from the repeater controller, MQTT, JSON, retained or not):
 
     topic  relay/<name>/state      payload  {"squelch": true, "ctcss": false}
 
-Output (to FoxGrid, QoS 1, see docs/mqtt.md):
+Output (to FoxGrid, QoS 1, see docs/reference/mqtt.md):
 
     foxgrid/<mission>/<sensor>/transmission   {"key": ..., "event": "start"|"stop", "at": ...}
     foxgrid/<mission>/<sensor>/status         {"key": ...}        (heartbeat)

@@ -42,7 +42,7 @@ class SensorsScreen extends ConsumerWidget {
                   padding: EdgeInsets.all(24),
                   child: Text(
                     'Noch keine Sensoren. Lege eine Peilstation oder den Relais-Hook an; '
-                    'die Anleitung steht in docs/mqtt.md.',
+                    'die Anleitung steht in docs/reference/mqtt.md.',
                     key: Key('sensors-empty'),
                     textAlign: TextAlign.center,
                   ),

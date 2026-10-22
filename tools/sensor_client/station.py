@@ -4,7 +4,7 @@
 # ///
 """Example client for an automatic bearing station (and a template for your own hardware).
 
-It publishes a heartbeat and bearings to the FoxGrid MQTT ingest (docs/mqtt.md). A real station
+It publishes a heartbeat and bearings to the FoxGrid MQTT ingest (docs/reference/mqtt.md). A real station
 would read its azimuth from a Doppler unit or a rotating antenna; here it either points at a
 hidden emitter with some noise (``--truth``) or sends a fixed ``--azimuth``.
 
