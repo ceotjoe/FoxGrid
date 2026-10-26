@@ -19,7 +19,7 @@ dependencies:
   flutter_compass: ^0.8.1
   flutter_map: ^8.3.2
   flutter_riverpod: ^3.4.3
-  geolocator: ^14.1.1
+  geolocator: ^14.1.2
   latlong2: ^0.10.1
   path_provider: ^2.1.6
   qr_flutter: ^4.1.0
