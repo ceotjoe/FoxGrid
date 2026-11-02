@@ -13,7 +13,7 @@ dependencies:
   drift: ^2.35.3
   drift_flutter: ^0.3.1
   firebase_core: ^4.15.2
-  firebase_messaging: ^16.0.0
+  firebase_messaging: ^16.7.1
   flutter:
     sdk: flutter
   flutter_compass: ^0.8.1
