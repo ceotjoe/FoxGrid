@@ -189,12 +189,16 @@ class _PointEditorScreenState extends ConsumerState<PointEditorScreen> {
                   key: const Key('point-name'),
                   controller: _name,
                   maxLength: 60,
+                  // Names like "BNetzA" must not be "corrected" by the keyboard.
+                  autocorrect: false,
+                  enableSuggestions: false,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(
                     labelText: 'Name',
                     hintText: 'z. B. BNetzA Köln',
                     border: const OutlineInputBorder(),
-                    errorText: _showErrors ? _nameError() : null,
+                    // Once saving, the new point itself would count as a duplicate.
+                    errorText: _showErrors && !_saving ? _nameError() : null,
                   ),
                 ),
                 const SizedBox(height: 4),
