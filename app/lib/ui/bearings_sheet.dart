@@ -24,7 +24,10 @@ class BearingsSheet extends ConsumerWidget {
         itemCount: bearings.length,
         itemBuilder: (_, i) {
           final b = bearings[i];
-          final who = state.participants[b.participantId]?.callsign ?? '?';
+          final point = b.pointId == null ? null : state.points[b.pointId];
+          final who = b.isExternal
+              ? 'extern: ${point?.name ?? '?'}'
+              : state.participants[b.participantId]?.callsign ?? '?';
           final time = b.measuredAt.toLocal();
           return SwitchListTile(
             title: Text(
@@ -35,7 +38,8 @@ class BearingsSheet extends ConsumerWidget {
               '${time.minute.toString().padLeft(2, '0')}'
               '${b.rssiDbm != null ? ' · ${b.rssiDbm!.round()} dBm' : ''}'
               '${b.note != null ? ' · ${b.note}' : ''}'
-              '${state.participants[b.participantId]?.trusted == false ? ' · nicht vertraut' : ''}',
+              '${!b.isExternal && state.participants[b.participantId]?.trusted == false ? ' · nicht vertraut' : ''}'
+              '${point != null && !(point.useInEstimate && point.isActive) ? ' · nicht in Schätzung' : ''}',
             ),
             secondary: Icon(
               b.isOutlier ? Icons.report : Icons.check_circle_outline,
