@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
-from app.api import coordination, export, field, missions, rssi, sensors
+from app.api import coordination, export, field, missions, points, rssi, sensors
 from app.config import Settings
 from app.db import make_engine, make_sessionmaker
 from app.services import domain, push
@@ -73,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(missions.router, prefix="/api/v1")
     app.include_router(field.router, prefix="/api/v1")
+    app.include_router(points.router, prefix="/api/v1")
     app.include_router(coordination.router, prefix="/api/v1")
     app.include_router(coordination.mission_router, prefix="/api/v1")
     app.include_router(sensors.router, prefix="/api/v1")

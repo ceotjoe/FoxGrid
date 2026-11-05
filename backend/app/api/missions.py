@@ -19,6 +19,7 @@ from app.db import get_session
 from app.models import (
     AuditLog,
     Bearing,
+    BearingPoint,
     BearingRevision,
     Estimate,
     Invite,
@@ -63,6 +64,7 @@ from app.services.serialize import (
     message_out,
     mission_out,
     participant_out,
+    point_out,
     position_out,
     rssi_out,
     task_out,
@@ -618,7 +620,11 @@ async def get_plausibility(
     facts: dict[uuid.UUID, list[plausibility.BearingFact]] = {p.id: [] for p in people}
     for b in (
         await session.scalars(
-            select(Bearing).where(Bearing.mission_id == mission_id, Bearing.is_active.is_(True))
+            select(Bearing).where(
+                Bearing.mission_id == mission_id,
+                Bearing.is_active.is_(True),
+                Bearing.point_id.is_(None),  # external bearings have no own track to compare
+            )
         )
     ).all():
         if b.participant_id in facts:
@@ -815,6 +821,13 @@ async def snapshot(
             .limit(1000)
         )
     ).all()
+    points = (
+        await session.scalars(
+            select(BearingPoint)
+            .where(BearingPoint.mission_id == mission_id)
+            .order_by(BearingPoint.created_at)
+        )
+    ).all()
     return SnapshotOut(
         mission=mission_out(mission, await domain.search_area_ring(session, mission_id)),
         participants=[
@@ -831,4 +844,5 @@ async def snapshot(
         tasks=[task_out(t) for t in tasks],
         teams=[TeamOut.model_validate(t) for t in teams],
         rssi=[rssi_out(r) for r in reversed(rssi_rows)],
+        points=[point_out(p) for p in points],
     )

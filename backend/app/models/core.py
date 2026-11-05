@@ -160,6 +160,31 @@ class Transmission(Base):
     )
 
 
+class BearingPoint(Base):
+    """A named external bearing location (e.g. a regulator's station) entered by the lead.
+
+    The position is immutable (a wrong one is replaced by a new point), so the lat/lon copied into
+    each bearing always matches. Points are deactivated, never deleted.
+    """
+
+    __tablename__ = "bearing_points"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True)  # client generated
+    mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Off: the point's bearings stay visible and exported but do not move the estimate.
+    use_in_estimate: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id"))
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+
+    __table_args__ = (UniqueConstraint("mission_id", "name", name="uq_bearing_point_name"),)
+
+
 class Bearing(Base):
     __tablename__ = "bearings"
 
@@ -187,6 +212,9 @@ class Bearing(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     source: Mapped[str] = mapped_column(String(10), default="manual")
     sensor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sensors.id"), nullable=True)
+    point_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("bearing_points.id"), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint("azimuth_true_deg >= 0 AND azimuth_true_deg < 360", name="ck_bearing_az"),
@@ -195,7 +223,7 @@ class Bearing(Base):
             "azimuth_input_ref in ('true','magnetic','compass')", name="ck_bearing_ref"
         ),
         CheckConstraint("polarization in ('h','v','unknown')", name="ck_bearing_pol"),
-        CheckConstraint("source in ('manual','sensor')", name="ck_bearing_source"),
+        CheckConstraint("source in ('manual','sensor','external')", name="ck_bearing_source"),
         Index("ix_bearing_mission_measured", "mission_id", "measured_at"),
     )
 
