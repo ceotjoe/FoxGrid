@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     Bearing,
+    BearingPoint,
     BearingRevision,
     Estimate,
     Mission,
@@ -31,6 +32,7 @@ from app.services.serialize import (
     event_json,
     mission_out,
     participant_out,
+    point_out,
     position_out,
     rssi_out,
     transmission_out,
@@ -51,6 +53,7 @@ class MissionData:
     estimate_all: Estimate | None
     estimate_current: Estimate | None
     rssi: list[RssiSample] = field(default_factory=list)
+    points: dict[uuid.UUID, BearingPoint] = field(default_factory=dict)
     callsigns: dict[uuid.UUID, str] = field(default_factory=dict)
 
     @property
@@ -94,6 +97,14 @@ async def load_mission_data(session: AsyncSession, mission: Mission) -> MissionD
             select(RssiSample).where(RssiSample.mission_id == mid).order_by(RssiSample.measured_at)
         )
     )
+    points = {
+        p.id: p
+        for p in await session.scalars(
+            select(BearingPoint)
+            .where(BearingPoint.mission_id == mid)
+            .order_by(BearingPoint.created_at)
+        )
+    }
     estimates: dict[str, Estimate | None] = {}
     for scope in ("all", "current"):
         estimates[scope] = await session.scalar(
@@ -112,6 +123,7 @@ async def load_mission_data(session: AsyncSession, mission: Mission) -> MissionD
         estimate_all=estimates["all"],
         estimate_current=estimates["current"],
         rssi=rssi,
+        points=points,
         callsigns={pid: p.callsign for pid, p in participants.items()},
     )
 
@@ -140,10 +152,25 @@ def _tracks(data: MissionData) -> dict[uuid.UUID, list[PositionSample]]:
     return tracks
 
 
+def _source(data: MissionData, b: Bearing) -> str:
+    """Who took the bearing: a callsign, or the external point it was entered for."""
+    if b.point_id is not None:
+        point = data.points.get(b.point_id)
+        return f"extern: {point.name if point else '?'}"
+    return data.callsigns.get(b.participant_id, "?")
+
+
+def _excluded(data: MissionData, b: Bearing) -> bool:
+    """A bearing of an external point that is switched off or deactivated does not count."""
+    point = data.points.get(b.point_id) if b.point_id is not None else None
+    return point is not None and not (point.use_in_estimate and point.is_active)
+
+
 def _bearing_label(data: MissionData, b: Bearing) -> str:
-    who = data.callsigns.get(b.participant_id, "?")
+    who = _source(data, b)
     flag = " [Ausreißer]" if b.is_outlier else ""
     flag += " [inaktiv]" if not b.is_active else ""
+    flag += " [nicht in Schätzung]" if _excluded(data, b) else ""
     return f"{who} {float(b.azimuth_true_deg):.0f}° ±{float(b.sigma_deg):.0f}°{flag}"
 
 
@@ -172,6 +199,10 @@ def build_gpx(data: MissionData) -> bytes:
         ET.SubElement(
             wpt, "desc"
         ).text = f"{est.n_bearings} Peilungen, 1σ-Ellipse {major:.0f} x {minor:.0f} m"
+    for bp in data.points.values():
+        wpt = ET.SubElement(gpx, "wpt", {"lat": f"{bp.lat:.7f}", "lon": f"{bp.lon:.7f}"})
+        ET.SubElement(wpt, "name").text = f"Peilpunkt {bp.name}"
+        ET.SubElement(wpt, "desc").text = bp.note or ""
     for b in data.bearings:
         wpt = ET.SubElement(gpx, "wpt", {"lat": f"{b.lat:.7f}", "lon": f"{b.lon:.7f}"})
         ET.SubElement(wpt, "time").text = _iso(b.measured_at)
@@ -262,12 +293,23 @@ def build_kml(data: MissionData) -> bytes:
             for i, poly in enumerate(polys):
                 _kml_polygon(folder, f"{mass} % ({i + 1})", poly["coordinates"][0], f"c{mass}")
 
+    if data.points:
+        folder = ET.SubElement(doc, "Folder")
+        ET.SubElement(folder, "name").text = "Peilpunkte"
+        for bp in data.points.values():
+            pm = ET.SubElement(folder, "Placemark")
+            ET.SubElement(pm, "name").text = bp.name
+            ET.SubElement(pm, "description").text = bp.note or ""
+            marker = ET.SubElement(pm, "Point")
+            ET.SubElement(marker, "coordinates").text = f"{bp.lon:.7f},{bp.lat:.7f},0"
+
     folder = ET.SubElement(doc, "Folder")
     ET.SubElement(folder, "name").text = "Peilungen"
     for b in data.bearings:
         pm = ET.SubElement(folder, "Placemark")
         ET.SubElement(pm, "name").text = _bearing_label(data, b)
-        ET.SubElement(pm, "styleUrl").text = "#outlier" if b.is_outlier else "#ray"
+        flagged = b.is_outlier or _excluded(data, b)
+        ET.SubElement(pm, "styleUrl").text = "#outlier" if flagged else "#ray"
         ts = ET.SubElement(pm, "TimeStamp")
         ET.SubElement(ts, "when").text = _iso(b.measured_at)
         end_lat, end_lon = _destination(b.lat, b.lon, float(b.azimuth_true_deg), RAY_LENGTH_M)
@@ -307,6 +349,7 @@ def build_json(data: MissionData) -> bytes:
         "mission": event_json(mission_out(data.mission)),
         "participants": [event_json(participant_out(p)) for p in data.participants.values()],
         "transmissions": [event_json(transmission_out(t)) for t in data.transmissions],
+        "points": [event_json(point_out(p)) for p in data.points.values()],
         "bearings": [event_json(bearing_out(b)) for b in data.bearings],
         "bearing_revisions": [event_json(RevisionOut.model_validate(r)) for r in data.revisions],
         "estimates": [event_json(estimate_out(e)) for e in estimates],
@@ -428,15 +471,17 @@ def _map_drawing(data: MissionData, width: float, height: float) -> Any:
             "#4caf50",
         )
     ]
-    colour_of = {pid: palette[i % len(palette)] for i, pid in enumerate(data.callsigns)}
+    # One colour per participant and per external point.
+    keys: list[uuid.UUID] = [*data.callsigns, *data.points]
+    colour_of = {key: palette[i % len(palette)] for i, key in enumerate(keys)}
     for b in data.bearings:
-        col = colour_of.get(b.participant_id, colors.black)
+        col = colour_of.get(b.point_id or b.participant_id, colors.black)
         start = to_px(b.lon, b.lat)
         end_lat, end_lon = _destination(b.lat, b.lon, float(b.azimuth_true_deg), span * 2)
         seg = _clip_segment(start, to_px(end_lon, end_lat), box)
         if seg:
             line = Line(*seg[0], *seg[1], strokeColor=col, strokeWidth=1.1)
-            if b.is_outlier or not b.is_active:
+            if b.is_outlier or not b.is_active or _excluded(data, b):
                 line.strokeDashArray = [3, 3]
             d.add(line)
         d.add(Circle(*start, 2.4, fillColor=col, strokeColor=colors.white, strokeWidth=0.4))
@@ -444,7 +489,7 @@ def _map_drawing(data: MissionData, width: float, height: float) -> Any:
             String(
                 start[0] + 4,
                 start[1] + 3,
-                data.callsigns.get(b.participant_id, "?"),
+                _source(data, b),
                 fontSize=6.5,
                 fillColor=col,
             )
@@ -542,7 +587,8 @@ def build_pdf(data: MissionData) -> bytes:
         _map_drawing(data, 180 * mm, 120 * mm),
         Paragraph(
             "Rot: Wahrscheinlichkeitsmasse 50/80/95 % und 1σ-Ellipse · "
-            "gestrichelt: Ausreißer/inaktiv · Punkte: RSSI (blau schwach, rot stark)",
+            "gestrichelt: Ausreißer/inaktiv/nicht in Schätzung · "
+            "extern: Peilung von außerhalb · Punkte: RSSI (blau schwach, rot stark)",
             styles["Italic"],
         ),
         Spacer(1, 6 * mm),
@@ -552,10 +598,12 @@ def build_pdf(data: MissionData) -> bytes:
     rows = [["Zeit (UTC)", "Peiler", "Azimut", "σ", "RSSI", "Aussendung", "Status", "Notiz"]]
     for b in data.bearings:
         status = "Ausreißer" if b.is_outlier else ("inaktiv" if not b.is_active else "ok")
+        if _excluded(data, b):
+            status = "nicht in Schätzung"
         rows.append(
             [
                 b.measured_at.astimezone(UTC).strftime("%d.%m. %H:%M:%S"),
-                data.callsigns.get(b.participant_id, "?"),
+                Paragraph(_esc(_source(data, b)), styles["BodyText"]),
                 f"{float(b.azimuth_true_deg):.1f}°",
                 f"±{float(b.sigma_deg):.0f}°",
                 "" if b.rssi_dbm is None else f"{b.rssi_dbm:.0f} dBm",
@@ -567,7 +615,7 @@ def build_pdf(data: MissionData) -> bytes:
     story.append(
         _table(
             rows,
-            [24 * mm, 20 * mm, 17 * mm, 12 * mm, 18 * mm, 20 * mm, 20 * mm, 49 * mm],
+            [24 * mm, 26 * mm, 17 * mm, 12 * mm, 16 * mm, 18 * mm, 22 * mm, 45 * mm],
         )
     )
 

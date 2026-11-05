@@ -46,5 +46,6 @@ Release builds connect to HTTPS servers only.
 
 - [Homing](homing.md): close-range search with signal strength.
 - [Fixed stations](omni-stations.md): omnidirectional stations on the repeater input.
+- [External bearings](external-bearings.md): the lead enters bearings received from outside, e.g. from the BNetzA.
 - [Coordination and export](coordination.md): chat, tasks, offline behaviour, export.
 - [Known limitations](../reference/limitations.md).

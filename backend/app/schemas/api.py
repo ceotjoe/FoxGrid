@@ -250,6 +250,8 @@ class BearingIn(BaseModel):
     measured_at: AwareDatetime
     note: str | None = Field(default=None, max_length=1000)
     transmission_id: uuid.UUID | None = None
+    # External bearing (lead only): lat/lon must be the point's position.
+    point_id: uuid.UUID | None = None
 
 
 class BearingPatch(BaseModel):
@@ -282,6 +284,42 @@ class BearingOut(ORM):
     is_outlier: bool
     is_active: bool
     source: str
+    point_id: uuid.UUID | None = None
+
+
+class PointIn(BaseModel):
+    id: uuid.UUID  # client generated, idempotent
+    name: str = Field(min_length=1, max_length=60)
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=1000)
+    use_in_estimate: bool = True
+
+
+class PointPatch(BaseModel):
+    """The position is immutable; replace a wrong point by a new one and deactivate the old."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    note: str | None = Field(default=None, max_length=1000)
+    use_in_estimate: bool | None = None
+    is_active: bool | None = None
+
+
+class PointOut(ORM):
+    id: uuid.UUID
+    mission_id: uuid.UUID
+    name: str
+    lat: float
+    lon: float
+    accuracy_m: float | None
+    note: str | None
+    use_in_estimate: bool
+    is_active: bool
+    created_by: uuid.UUID
+    created_at: datetime
 
 
 class RevisionOut(ORM):
@@ -435,6 +473,7 @@ class SnapshotOut(BaseModel):
     tasks: list[TaskOut] = Field(default_factory=list)
     teams: list[TeamOut] = Field(default_factory=list)
     rssi: list[RssiOut] = Field(default_factory=list)  # latest samples, oldest first
+    points: list[PointOut] = Field(default_factory=list)  # external bearing points
 
 
 class RssiIn(BaseModel):

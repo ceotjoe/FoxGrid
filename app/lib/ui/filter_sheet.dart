@@ -118,6 +118,16 @@ class FilterSheet extends ConsumerWidget {
                 onChanged: (v) => notifier.set(f.copyWith(showRings: v)),
               ),
               SwitchListTile(
+                key: const Key('filter-external'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Externe Peilungen anzeigen'),
+                subtitle: const Text(
+                  'Nur Anzeige, die Schätzung bleibt gleich',
+                ),
+                value: f.showExternal,
+                onChanged: (v) => notifier.set(f.copyWith(showExternal: v)),
+              ),
+              SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Ausreißer ausblenden'),
                 value: f.hideOutliers,

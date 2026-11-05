@@ -11,7 +11,7 @@ backend/
     config.py   settings (FOXGRID_*)
     events.py   Redis Pub/Sub publishing
     mqtt_ingest separate MQTT ingest process
-  alembic/      migrations 0001–0009
+  alembic/      migrations 0001–0010
   tests/        integration tests against PostGIS + Redis (testcontainers)
 ```
 
@@ -19,6 +19,7 @@ backend/
 
 - **Trust filter.** Every query that feeds an estimate must go through `domain.trusted_only(stmt, Bearing | RssiSample)`. See
   [Domain rules](../concepts/domain-rules.md).
+- **External points.** `api/points.py`; `domain.trusted_only(stmt, Bearing)` also drops bearings whose point is switched off or inactive.
 - **Recompute.** Per-mission trailing debounce (500 ms, max wait 2 s) plus a Redis lock; both scopes (`current`, `all`). Calibration
   readings (repeater **output**, known position) never enter the fit: `calibration_offsets` in `services/recompute.py` turns them into
   relative station offsets (assumed exponent 3, needs 3 stations, centred on the mean) which are passed to the engine as `offset_db`.

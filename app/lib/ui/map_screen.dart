@@ -26,6 +26,7 @@ import 'filter_sheet.dart';
 import 'homing_screen.dart';
 import 'audit_screen.dart';
 import 'participants_screen.dart';
+import 'points_screen.dart';
 import 'station_screen.dart';
 import 'settings_screen.dart';
 import 'map_palette.dart';
@@ -100,6 +101,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   List<LatLng> _interestingPoints(MissionState state, Estimate? estimate) => [
     if (estimate != null) ...estimate.ellipse2s.ring,
     for (final b in state.bearings.values) b.station,
+    for (final p in state.points.values) p.position,
     for (final p in state.positions.values) p.point,
   ];
 
@@ -212,6 +214,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 onTap: () {
                   Navigator.pop(ctx);
                   _openInvite(session);
+                },
+              ),
+            if (session.isLead)
+              ListTile(
+                key: const Key('open-points'),
+                leading: const Icon(Icons.add_location_alt_outlined),
+                title: const Text('Externe Peilpunkte'),
+                subtitle: const Text('Peilungen von außerhalb, z. B. BNetzA'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _push(const PointsScreen());
                 },
               ),
             ListTile(
@@ -771,6 +784,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       ),
                     ),
                   ..._stationMarkers(state),
+                  if (filter.showExternal)
+                    for (final p in state.points.values)
+                      if (p.isActive) _pointMarker(p),
                   if (state.mission?.repeater != null)
                     Marker(
                       point: state.mission!.repeater!.point,
@@ -1146,11 +1162,53 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               b.sigmaDeg,
               _rayLengthM,
             ),
-            color: _pal
-                .participant(b.participantId)
-                .withValues(alpha: 0.10 * _alpha(b, now)),
+            color: _bearingColor(b).withValues(
+              alpha: 0.10 * _alpha(b, now) * (_counts(state, b) ? 1 : 0.5),
+            ),
           ),
       ];
+
+  /// External bearings take the colour of their point, all others the participant's.
+  Color _bearingColor(Bearing b) => _pal.participant(
+    b.pointId != null ? 'point:${b.pointId}' : b.participantId,
+  );
+
+  /// False for bearings of an external point that is off or deactivated.
+  bool _counts(MissionState state, Bearing b) {
+    final id = b.pointId;
+    if (id == null) return true;
+    final point = state.points[id];
+    return point == null || (point.useInEstimate && point.isActive);
+  }
+
+  Marker _pointMarker(BearingPoint p) => Marker(
+    point: p.position,
+    width: 120,
+    height: 56,
+    child: Column(
+      key: Key('point-marker-${p.id}'),
+      children: [
+        Icon(
+          Icons.cell_tower,
+          color: _pal.participant('point:${p.id}'),
+          size: 26,
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            color: _pal.labelBackground,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            p.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, color: _pal.labelText),
+          ),
+        ),
+      ],
+    ),
+  );
 
   List<Polyline> _rays(
     MissionState state,
@@ -1164,10 +1222,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           destination(b.station, b.azimuthTrueDeg, _rayLengthM),
         ],
         strokeWidth: 2.5,
-        color: _pal
-            .participant(b.participantId)
+        color: _bearingColor(b)
             .withValues(alpha: (b.isOutlier ? 0.7 : 1) * _alpha(b, now)),
-        pattern: b.isOutlier
+        // Dashed: flagged as outlier, or an external point that does not count in the estimate.
+        pattern: (b.isOutlier || !_counts(state, b))
             ? StrokePattern.dashed(segments: const [8, 8])
             : const StrokePattern.solid(),
       ),

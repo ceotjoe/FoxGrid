@@ -24,6 +24,7 @@ from app.config import Settings
 from app.db import get_session
 from app.models import (
     Bearing,
+    BearingPoint,
     BearingRevision,
     Estimate,
     Mission,
@@ -204,6 +205,7 @@ def _same_bearing(existing: Bearing, body: BearingIn, actor: Participant) -> boo
         and abs(existing.lat - body.lat) < 1e-9
         and abs(existing.lon - body.lon) < 1e-9
         and existing.measured_at == body.measured_at
+        and existing.point_id == body.point_id
     )
 
 
@@ -226,6 +228,14 @@ async def create_bearing(
 
     if await session.get(Mission, mission_id) is None:
         raise HTTPException(404, "mission not found")
+    if body.point_id is not None:
+        if actor.role != "lead":
+            raise HTTPException(403, "only a lead may enter external bearings")
+        point = await session.get(BearingPoint, body.point_id)
+        if point is None or point.mission_id != mission_id or not point.is_active:
+            raise HTTPException(422, "unknown or inactive bearing point")
+        if abs(point.lat - body.lat) > 1e-9 or abs(point.lon - body.lon) > 1e-9:
+            raise HTTPException(422, "bearing position must equal the bearing point")
     tx_id = body.transmission_id
     if tx_id is not None:
         tx = await session.get(Transmission, tx_id)
@@ -252,6 +262,8 @@ async def create_bearing(
         polarization=body.polarization,
         measured_at=body.measured_at,
         note=body.note,
+        point_id=body.point_id,
+        source="external" if body.point_id is not None else "manual",
     )
     session.add(bearing)
     try:

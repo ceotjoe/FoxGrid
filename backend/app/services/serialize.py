@@ -6,6 +6,7 @@ from typing import Any
 
 from app.models import (
     Bearing,
+    BearingPoint,
     Estimate,
     Message,
     Mission,
@@ -21,6 +22,7 @@ from app.schemas.api import (
     MessageOut,
     MissionOut,
     ParticipantOut,
+    PointOut,
     PositionOut,
     RepeaterIn,
     RssiFitOut,
@@ -95,7 +97,12 @@ def bearing_out(b: Bearing) -> BearingOut:
         is_outlier=b.is_outlier,
         is_active=b.is_active,
         source=b.source,
+        point_id=b.point_id,
     )
+
+
+def point_out(p: BearingPoint) -> PointOut:
+    return PointOut.model_validate(p)
 
 
 def position_out(p: PositionSample) -> PositionOut:

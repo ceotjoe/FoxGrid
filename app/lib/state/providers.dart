@@ -259,6 +259,7 @@ class MissionState {
     this.tasks = const {},
     this.teams = const [],
     this.rssi = const [],
+    this.points = const {},
     this.connection = LiveStatus.connecting,
     this.error,
     this.loaded = false,
@@ -278,6 +279,9 @@ class MissionState {
 
   /// Signal strength readings of all participants, oldest first.
   final List<RssiSample> rssi;
+
+  /// External bearing points by id (see [BearingPoint]).
+  final Map<String, BearingPoint> points;
   final LiveStatus connection;
   final String? error;
   final bool loaded;
@@ -312,6 +316,7 @@ class MissionState {
     Map<String, TaskItem>? tasks,
     List<Team>? teams,
     List<RssiSample>? rssi,
+    Map<String, BearingPoint>? points,
     LiveStatus? connection,
     String? error,
     bool clearError = false,
@@ -329,6 +334,7 @@ class MissionState {
     tasks: tasks ?? this.tasks,
     teams: teams ?? this.teams,
     rssi: rssi ?? this.rssi,
+    points: points ?? this.points,
     connection: connection ?? this.connection,
     error: clearError ? null : (error ?? this.error),
     loaded: loaded ?? this.loaded,
@@ -464,6 +470,10 @@ class MissionNotifier extends Notifier<MissionState> {
         for (final r in (s['rssi'] as List?) ?? const [])
           RssiSample.fromJson(r as Map<String, dynamic>),
       ],
+      points: {
+        for (final p in (s['points'] as List?) ?? const [])
+          (p as Map<String, dynamic>)['id'] as String: BearingPoint.fromJson(p),
+      },
       loaded: true,
       stale: stale,
       clearError: true,
@@ -499,6 +509,20 @@ class MissionNotifier extends Notifier<MissionState> {
         switch (e.kind) {
           case 'bearing':
             s = _withBearing(s, _bearingFromPayload(body, session));
+          case 'point_create':
+            s = s.copyWith(
+              points: {
+                ...s.points,
+                body['id'] as String:
+                    s.points[body['id']] ?? _pointFromPayload(body),
+              },
+            );
+          case 'point_patch':
+            final id = e.path.split('/').last;
+            final pt = s.points[id];
+            if (pt != null) {
+              s = s.copyWith(points: {...s.points, id: _patchPoint(pt, body)});
+            }
           case 'message':
             if (!s.messages.any((m) => m.id == body['id'])) {
               s = s.copyWith(
@@ -607,6 +631,9 @@ class MissionNotifier extends Notifier<MissionState> {
         _applyParticipant(Participant.fromJson(data));
       case 'bearing_created' || 'bearing_updated':
         state = _withBearing(state, Bearing.fromJson(data));
+      case 'point_created' || 'point_updated':
+        final pt = BearingPoint.fromJson(data);
+        state = state.copyWith(points: {...state.points, pt.id: pt});
       case 'transmission_started':
         // The server copy replaces our optimistic local one.
         state = state.copyWith(
@@ -666,7 +693,28 @@ class MissionNotifier extends Notifier<MissionState> {
     transmissionId: b.transmissionId,
     rssiDbm: b.rssiDbm,
     note: b.note,
+    pointId: b.pointId,
   );
+
+  static BearingPoint _pointFromPayload(Map<String, dynamic> p) => BearingPoint(
+    id: p['id'] as String,
+    name: p['name'] as String,
+    position: LatLng(
+      (p['lat'] as num).toDouble(),
+      (p['lon'] as num).toDouble(),
+    ),
+    accuracyM: (p['accuracy_m'] as num?)?.toDouble(),
+    note: p['note'] as String?,
+    useInEstimate: (p['use_in_estimate'] as bool?) ?? true,
+  );
+
+  static BearingPoint _patchPoint(BearingPoint pt, Map<String, dynamic> c) =>
+      pt.copyWith(
+        name: c['name'] as String?,
+        note: c['note'] as String?,
+        useInEstimate: c['use_in_estimate'] as bool?,
+        isActive: c['is_active'] as bool?,
+      );
 
   static Bearing _bearingFromPayload(Map<String, dynamic> p, Session s) =>
       Bearing(
@@ -683,6 +731,7 @@ class MissionNotifier extends Notifier<MissionState> {
         isActive: true,
         rssiDbm: (p['rssi_dbm'] as num?)?.toDouble(),
         note: p['note'] as String?,
+        pointId: p['point_id'] as String?,
       );
 
   static RssiSample _rssiFromPayload(Map<String, dynamic> p, Session s) =>
@@ -842,6 +891,81 @@ class MissionNotifier extends Notifier<MissionState> {
       body: payload,
     );
   }
+
+  /// Lead only: adds a named external bearing point (e.g. "BNetzA Köln").
+  /// Returns its id; bearings for it can be queued right away.
+  Future<String> createPoint({
+    required String name,
+    required LatLng position,
+    double? accuracyM,
+    String? note,
+    bool useInEstimate = true,
+    String? id,
+  }) async {
+    final payload = {
+      'id': id ?? _newId(),
+      'name': name.trim(),
+      'lat': position.latitude,
+      'lon': position.longitude,
+      'accuracy_m': accuracyM,
+      'note': note,
+      'use_in_estimate': useInEstimate,
+    };
+    state = state.copyWith(
+      points: {
+        ...state.points,
+        payload['id']! as String: _pointFromPayload(payload),
+      },
+    );
+    await _enqueue(
+      kind: 'point_create',
+      method: 'POST',
+      path: '$_base/points',
+      body: payload,
+    );
+    return payload['id']! as String;
+  }
+
+  /// Lead only: rename, switch the estimate on/off or deactivate a point.
+  /// Only `name`, `note`, `use_in_estimate` and `is_active` can change.
+  Future<void> patchPoint(String id, Map<String, dynamic> changes) async {
+    final pt = state.points[id];
+    if (pt != null) {
+      state = state.copyWith(
+        points: {...state.points, id: _patchPoint(pt, changes)},
+      );
+    }
+    await _enqueue(
+      kind: 'point_patch',
+      method: 'PATCH',
+      path: '$_base/points/$id',
+      body: changes,
+    );
+  }
+
+  /// Lead only: queues a bearing received from outside the group for [point].
+  /// The position is the point's, never the device's; the azimuth must already be true north.
+  Future<void> saveExternalBearing(
+    BearingPoint point, {
+    required double azimuthTrueDeg,
+    required double sigmaDeg,
+    required DateTime measuredAt,
+    double? sMeter,
+    String? note,
+    String? id,
+  }) => saveBearing({
+    'id': id ?? _newId(),
+    'lat': point.position.latitude,
+    'lon': point.position.longitude,
+    'station_accuracy_m': point.accuracyM,
+    'azimuth_true_deg': azimuthTrueDeg,
+    'azimuth_input_ref': 'true',
+    'sigma_deg': sigmaDeg,
+    's_meter': sMeter,
+    'measured_at': measuredAt.toUtc().toIso8601String(),
+    'note': note,
+    'point_id': point.id,
+  });
 
   Future<void> sendMessage(
     String body, {

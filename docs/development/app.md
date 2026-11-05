@@ -56,6 +56,19 @@ The map draws, per station, the distance ring from `ringDistanceM` (`core/signal
 offsets) with ± residual bands; the filter toggle is `showRings`. The calibration offset is not known to the app, so rings use only
 the estimated offset. Homing dots show `mobile` readings only.
 
+## External bearing points
+
+`BearingPoint` (`core/models.dart`) and `MissionState.points` (snapshot `points`, live `point_created` / `point_updated`). The lead's
+`MissionNotifier.createPoint`, `patchPoint` and `saveExternalBearing` write through the outbox like everything else (kinds
+`point_create`, `point_patch`, `bearing` with `point_id`); queued points are re-applied by `_overlayPending`. A point's position is
+immutable and an external bearing always uses the point's position and `azimuth_input_ref: true`. The lead finds the list (`ui/points_screen.dart`: estimate
+switch, deactivate, bearing count) under *verwalten → Externe Peilpunkte*. `ui/point_editor_screen.dart` creates a point: tap on the
+map, typed coordinates or the device location keep one marker and two fields in sync; the name must be unique (the server enforces
+it too). `core/coords.dart` parses decimal degrees, degrees + decimal minutes and degrees/minutes/seconds with N/S/E/W/O. `ui/external_bearing_sheet.dart` enters
+a bearing for a point (true azimuth, sigma preset, measurement time, note; "save and more"); it is opened from the list and right
+after a point is created. The map draws each point as a labelled marker in its own colour (`point:<id>` through `MapPalette`), its
+rays dashed when the point is off or inactive; `BearingFilter.showExternal` hides points and rays (display only).
+
 ## Push
 
 `PushRegistrar` (`state/push.dart`, `core/push.dart`) registers the FCM token. See [Push notifications](../operations/push-notifications.md).

@@ -15,6 +15,8 @@ from app import events
 from app.config import Settings
 from app.models import (
     AuditLog,
+    Bearing,
+    BearingPoint,
     Message,
     Mission,
     Participant,
@@ -29,9 +31,19 @@ ASSIGN_SLACK = timedelta(seconds=5)
 
 
 def trusted_only[S: Select[Any]](stmt: S, model: type) -> S:
-    """Restrict a Bearing/RssiSample query to participants whose data may move the estimate."""
+    """Restrict a Bearing/RssiSample query to data that may move the estimate.
+
+    Participants must be trusted. External bearings (``point_id`` set) also need their point to be
+    active and switched on for the estimate.
+    """
     trusted = select(Participant.id).where(Participant.trusted.is_(True))
-    return stmt.where(model.participant_id.in_(trusted))  # type: ignore[attr-defined]
+    stmt = stmt.where(model.participant_id.in_(trusted))  # type: ignore[attr-defined]
+    if model is Bearing:
+        counted = select(BearingPoint.id).where(
+            BearingPoint.use_in_estimate.is_(True), BearingPoint.is_active.is_(True)
+        )
+        stmt = stmt.where(or_(Bearing.point_id.is_(None), Bearing.point_id.in_(counted)))
+    return stmt
 
 
 async def audit(
