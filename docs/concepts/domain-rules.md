@@ -20,8 +20,9 @@ violate them.
 
 ## External bearing points
 
-- The lead can enter bearings received from outside the group (e.g. from the BNetzA) at a **named point** (`bearing_points`).
-  Such bearings carry `point_id` and `source = external`, are owned by the lead and follow all bearing rules above.
+- Whoever holds `point.manage` / `bearing.external` (lead, deputy, analyst) can enter bearings received from outside the group
+  (e.g. from the BNetzA) at a **named point** (`bearing_points`). Such bearings carry `point_id` and `source = external`, are
+  owned by the person who entered them and follow all bearing rules above.
 - A point's position is immutable (a wrong one is replaced by a new point and the old one deactivated); points are never deleted.
 - Whether a point's bearings move the estimate is switchable per point (`use_in_estimate`, default on), enforced in
   `domain.trusted_only` together with `is_active`. Switched-off bearings stay listed and exported.
@@ -35,11 +36,25 @@ violate them.
 ## Authentication and trust
 
 - No passwords. Each mission has **invite tokens** (QR code or link); the participant gives a callsign and receives a JWT.
-- An invite decides the role of a new participant (`mobile` or `fixed`). Leads only arise by promotion.
+- An invite decides the role of a new participant (`mobile` or `fixed`) and its authority (`member` or `observer`). Leads only
+  arise by promotion.
 - Whether a participant's data influences the estimate depends on **trust**. Every query feeding an estimate must go through
   `domain.trusted_only(stmt, Bearing | RssiSample)`: recompute (including calibration offsets), `/estimate/query` and
   `/suggestions`. A new such query must use it as well. Untrusted data is still stored, listed and exported.
+- **Observers never feed an estimate**, whatever their trust flag says: `domain.trusted_only` excludes them.
 - Details: [Access control and security](../user-guide/mission-lead-security.md).
+
+## Roles and permissions
+
+- Two axes: `role` is the data **source** (`mobile`/`fixed`, legacy `lead`), `authority` is the **standing**: `lead`, `deputy`,
+  `analyst`, `coordinator`, `member`, `station`, `observer`. `role == "lead"` and `authority == "lead"` always go together.
+- What an authority may do is defined in one table, `backend/app/services/permissions.py`. Endpoints use
+  `require(Permission.X)`; **never compare roles or authorities in an endpoint**. An unknown authority has no permissions.
+- Permissions are read from the database on every request (a role change takes effect at once).
+- Only the lead assigns roles, only to active participants. A mission always keeps at least one lead. Nobody but a lead changes
+  or quarantines a lead. `station` is never assigned by hand.
+- Observers see the result but no chat, tasks and positions of others (REST, snapshot, live channel, export tracks).
+- Full table and reasoning: [Roles and permissions](../user-guide/roles.md), [ADR 0007](../adr/0007-roles-and-permissions.md).
 
 ## Radio conventions
 

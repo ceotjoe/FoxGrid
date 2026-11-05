@@ -10,11 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import current_participant, member
+from app.api.deps import current_participant, require
 from app.db import get_session
 from app.models import Mission, Participant
 from app.schemas.api import DeclinationOut
 from app.services import declination, exporter
+from app.services.permissions import Permission, has_permission
 
 router = APIRouter()
 
@@ -30,14 +31,16 @@ _FORMATS = {
 async def export_mission(
     mission_id: uuid.UUID,
     fmt: Literal["gpx", "kml", "json", "pdf"],
-    _: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.EXPORT)),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     mission = await session.get(Mission, mission_id)
     if mission is None:
         raise HTTPException(404, "mission not found")
     media_type, build = _FORMATS[fmt]
-    data = await exporter.load_mission_data(session, mission)
+    data = await exporter.load_mission_data(
+        session, mission, include_tracks=has_permission(actor, Permission.EXPORT_TRACKS)
+    )
     safe = "".join(c if c.isalnum() else "_" for c in mission.name)[:40] or "mission"
     return Response(
         build(data),

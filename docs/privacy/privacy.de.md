@@ -35,8 +35,8 @@ Beim Beitritt zu einem Einsatz und während der Nutzung sendet die App an den vo
 
 | Daten | Zweck | Wann |
 |---|---|---|
-| Rufzeichen und Rolle (mobil/fest) | Zuordnung von Peilungen, Chat und Aufgaben zu Teilnehmenden | Beitritt |
-| Standort (Breite, Länge, Genauigkeit) | Position bei Peilungen; Anzeige der Teilnehmenden auf der Karte | nur bei geöffneter App, nachdem ihr den Standortzugriff erlaubt habt |
+| Rufzeichen, Rolle (mobil/fest) und Berechtigungsstufe (z. B. Beobachter, Auswerter) | Zuordnung von Peilungen, Chat und Aufgaben zu Teilnehmenden; legt fest, was ihr sehen und tun dürft | Beitritt; Änderung durch die Einsatzleitung |
+| Standort (Breite, Länge, Genauigkeit) | Position bei Peilungen; Anzeige der Teilnehmenden auf der Karte (nicht für Beobachter, die keine Positionen anderer sehen) | nur bei geöffneter App, nachdem ihr den Standortzugriff erlaubt habt |
 | Peilungen (Zeit, Position, Azimut, Unsicherheit, Feldstärke, Notiz) | Berechnung des wahrscheinlichsten Störer-Standorts | wenn ihr eine Peilung speichert |
 | Pegelwerte (S-Meter/dBm) | Nahpeilung und Schätzung | wenn ihr sie erfasst |
 | Chatnachrichten und Aufgaben | Zusammenarbeit im Team | wenn ihr sie sendet |
@@ -46,7 +46,7 @@ Beim Beitritt zu einem Einsatz und während der Nutzung sendet die App an den vo
 | Liste zuletzt benutzter Einsätze (Server, Einsatz-ID, Name, Rufzeichen; nur lokal, ohne Geheimnisse) | Rückkehr in einen Einsatz nach abgelaufener Sitzung | Beitritt |
 | 4-stelliger Beitritts-Code (nur bis zur Freigabe) | Abgleich per Funk mit der Einsatzleitung | Beitritt über einen Link mit Freigabe |
 | Push-Token (Kennung dieses Geräts bei Google Firebase Cloud Messaging, auf iOS über Apple APNs) | Benachrichtigung im Hintergrund, wenn die Aussendung des Störers beginnt | nach der Freigabe, nur wenn ihr Benachrichtigungen erlaubt habt; beim Verlassen des Einsatzes wird es abgemeldet |
-| Sicherheitsprotokoll (wer ist wann beigetreten, freigegeben, entfernt, unter Quarantäne gestellt) | Nachvollziehbarkeit für die Einsatzleitung | laufend, nur für die Einsatzleitung einsehbar |
+| Sicherheitsprotokoll (wer ist wann beigetreten, freigegeben, entfernt, unter Quarantäne gestellt) | Nachvollziehbarkeit für die Einsatzleitung | laufend, nur für die Einsatzleitung und ihre Stellvertretung (Co-Leiter) einsehbar |
 
 Die App fragt **keinen Standortzugriff im Hintergrund** an. Es gibt keine Werbung und keine Analyse- und
 Tracking-Werkzeuge. Eine Weitergabe an Dritte findet nur für Push-Benachrichtigungen statt: Der Server übergibt

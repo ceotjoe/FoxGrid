@@ -138,10 +138,12 @@ class FakeApi implements FoxGridApi {
   Object? declinationError;
 
   int createInviteCalls = 0;
+  final inviteAuthorities = <String>[];
 
   @override
-  Future<String> createInvite() async {
+  Future<String> createInvite({String authority = 'member'}) async {
     createInviteCalls++;
+    inviteAuthorities.add(authority);
     return 'newtok';
   }
 
@@ -249,6 +251,7 @@ class FakeApi implements FoxGridApi {
   Future<Participant> patchParticipant(
     String id, {
     String? role,
+    String? authority,
     String? status,
     bool? isActive,
     bool? trusted,
@@ -258,6 +261,7 @@ class FakeApi implements FoxGridApi {
       'trusted': trusted,
       'id': id,
       'role': role,
+      'authority': authority,
       'status': status,
       'isActive': isActive,
       'resetDevice': resetDevice,
@@ -270,6 +274,7 @@ class FakeApi implements FoxGridApi {
       id: id,
       callsign: known.callsign,
       role: role ?? known.role,
+      authority: authority ?? known.authority,
       status: status ?? known.status,
       isActive: isActive ?? known.isActive,
       deviceBound: resetDevice ? false : known.deviceBound,

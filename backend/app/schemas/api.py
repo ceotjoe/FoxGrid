@@ -8,6 +8,8 @@ from typing import Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Role = Literal["lead", "fixed", "mobile"]
+# What the lead can hand out. `station` belongs to sensors and is never assigned.
+AssignableAuthority = Literal["lead", "deputy", "analyst", "coordinator", "member", "observer"]
 Polarization = Literal["h", "v", "unknown"]
 AzimuthRef = Literal["true", "magnetic", "compass"]
 Scope = Literal["current", "all"]
@@ -93,6 +95,9 @@ class ParticipantOut(ORM):
     id: uuid.UUID
     callsign: str
     role: str
+    authority: str = "member"
+    # Effective permissions, so clients show or hide functions without knowing the matrix.
+    permissions: list[str] = []
     team: str | None = None
     joined_at: datetime
     last_seen_at: datetime | None
@@ -105,11 +110,16 @@ class ParticipantOut(ORM):
 
 
 class ParticipantPatch(BaseModel):
-    """Lead-only changes: promote/demote, remove (``is_active=false``), or release the device."""
+    """Promote/demote, approve, trust, remove (``is_active=false``) or release the device.
+
+    Each field needs its own permission (see ``patch_participant``).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     role: Role | None = None
+    # Standing in the mission (see `services.permissions`); only the lead assigns it.
+    authority: AssignableAuthority | None = None
     is_active: bool | None = None
     reset_device: bool = False
     status: Literal["active", "rejected"] | None = None  # approve or reject a joiner
@@ -199,6 +209,8 @@ class JoinOut(BaseModel):
 class InviteCreate(BaseModel):
     # Leads are never made by invite; the lead promotes a participant explicitly.
     default_role: Literal["fixed", "mobile"] = "mobile"
+    # Joiners become ordinary members, or read-only observers (needs `invite.manage`).
+    default_authority: Literal["member", "observer"] = "member"
     # Omitted values use the server defaults (FOXGRID_INVITE_MAX_USES / _TTL_HOURS).
     max_uses: int | None = Field(default=None, ge=1, le=1000)
     expires_in_hours: int | None = Field(default=None, ge=1, le=24 * 30)
@@ -210,6 +222,7 @@ class InviteOut(BaseModel):
     id: uuid.UUID
     token: str
     default_role: str
+    default_authority: str = "member"
     max_uses: int | None
     expires_at: datetime | None
     auto_approve: bool = False

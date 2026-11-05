@@ -27,13 +27,15 @@ should do, and what is deliberately not covered.
    allows returning without an invite (`POST /missions/{id}/rejoin`): this is how the lead gets back into their own mission once
    the session (72 h) and the invite (24 h) have expired. This never creates a participant; removed, rejected, approved (without
    binding) and sensor participants always get the same refusal.
-4. **Roles only from the lead.** A link always joins as "Mobile". "Fixed" and "Lead" are assigned by the lead.
+4. **Roles only from the lead.** A link always joins as an ordinary "Peiler" (and "Mobile"). "Fixed", "Lead" and every other role
+   ([Roles and permissions](roles.md)) are assigned by the lead. Nobody but a lead can change or quarantine a lead, and a mission
+   always keeps at least one.
 5. **Trust.** Only trusted participants move the estimate. Approval and promotion by the lead count as trust. Links with
    `auto_approve` (for exercises) yield participants who are initially untrusted: their bearings are visible and in the log, but
    do not change the result until the lead trusts them.
 6. **Quarantine.** Takes all bearings and readings of a participant out of the estimate at once, withdraws trust and can remove
    the participant in the same step. Nothing is deleted: the log stays complete and each bearing carries a revision.
-7. **Plausibility hints.** The lead can have the data checked for inconsistencies (bearings against the result of the others,
+7. **Plausibility hints.** The lead (and an analyst) can have the data checked for inconsistencies (bearings against the result of the others,
    position jumps, bearing location against the participant's own track). These are hints, not verdicts.
 8. **Rate limits.** Joins per client address; bearings, readings and chat per participant. The app resends later on 429.
 9. **Security log.** The lead sees who joined, was approved, removed or quarantined, and who created or replaced invites. Failed
@@ -45,6 +47,8 @@ should do, and what is deliberately not covered.
 
 - Do not post the link in open or mixed groups. Better: hand it over in person, as a QR code, or in a group that contains only the team.
 - Decide which radio net is used to ask for the join code.
+- Decide who gets which role. Give guests (authorities, press, colleagues who only want to follow) the **observer** role: they see
+  the result but no chat and no positions, and never move the estimate. Hand out as few lead and deputy roles as possible.
 - For exercises with a known group an `auto_approve` link may be used; not for a real mission.
 
 **During the mission**
@@ -68,9 +72,11 @@ should do, and what is deliberately not covered.
 - "Replace link" in the invite dialog (`POST …/invites/replace`) revokes all open links and issues one new one.
 - If someone changes phones, the lead releases the device (`PATCH …/participants/{id}` with `{"reset_device": true}`); after that
   a new join is enough.
-- Whoever joins via a link is always "Mobile". "Fixed" (omnidirectional station) and "Lead" are only assigned by the lead
-  (`PATCH …/participants/{id}` with `{"role": "fixed"}`) or by an invite with `default_role: "fixed"`.
-- The lead can remove participants (`{"is_active": false}`): access ends immediately and open connections are closed. The
+- Whoever joins via a link is always "Mobile" and a "Peiler" (`member`), or an observer if the link was made with
+  `default_authority: "observer"` (needs `invite.manage`: lead and deputy). "Fixed" (omnidirectional station) is assigned by the
+  lead (`{"role": "fixed"}`) or by an invite with `default_role: "fixed"`. Every other role is assigned by the lead with
+  `PATCH …/participants/{id}` and `{"authority": "analyst"}` (see [Roles and permissions](roles.md)).
+- The lead or a deputy can remove participants (`{"is_active": false}`): access ends immediately and open connections are closed. The
   participant's bearings are kept. Undo with `{"is_active": true}`.
 - Rejected joiners cannot join again with the link. Invites with `auto_approve: true` skip the approval queue.
 - Quarantine is undone only bearing by bearing (reactivate through `PATCH`).

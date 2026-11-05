@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 
 import jwt
 from fastapi import Depends, HTTPException, Request
@@ -12,6 +13,7 @@ from app.config import Settings
 from app.db import get_session
 from app.models import Participant
 from app.security import decode_jwt
+from app.services.permissions import Permission, has_permission
 from app.services.recompute import RecomputeScheduler
 
 bearer = HTTPBearer(auto_error=False)
@@ -57,7 +59,12 @@ async def member(
     return participant
 
 
-async def lead(participant: Participant = Depends(member)) -> Participant:
-    if participant.role != "lead":
-        raise HTTPException(403, "lead role required")
-    return participant
+def require(permission: Permission) -> Callable[..., Awaitable[Participant]]:
+    """Dependency: an active member of the mission who holds `permission`."""
+
+    async def dependency(participant: Participant = Depends(member)) -> Participant:
+        if not has_permission(participant, permission):
+            raise HTTPException(403, f"permission required: {permission.value}")
+        return participant
+
+    return dependency

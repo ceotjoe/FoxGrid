@@ -17,6 +17,7 @@ import '../core/homing.dart';
 import '../core/live.dart';
 import '../core/models.dart';
 import '../core/outbox.dart';
+import '../core/permissions.dart';
 import '../core/recent_missions.dart';
 import '../core/session.dart';
 import '../core/sync.dart';
@@ -296,12 +297,12 @@ class MissionState {
     return null;
   }
 
-  /// Whether [participantId] with [role] may stop the running transmission:
-  /// its starter and the lead (the server enforces the same rule).
-  bool canStopRunning(String participantId, String role) {
+  /// Whether [participantId] may stop the running transmission: its starter, and whoever holds
+  /// `transmission.manage` ([canManage]); the server enforces the same rule.
+  bool canStopRunning(String participantId, {bool canManage = false}) {
     final t = running;
     return t != null &&
-        (role == 'lead' || t.startedBy == null || t.startedBy == participantId);
+        (canManage || t.startedBy == null || t.startedBy == participantId);
   }
 
   MissionState copyWith({
@@ -430,6 +431,11 @@ class MissionNotifier extends Notifier<MissionState> {
       for (final p in s['participants'] as List)
         (p as Map<String, dynamic>)['id'] as String: Participant.fromJson(p),
     };
+    // After a reconnect (the server closes the socket when our role changed) the snapshot is
+    // where we learn our new permissions.
+    final self = ref.read(sessionProvider);
+    final mine = self == null ? null : participants[self.participantId];
+    if (mine != null) _syncOwnSession(mine);
     final positions = {
       for (final p in s['positions'] as List)
         (p as Map<String, dynamic>)['participant_id'] as String:
@@ -592,10 +598,28 @@ class MissionNotifier extends Notifier<MissionState> {
 
   void _applyParticipant(Participant p) {
     state = state.copyWith(participants: {...state.participants, p.id: p});
+    _syncOwnSession(p);
+  }
+
+  /// A role or permission change of ours takes effect at once, e.g. the chat button disappears.
+  void _syncOwnSession(Participant p) {
     final own = ref.read(sessionProvider);
-    if (own != null && own.participantId == p.id && own.role != p.role) {
+    if (own != null &&
+        own.participantId == p.id &&
+        (own.role != p.role ||
+            own.effectiveAuthority != p.authority ||
+            (p.permissions.isNotEmpty &&
+                !setEquals(own.permissions, p.permissions)))) {
       unawaited(
-        ref.read(sessionProvider.notifier).set(own.copyWith(role: p.role)),
+        ref
+            .read(sessionProvider.notifier)
+            .set(
+              own.copyWith(
+                role: p.role,
+                authority: p.authority,
+                permissions: p.permissions.isEmpty ? null : p.permissions,
+              ),
+            ),
       );
     }
   }
@@ -1050,7 +1074,10 @@ class MissionNotifier extends Notifier<MissionState> {
     final at = DateTime.now().toUtc();
     final body = {'at': at.toIso8601String()};
     if (state.running != null &&
-        !state.canStopRunning(_session.participantId, _session.role)) {
+        !state.canStopRunning(
+          _session.participantId,
+          canManage: _session.can(Perm.transmissionManage),
+        )) {
       return;
     }
     if (state.running == null) {
@@ -1158,7 +1185,10 @@ final ownPositionProvider = NotifierProvider<OwnPositionNotifier, PositionFix?>(
 final positionReporterProvider = Provider<void>((ref) {
   final timer = Timer.periodic(const Duration(seconds: 7), (_) {
     final fix = ref.read(ownPositionProvider);
-    if (fix != null) {
+    // Observers (and stations without the right) do not share a position.
+    final mayShare =
+        ref.read(sessionProvider)?.can(Perm.positionShare) ?? false;
+    if (fix != null && mayShare) {
       ref
           .read(missionProvider.notifier)
           .sendPosition(
@@ -1325,7 +1355,7 @@ final joinCodesProvider = FutureProvider.autoDispose
       (ref, pendingKey) => ref.watch(apiProvider).joinCodes(),
     );
 
-/// Plausibility hints for the lead's participant list: participant id -> reasons.
+/// Plausibility hints for the participant list (needs `trust.set`): participant id -> reasons.
 final plausibilityProvider =
     FutureProvider.autoDispose<Map<String, List<String>>>(
       (ref) => ref.watch(apiProvider).plausibility(),

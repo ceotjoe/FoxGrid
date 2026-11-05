@@ -26,4 +26,8 @@
   QR codes but cannot scan them).
 - **Engine:** the PNG raster output is not implemented.
 - **Quarantine** cannot be undone in bulk; reactivate bearings one by one.
+- **Roles:** observers see the places where bearings were taken (the result needs them), only live positions, tracks, chat and
+  tasks are withheld. `team.manage` is defined but no endpoint uses it yet (teams arise when somebody joins with a team name).
+  Plain members cannot create tasks (coordinator, deputy, lead only). Older app versions do not know roles and show menus by the
+  old `role`; the server still refuses what is not allowed.
 - **Live channel:** no replay by sequence number; clients reload the snapshot after a reconnect.

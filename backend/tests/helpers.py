@@ -123,3 +123,18 @@ async def wait_for(predicate: Any, timeout: float = 8.0, interval: float = 0.1) 
         if asyncio.get_event_loop().time() > deadline:
             raise AssertionError("condition not met in time")
         await asyncio.sleep(interval)
+
+
+async def set_authority(database_url: str, participant_id: str, authority: str) -> None:
+    """Gives a participant an authority directly (the roles API comes with its own tests)."""
+    import asyncpg
+
+    conn = await asyncpg.connect(database_url.replace("+asyncpg", ""))
+    try:
+        await conn.execute(
+            "UPDATE participants SET authority = $1 WHERE id = $2",
+            authority,
+            uuid.UUID(participant_id),
+        )
+    finally:
+        await conn.close()

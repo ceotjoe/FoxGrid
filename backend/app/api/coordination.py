@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
-from app.api.deps import current_participant, get_redis, get_settings, member
+from app.api.deps import current_participant, get_redis, get_settings, require
 from app.config import Settings
 from app.db import get_session
 from app.models import Message, Participant, PushToken, Task, TaskEvent, Team
@@ -27,6 +27,7 @@ from app.schemas.api import (
     TeamOut,
 )
 from app.services import domain, ratelimit
+from app.services.permissions import Permission, has_permission
 from app.services.serialize import event_json, message_out, task_out
 
 router = APIRouter()
@@ -61,7 +62,7 @@ async def _check_assignee(
 @mission_router.get("/teams", response_model=list[TeamOut])
 async def list_teams(
     mission_id: uuid.UUID,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.TASK_WORK)),
     session: AsyncSession = Depends(get_session),
 ) -> list[Team]:
     rows = await session.scalars(select(Team).where(Team.mission_id == mission_id))
@@ -76,7 +77,7 @@ async def post_message(
     mission_id: uuid.UUID,
     body: MessageIn,
     response: Response,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.CHAT_WRITE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     settings: Settings = Depends(get_settings),
@@ -91,7 +92,7 @@ async def post_message(
         return message_out(existing, actor.callsign)
     if body.team_id is not None:
         await _check_team(session, mission_id, body.team_id)
-        if actor.team_id != body.team_id and actor.role != "lead":
+        if actor.team_id != body.team_id and not has_permission(actor, Permission.CHAT_MODERATE):
             raise HTTPException(403, "not a member of this team")
     msg = Message(
         id=body.id,
@@ -121,7 +122,7 @@ async def list_messages(
     mission_id: uuid.UUID,
     since: datetime | None = None,
     limit: int = Query(default=200, le=1000),
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.CHAT_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[MessageOut]:
     visible = domain.visible_messages(actor)
@@ -144,7 +145,7 @@ async def create_task(
     mission_id: uuid.UUID,
     body: TaskIn,
     response: Response,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.TASK_MANAGE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> TaskOut:
@@ -179,7 +180,7 @@ async def create_task(
 async def list_tasks(
     mission_id: uuid.UUID,
     status: str | None = None,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.TASK_WORK)),
     session: AsyncSession = Depends(get_session),
 ) -> list[TaskOut]:
     stmt = select(Task).where(Task.mission_id == mission_id)
@@ -194,7 +195,7 @@ async def patch_task(
     mission_id: uuid.UUID,
     task_id: uuid.UUID,
     body: TaskPatch,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.TASK_WORK)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> TaskOut:
@@ -205,7 +206,11 @@ async def patch_task(
     is_assignee = task.assignee_participant_id == actor.id or (
         task.assignee_team_id is not None and task.assignee_team_id == actor.team_id
     )
-    if actor.role != "lead" and task.created_by != actor.id and not is_assignee:
+    if (
+        not has_permission(actor, Permission.TASK_MANAGE)
+        and task.created_by != actor.id
+        and not is_assignee
+    ):
         raise HTTPException(403, "not allowed to change this task")
 
     changes = body.model_dump(exclude_unset=True)

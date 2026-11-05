@@ -8,7 +8,7 @@ from typing import Any
 
 from geoalchemy2 import WKTElement
 from redis.asyncio import Redis
-from sqlalchemy import ColumnElement, Select, delete, func, or_, select, text
+from sqlalchemy import ColumnElement, Select, delete, false, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
@@ -25,6 +25,7 @@ from app.models import (
     Transmission,
 )
 from app.schemas.api import PositionIn
+from app.services.permissions import Permission, has_permission
 from app.services.serialize import event_json, position_out
 
 ASSIGN_SLACK = timedelta(seconds=5)
@@ -33,10 +34,13 @@ ASSIGN_SLACK = timedelta(seconds=5)
 def trusted_only[S: Select[Any]](stmt: S, model: type) -> S:
     """Restrict a Bearing/RssiSample query to data that may move the estimate.
 
-    Participants must be trusted. External bearings (``point_id`` set) also need their point to be
-    active and switched on for the estimate.
+    Participants must be trusted and not observers. External bearings (``point_id`` set) also
+    need their point to be active and switched on for the estimate.
     """
-    trusted = select(Participant.id).where(Participant.trusted.is_(True))
+    # Observers never count, whatever their trust flag says.
+    trusted = select(Participant.id).where(
+        Participant.trusted.is_(True), Participant.authority != "observer"
+    )
     stmt = stmt.where(model.participant_id.in_(trusted))  # type: ignore[attr-defined]
     if model is Bearing:
         counted = select(BearingPoint.id).where(
@@ -200,9 +204,11 @@ async def purge_expired_tracks(session: AsyncSession) -> int:
 
 def visible_messages(actor: Participant) -> ColumnElement[bool]:
     """Mission-wide messages plus the actor's team channel (leads see every team channel)."""
+    if not has_permission(actor, Permission.CHAT_READ):
+        return false()  # observers and stations read no chat
     visible: ColumnElement[bool] = Message.team_id.is_(None)
     if actor.team_id is not None:
         visible = or_(visible, Message.team_id == actor.team_id)
-    if actor.role == "lead":
+    if has_permission(actor, Permission.CHAT_MODERATE):
         visible = or_(visible, Message.team_id.is_not(None))
     return visible

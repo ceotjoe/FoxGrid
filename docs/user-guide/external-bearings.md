@@ -1,7 +1,8 @@
 # External bearings (e.g. from the BNetzA)
 
-Sometimes bearings reach the mission lead from outside the group, for example from the Bundesnetzagentur. The lead enters them at a
-named **bearing point**, and they join the estimate like any other bearing. Only the lead can do this.
+Sometimes bearings reach the mission lead from outside the group, for example from the Bundesnetzagentur. The lead, a deputy or an
+analyst enters them at a named **bearing point**, and they join the estimate like any other bearing. Other roles can see the
+points and their bearings but not create or change them (see [Roles and permissions](roles.md)).
 
 ## Add a point
 

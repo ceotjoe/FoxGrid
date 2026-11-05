@@ -432,7 +432,9 @@ async def test_snapshot_contains_chat_tasks_and_teams(client: httpx.AsyncClient)
             headers=auth(a_token),
         )
     await client.post(
-        m.url("/tasks"), json={"id": str(uuid.uuid4()), "title": "Wache"}, headers=auth(a_token)
+        m.url("/tasks"),
+        json={"id": str(uuid.uuid4()), "title": "Wache"},
+        headers=auth(m.lead_token),  # plain members cannot create tasks
     )
     snap_b = (await client.get(m.url("/snapshot"), headers=auth(b_token))).json()
     assert [x["body"] for x in snap_b["messages"]] == ["public"]

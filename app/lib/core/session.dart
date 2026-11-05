@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'permissions.dart';
+
 /// Everything needed to talk to one mission as one participant.
 class Session {
   const Session({
@@ -11,6 +13,8 @@ class Session {
     required this.participantId,
     required this.callsign,
     required this.role,
+    this.authority,
+    this.permissions,
     this.inviteToken,
     this.status = 'active',
     this.missionName,
@@ -23,6 +27,13 @@ class Session {
   final String callsign;
   final String role;
 
+  /// Standing in the mission (`lead`, `deputy`, `analyst`, ...); absent in sessions stored by
+  /// older versions, which then count as lead or member by [role].
+  final String? authority;
+
+  /// What the server lets this participant do; absent in sessions stored by older versions.
+  final Set<String>? permissions;
+
   /// Only known on the device that created the mission.
   final String? inviteToken;
 
@@ -32,21 +43,46 @@ class Session {
   /// For the list of recent missions; absent in sessions stored by older versions.
   final String? missionName;
 
-  bool get isLead => role == 'lead';
+  String get effectiveAuthority =>
+      authority ?? (role == 'lead' ? 'lead' : 'member');
+  bool get isLead => effectiveAuthority == 'lead';
+  bool get isObserver => effectiveAuthority == 'observer';
+
+  /// Whether the server allows [permission]; the server enforces it, this only steers the UI.
+  bool can(String permission) =>
+      (permissions ?? legacyPermissions(role)).contains(permission);
   bool get isPending => status == 'pending';
 
-  Session copyWith({String? role, String? status, String? inviteToken}) =>
-      Session(
-        baseUrl: baseUrl,
-        token: token,
-        missionId: missionId,
-        participantId: participantId,
-        callsign: callsign,
-        role: role ?? this.role,
-        inviteToken: inviteToken ?? this.inviteToken,
-        status: status ?? this.status,
-        missionName: missionName,
-      );
+  /// Whether any of the "run the mission" tools applies (the manage sheet is worth opening).
+  bool get canManage => [
+    Perm.participantManage,
+    Perm.trustSet,
+    Perm.inviteCreate,
+    Perm.pointManage,
+    Perm.sensorManage,
+    Perm.auditView,
+    Perm.missionEnd,
+  ].any(can);
+
+  Session copyWith({
+    String? role,
+    String? authority,
+    Set<String>? permissions,
+    String? status,
+    String? inviteToken,
+  }) => Session(
+    baseUrl: baseUrl,
+    token: token,
+    missionId: missionId,
+    participantId: participantId,
+    callsign: callsign,
+    role: role ?? this.role,
+    authority: authority ?? this.authority,
+    permissions: permissions ?? this.permissions,
+    inviteToken: inviteToken ?? this.inviteToken,
+    status: status ?? this.status,
+    missionName: missionName,
+  );
 
   Uri get wsUri {
     final base = Uri.parse(baseUrl);
@@ -64,6 +100,8 @@ class Session {
     'participantId': participantId,
     'callsign': callsign,
     'role': role,
+    'authority': authority,
+    'permissions': permissions?.toList(),
     'inviteToken': inviteToken,
     'status': status,
     'missionName': missionName,
@@ -76,6 +114,8 @@ class Session {
     participantId: j['participantId'] as String,
     callsign: j['callsign'] as String,
     role: j['role'] as String,
+    authority: j['authority'] as String?,
+    permissions: (j['permissions'] as List?)?.cast<String>().toSet(),
     inviteToken: j['inviteToken'] as String?,
     status: j['status'] as String? ?? 'active',
     missionName: j['missionName'] as String?,

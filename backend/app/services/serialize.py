@@ -30,6 +30,7 @@ from app.schemas.api import (
     TaskOut,
     TransmissionOut,
 )
+from app.services.permissions import permissions_of
 
 
 def mission_out(m: Mission, area: list[tuple[float, float]] | None = None) -> MissionOut:
@@ -63,6 +64,8 @@ def participant_out(
         id=p.id,
         callsign=p.callsign,
         role=p.role,
+        authority=p.authority,
+        permissions=sorted(permissions_of(p.authority)),
         team=team,
         joined_at=p.joined_at,
         last_seen_at=p.last_seen_at,

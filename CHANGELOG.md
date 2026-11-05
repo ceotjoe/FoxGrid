@@ -3,6 +3,20 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## 0.5.0 – 2026-11-05
+
+- Roles and permissions: besides the data source (`role`) a participant now has an `authority`: lead, deputy (*Co-Leiter*), analyst
+  (*Auswerter*), coordinator (*Koordinator*), member (*Peiler*, the default), station or observer (*Beobachter*). One table
+  (`backend/app/services/permissions.py`) says what each may do; endpoints use `require(Permission.X)` instead of comparing roles
+  (migrations 0011 and 0012, [ADR 0007](docs/adr/0007-roles-and-permissions.md), [Roles and permissions](docs/user-guide/roles.md)).
+- The lead assigns roles (`PATCH …/participants/{id}` with `authority`); a mission keeps at least one lead and only a lead can
+  change a lead. Invites can be created for observers (`default_authority`). Analysts can manage external points and enter external
+  bearings, flag outliers and set trust; coordinators run chat, tasks and ordinary invites.
+- Observers see the result but no chat, tasks or positions of others (REST, snapshot, live events, export tracks) and never move
+  the estimate. Plain members can no longer create tasks. A role change renews the live connection (close code 4409).
+- App: functions are shown by permission, role picker in the participant list, observer invite, own role changes take effect live.
+- Older app versions do not know roles and show their menus by the old `role`; the server still enforces everything.
+
 ## 0.4.0 – 2026-11-05
 
 - Backend: external bearing points (`/points`) so the lead can enter bearings received from outside the group (e.g. BNetzA); per-point switch for the estimate (migration 0010). App: model, state, outbox and live events for points; the lead can add points on the map, by coordinates or from the device location and enter bearings for them; the map shows points and their rays, with a filter switch. Exports (PDF, GPX, KML, JSON) name the points.

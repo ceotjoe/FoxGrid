@@ -6,7 +6,7 @@ import 'package:foxgrid/state/providers.dart';
 import 'package:latlong2/latlong.dart';
 
 void main() {
-  test('only the starter and the lead may stop a transmission', () {
+  test('only the starter and whoever manages transmissions may stop one', () {
     final tx = Transmission.fromJson({
       'id': 't1',
       'seq': 1,
@@ -16,11 +16,10 @@ void main() {
     });
     expect(tx.startedBy, 'p1');
     final s = MissionState(transmissions: [tx]);
-    expect(s.canStopRunning('p1', 'mobile'), isTrue);
-    expect(s.canStopRunning('p2', 'mobile'), isFalse);
-    expect(s.canStopRunning('p2', 'fixed'), isFalse);
-    expect(s.canStopRunning('p2', 'lead'), isTrue);
-    expect(const MissionState().canStopRunning('p1', 'lead'), isFalse);
+    expect(s.canStopRunning('p1'), isTrue);
+    expect(s.canStopRunning('p2'), isFalse);
+    expect(s.canStopRunning('p2', canManage: true), isTrue);
+    expect(const MissionState().canStopRunning('p1', canManage: true), isFalse);
   });
 
   test('estimate parses GeoJSON ring as lat/lon', () {

@@ -19,12 +19,19 @@ backend/
 
 - **Trust filter.** Every query that feeds an estimate must go through `domain.trusted_only(stmt, Bearing | RssiSample)`. See
   [Domain rules](../concepts/domain-rules.md).
-- **External points.** `api/points.py`; `domain.trusted_only(stmt, Bearing)` also drops bearings whose point is switched off or inactive.
+- **Roles and permissions.** `services/permissions.py` is the only place that says what an authority may do. Endpoints use
+  `Depends(require(Permission.X))` (`api/deps.py`); inside a function use `has_permission(actor, Permission.X)`. Never compare
+  `role` or `authority` directly (`role` is only the data source, e.g. omni readings). A new endpoint needs a permission and a test
+  in `tests/test_authorities.py`; events that need more than `view.result` are listed in `events.EVENT_PERMISSION`.
+  Observers are excluded in `trusted_only`; their chat and positions are withheld in the snapshot, REST and the WebSocket
+  (`ws/router.py` filters per event and closes the socket with 4409 when the own authority changes). See
+  [ADR 0007](../adr/0007-roles-and-permissions.md).
+- **External points.** `api/points.py` (`point.manage`); `domain.trusted_only(stmt, Bearing)` also drops bearings whose point is switched off or inactive.
 - **Recompute.** Per-mission trailing debounce (500 ms, max wait 2 s) plus a Redis lock; both scopes (`current`, `all`). Calibration
   readings (repeater **output**, known position) never enter the fit: `calibration_offsets` in `services/recompute.py` turns them into
   relative station offsets (assumed exponent 3, needs 3 stations, centred on the mean) which are passed to the engine as `offset_db`.
 - **Stations.** Omnidirectional readings are accepted only from role `fixed`/`lead`; sensor RSSI is stored as `omni`. A mission has
-  `repeater_lat/lon/input_mhz/output_mhz` (set at creation or `PATCH /missions/{id}`, lead only).
+  `repeater_lat/lon/input_mhz/output_mhz` (set at creation or `PATCH /missions/{id}`, needs `estimate.configure`).
 - **Rate limits.** `services/ratelimit.enforce(redis, bucket, subject, limit, cost)` is a fixed one-minute window in Redis; 429 with
   `Retry-After`. Settings `rate_*_per_min` (0 = off).
 - **Plausibility.** `services/plausibility.py` has pure functions (plain haversine, no pyproj). Thresholds are constants at the top of

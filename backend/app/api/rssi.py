@@ -10,12 +10,13 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_redis, get_scheduler, get_settings, member
+from app.api.deps import get_redis, get_scheduler, get_settings, require
 from app.config import Settings
 from app.db import get_session
 from app.models import Mission, Participant, RssiSample
 from app.schemas.api import RssiBatchResult, RssiIn, RssiOut, RssiPatch
 from app.services import domain, ratelimit
+from app.services.permissions import Permission, has_permission
 from app.services.recompute import RecomputeScheduler
 from app.services.serialize import rssi_out
 
@@ -40,7 +41,7 @@ def _same(existing: RssiSample, body: RssiIn, actor: Participant, mission_id: uu
 async def post_rssi(
     mission_id: uuid.UUID,
     body: list[RssiIn],
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.RSSI_SUBMIT)),
     session: AsyncSession = Depends(get_session),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
     redis: Redis = Depends(get_redis),
@@ -105,7 +106,7 @@ async def list_rssi(
     transmission: uuid.UUID | None = None,
     since: datetime | None = None,
     limit: int = Query(default=1000, le=5000),
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[RssiOut]:
     stmt = select(RssiSample).where(RssiSample.mission_id == mission_id)
@@ -124,7 +125,7 @@ async def patch_rssi(
     mission_id: uuid.UUID,
     sample_id: uuid.UUID,
     body: RssiPatch,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> RssiOut:
@@ -132,7 +133,7 @@ async def patch_rssi(
     sample = await session.get(RssiSample, sample_id)
     if sample is None or sample.mission_id != mission_id:
         raise HTTPException(404, "sample not found")
-    if actor.role != "lead" and sample.participant_id != actor.id:
+    if not has_permission(actor, Permission.BEARING_FLAG) and sample.participant_id != actor.id:
         raise HTTPException(403, "only the owner or a lead may change this sample")
     if sample.is_active != body.is_active:
         sample.is_active = body.is_active

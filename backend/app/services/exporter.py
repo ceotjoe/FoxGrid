@@ -61,7 +61,10 @@ class MissionData:
         return self.estimate_all or self.estimate_current
 
 
-async def load_mission_data(session: AsyncSession, mission: Mission) -> MissionData:
+async def load_mission_data(
+    session: AsyncSession, mission: Mission, *, include_tracks: bool = True
+) -> MissionData:
+    """`include_tracks=False` leaves out the position tracks (observers must not see them)."""
     mid = mission.id
     participants = {
         p.id: p
@@ -85,12 +88,16 @@ async def load_mission_data(session: AsyncSession, mission: Mission) -> MissionD
             .order_by(BearingRevision.id)
         )
     )
-    positions = list(
-        await session.scalars(
-            select(PositionSample)
-            .where(PositionSample.mission_id == mid)
-            .order_by(PositionSample.recorded_at)
+    positions = (
+        list(
+            await session.scalars(
+                select(PositionSample)
+                .where(PositionSample.mission_id == mid)
+                .order_by(PositionSample.recorded_at)
+            )
         )
+        if include_tracks
+        else []
     )
     rssi = list(
         await session.scalars(

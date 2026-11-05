@@ -33,8 +33,8 @@ When you join a mission and while you use it, the app sends the following to the
 
 | Data | Purpose | When |
 |---|---|---|
-| Callsign and role (mobile/fixed) | Attribute bearings, chat and tasks to participants | Joining |
-| Location (latitude, longitude, accuracy) | Position for bearings; showing participants on the map | Only while the app is open and after you allowed location access |
+| Callsign, role (mobile/fixed) and permission level (e.g. observer, analyst) | Attribute bearings, chat and tasks to participants; decide what you may see and do | Joining; changed by the mission lead |
+| Location (latitude, longitude, accuracy) | Position for bearings; showing participants on the map (not to observers, who see no positions of others) | Only while the app is open and after you allowed location access |
 | Bearings (time, position, azimuth, uncertainty, field strength, note) | Compute the most likely interferer location | When you save a bearing |
 | Signal levels (S-meter/dBm) | Homing and estimate | When you record them |
 | Chat messages and tasks | Teamwork | When you send them |
@@ -44,7 +44,7 @@ When you join a mission and while you use it, the app sends the following to the
 | List of recently used missions (server, mission ID, name, callsign; local only, no secrets) | Returning to a mission after the session expired | Joining |
 | 4-digit join code (only until approval) | Compare by radio with the mission lead | Joining through a link that needs approval |
 | Push token (identifier of this device at Google Firebase Cloud Messaging, via Apple APNs on iOS) | Background notification when the interferer starts transmitting | After approval, only if you allowed notifications; removed when you leave the mission |
-| Security log (who joined, was approved, removed or quarantined, and when) | Accountability for the mission lead | Ongoing, visible to the mission lead only |
+| Security log (who joined, was approved, removed or quarantined, and when) | Accountability for the mission lead | Ongoing, visible to the mission lead and deputies only |
 
 The app does **not** request background location access. There are no ads and no analytics or tracking tools.
 Data is only passed on for push notifications: the server hands the title, text and push token of a notification to

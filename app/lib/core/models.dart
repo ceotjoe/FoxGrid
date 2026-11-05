@@ -81,6 +81,8 @@ class Participant {
     required this.id,
     required this.callsign,
     required this.role,
+    this.authority = 'member',
+    this.permissions = const {},
     this.team,
     this.status = 'active',
     this.isActive = true,
@@ -92,6 +94,13 @@ class Participant {
   final String id;
   final String callsign;
   final String role;
+
+  /// Standing in the mission: `lead`, `deputy`, `analyst`, `coordinator`, `member`, `station`
+  /// or `observer`. [role] is the data source (mobile or fixed).
+  final String authority;
+
+  /// What the server lets this participant do.
+  final Set<String> permissions;
   final String? team;
 
   /// 4 digits to compare by radio while the join is pending (own and lead view only).
@@ -113,6 +122,10 @@ class Participant {
     id: j['id'] as String,
     callsign: j['callsign'] as String,
     role: j['role'] as String,
+    authority:
+        j['authority'] as String? ?? (j['role'] == 'lead' ? 'lead' : 'member'),
+    permissions:
+        (j['permissions'] as List?)?.cast<String>().toSet() ?? const {},
     team: j['team'] as String?,
     status: j['status'] as String? ?? 'active',
     isActive: j['is_active'] as bool? ?? true,

@@ -47,8 +47,9 @@ abstract class FoxGridApi {
   /// Lead only: revokes every open invite and returns the token of a fresh one.
   Future<String> replaceInvite();
 
-  /// Lead only: issues one more invite (server defaults for expiry and uses); others stay valid.
-  Future<String> createInvite();
+  /// Issues one more invite (server defaults for expiry and uses); others stay valid.
+  /// `authority: 'observer'` makes a read-only link and needs `invite.manage`.
+  Future<String> createInvite({String authority = 'member'});
 
   /// Lead only: ends the mission for everyone (irreversible); returns the ended mission.
   Future<Mission> endMission();
@@ -56,10 +57,11 @@ abstract class FoxGridApi {
   /// Own state; works while the join is still waiting for the lead's approval.
   Future<Participant> me();
 
-  /// Lead only: approve/reject, change the role, remove or release the device.
+  /// Approve/reject, trust, remove or release the device; the role (`authority`) is the lead's.
   Future<Participant> patchParticipant(
     String id, {
     String? role,
+    String? authority,
     String? status,
     bool? isActive,
     bool? trusted,
@@ -169,6 +171,8 @@ class DioFoxGridApi implements FoxGridApi {
       participantId: p['id'] as String,
       callsign: p['callsign'] as String,
       role: p['role'] as String,
+      authority: p['authority'] as String?,
+      permissions: (p['permissions'] as List?)?.cast<String>().toSet(),
       inviteToken: inviteToken,
       status: p['status'] as String? ?? 'active',
       missionName: (j['mission'] as Map)['name'] as String?,
@@ -238,11 +242,13 @@ class DioFoxGridApi implements FoxGridApi {
   }
 
   @override
-  Future<String> createInvite() async {
+  Future<String> createInvite({String authority = 'member'}) async {
     final r = await _call(
       'POST',
       '$_mission/invites',
-      data: <String, dynamic>{},
+      data: <String, dynamic>{
+        if (authority != 'member') 'default_authority': authority,
+      },
     );
     return (r.data as Map<String, dynamic>)['token'] as String;
   }
@@ -269,6 +275,7 @@ class DioFoxGridApi implements FoxGridApi {
   Future<Participant> patchParticipant(
     String id, {
     String? role,
+    String? authority,
     String? status,
     bool? isActive,
     bool? trusted,
@@ -279,6 +286,7 @@ class DioFoxGridApi implements FoxGridApi {
       '$_mission/participants/$id',
       data: {
         'role': ?role,
+        'authority': ?authority,
         'status': ?status,
         'is_active': ?isActive,
         'trusted': ?trusted,
