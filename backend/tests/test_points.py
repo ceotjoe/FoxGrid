@@ -182,3 +182,34 @@ async def test_external_bearings_do_not_trigger_plausibility_flags(
     lead_row = next(p for p in r.json() if p["participant_id"] == m.lead_id)
     assert lead_row["bearings"] == 0 and lead_row["flags"] == []
 
+
+async def test_exports_name_external_points(client: httpx.AsyncClient) -> None:
+    from xml.etree import ElementTree as ET
+
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    on = await add_point(client, m, "BNetzA Köln", STATIONS[0])
+    off = await add_point(client, m, "Alt & <Neu>", STATIONS[1])
+    assert (await add_external(client, m, on, note="per Telefon")).status_code == 201
+    assert (await add_external(client, m, off)).status_code == 201
+    await client.patch(m.url(f"/points/{off['id']}"), json={"use_in_estimate": False}, headers=h)
+
+    gpx = ET.fromstring((await client.get(m.url("/export.gpx"), headers=h)).content)
+    ns = {"g": "http://www.topografix.com/GPX/1/1"}
+    names = [n.text or "" for n in gpx.iterfind(".//g:wpt/g:name", ns)]
+    assert "Peilpunkt BNetzA Köln" in names
+    assert any(n.startswith("extern: BNetzA Köln") for n in names)
+    assert any("extern: Alt & <Neu>" in n and "[nicht in Schätzung]" in n for n in names)
+
+    kml = ET.fromstring((await client.get(m.url("/export.kml"), headers=h)).content)
+    k = {"k": "http://www.opengis.net/kml/2.2"}
+    knames = [n.text or "" for n in kml.iterfind(".//k:Placemark/k:name", k)]
+    assert "BNetzA Köln" in knames  # point folder
+    assert any(n.startswith("extern: BNetzA Köln") for n in knames)
+
+    js = (await client.get(m.url("/export.json"), headers=h)).json()
+    assert {p["name"] for p in js["points"]} == {"BNetzA Köln", "Alt & <Neu>"}
+    assert sum(1 for b in js["bearings"] if b["point_id"] is not None) == 2
+
+    pdf = await client.get(m.url("/export.pdf"), headers=h)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
