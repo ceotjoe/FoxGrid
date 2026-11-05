@@ -48,9 +48,12 @@ returns 200 (idempotent), with different content 409.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/missions/{id}/bearings` | create (client UUID, idempotent); assigned to the open transmission or an explicit `transmission_id` |
+| POST | `/missions/{id}/bearings` | create (client UUID, idempotent); assigned to the open transmission or an explicit `transmission_id`. With `point_id` (lead only, lat/lon must equal the point) it is an external bearing, `source: external` |
 | GET | `/missions/{id}/bearings?transmission=&since=&include_inactive=` | list |
 | GET | `/missions/{id}/bearings/{bid}` · `/revisions` | one bearing / its revision history |
+| POST | `/missions/{id}/points` | lead | create an external bearing point (client UUID, idempotent; 409 on a duplicate name) |
+| GET | `/missions/{id}/points` | member | list points |
+| PATCH | `/missions/{id}/points/{pid}` | lead | only `name`, `note`, `use_in_estimate`, `is_active`; position is immutable |
 | PATCH | `/missions/{id}/bearings/{bid}` | only `is_outlier`, `is_active`, `note`; writes a revision |
 
 There is deliberately **no DELETE**.
@@ -95,7 +98,7 @@ The MQTT side is documented in [MQTT interface](mqtt.md).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/missions/{id}/export.gpx` · `.kml` · `.json` · `.pdf` | export bearings, track, estimate (PDF = map, bearings, result) |
+| GET | `/missions/{id}/export.gpx` · `.kml` · `.json` · `.pdf` | export bearings, track, estimate (PDF = map, bearings, result); external points appear as "Peilpunkt …" / folder "Peilpunkte", their bearings as "extern: <name>" (JSON: `points` and `point_id`), flagged "nicht in Schätzung" when the point is off or inactive |
 | GET | `/declination?lat=&lon=&date=` | magnetic declination (WMM) |
 | GET | `/healthz` | health check (outside `/api/v1`) |
 
@@ -112,6 +115,7 @@ is closed with `4403`.
 | `participant_updated` | a participant record changed (role, status, trust) |
 | `participant_removed` | a participant was removed (closes their socket) |
 | `bearing_created`, `bearing_updated` | bearing changes |
+| `point_created`, `point_updated` | external bearing point changes |
 | `transmission_started`, `transmission_ended` | transmission changes |
 | `estimate_updated` | a new estimate was computed |
 | `message` | chat message (team messages only to team members) |

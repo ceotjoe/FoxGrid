@@ -18,6 +18,15 @@ violate them.
 - Every new or changed bearing triggers an **estimate recompute** in the background (debounce 500 ms, see
   [Architecture](architecture.md)).
 
+## External bearing points
+
+- The lead can enter bearings received from outside the group (e.g. from the BNetzA) at a **named point** (`bearing_points`).
+  Such bearings carry `point_id` and `source = external`, are owned by the lead and follow all bearing rules above.
+- A point's position is immutable (a wrong one is replaced by a new point and the old one deactivated); points are never deleted.
+- Whether a point's bearings move the estimate is switchable per point (`use_in_estimate`, default on), enforced in
+  `domain.trusted_only` together with `is_active`. Switched-off bearings stay listed and exported.
+- External bearings are excluded from the plausibility check (no own track to compare against).
+
 ## Data retention
 
 - Position tracks are purged N days after the mission ended (default 30, `track_retention_days`, configurable per mission).
