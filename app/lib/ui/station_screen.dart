@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../core/models.dart';
+import '../core/permissions.dart';
 import '../core/signal.dart';
 import '../state/providers.dart';
 
@@ -282,7 +283,7 @@ class _StationScreenState extends ConsumerState<StationScreen> {
                     ? const Icon(Icons.schedule, size: 16)
                     : const Icon(Icons.check, size: 16),
               ),
-            if (session.isLead) ...[
+            if (session.can(Perm.estimateConfigure)) ...[
               const Divider(height: 24),
               Text('Relais', style: theme.textTheme.titleMedium),
               const SizedBox(height: 4),

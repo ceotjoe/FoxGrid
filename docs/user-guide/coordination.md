@@ -2,8 +2,11 @@
 
 ## Chat and tasks
 
-- **Chat** has a mission channel and team channels. Team messages stay private to the team.
-- **Tasks** can be assigned to a team or a participant and track their status.
+- **Chat** has a mission channel and team channels. Team messages stay private to the team (moderators, i.e. lead, deputy and
+  coordinator, see all channels). Observers neither read nor write chat.
+- **Tasks** can be assigned to a team or a participant and track their status. Lead, deputy and coordinator create and assign
+  them; the person or team they are assigned to works on them. Observers see no tasks.
+- Who may do what: [Roles and permissions](roles.md).
 - Push notifications announce the start of a transmission to participants whose app is in the background.
 
 ## Offline use
@@ -23,13 +26,13 @@ targeted area download works only with your own tile server. See [limitations](.
 ## Export
 
 The map menu exports a mission as **GPX, KML, JSON or a PDF report** (map, bearings, result). The exports include the homing track
-and readings.
+and readings; observers receive them without position tracks.
 
 ## Appearance
 
 Light, dark and system appearance, and a red night mode that preserves night vision.
 
-## Sensors (lead)
+## Sensors (lead and deputy)
 
 Automatic bearing stations and a repeater hook report over MQTT; the lead creates them in the app under *Sensors*. See
 [MQTT interface](../reference/mqtt.md).

@@ -15,6 +15,7 @@ from app import events
 from app.models import Mission, Participant, Transmission
 from app.schemas.api import TransmissionOut
 from app.services import domain
+from app.services.permissions import Permission, has_permission
 from app.services.recompute import RecomputeScheduler
 from app.services.serialize import event_json, transmission_out
 
@@ -92,7 +93,7 @@ async def stop_transmission(
     )
     if tx is None:
         raise NotRunningError
-    if actor.role != "lead" and tx.started_by != actor.id:
+    if not has_permission(actor, Permission.TRANSMISSION_MANAGE) and tx.started_by != actor.id:
         await domain.audit(session, mission_id, actor.id, "stop_denied", "transmission", tx.id)
         await session.commit()
         raise NotAllowedError

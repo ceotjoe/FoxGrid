@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import lead, member
+from app.api.deps import require
 from app.db import get_session
 from app.models import Bearing, Mission, Participant, PositionSample, Sensor, Transmission
 from app.schemas.api import (
@@ -29,6 +29,7 @@ from app.schemas.api import (
 )
 from app.security import hash_token
 from app.services import domain
+from app.services.permissions import Permission
 from app.services.recompute import _to_engine, engine_params_for
 
 router = APIRouter(prefix="/missions/{mission_id}")
@@ -72,7 +73,7 @@ def _callsign_for(name: str, taken: set[str]) -> str:
 async def create_sensor(
     mission_id: uuid.UUID,
     body: SensorCreate,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.SENSOR_MANAGE)),
     session: AsyncSession = Depends(get_session),
 ) -> SensorCreated:
     """Registers a station or relay hook. The API key is returned exactly once."""
@@ -82,7 +83,9 @@ async def create_sensor(
         )
     )
     callsign = _callsign_for(body.name, taken)
-    virtual = Participant(mission_id=mission_id, callsign=callsign, role="fixed")
+    virtual = Participant(
+        mission_id=mission_id, callsign=callsign, role="fixed", authority="station"
+    )
     session.add(virtual)
     await session.flush()
     key = KEY_PREFIX + secrets.token_urlsafe(24)
@@ -119,7 +122,7 @@ async def create_sensor(
 @router.get("/sensors", response_model=list[SensorOut])
 async def list_sensors(
     mission_id: uuid.UUID,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[SensorOut]:
     rows = (
@@ -139,7 +142,7 @@ async def patch_sensor(
     mission_id: uuid.UUID,
     sensor_id: uuid.UUID,
     body: SensorPatch,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.SENSOR_MANAGE)),
     session: AsyncSession = Depends(get_session),
 ) -> SensorOut:
     """Deactivate a sensor (its data stays in the log) or move a fixed station."""
@@ -164,7 +167,7 @@ async def get_suggestions(
     scope: Scope = "all",
     count: int = Query(default=3, ge=1, le=10),
     sigma_deg: float = Query(default=10.0, gt=0, le=45),
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> SuggestionsOut:
     """Where one more bearing (with a typical sigma) would shrink the error ellipse the most."""

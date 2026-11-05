@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api.dart';
 import '../core/models.dart';
+import '../core/permissions.dart';
 import '../state/providers.dart';
 
 String roleLabel(String role) => switch (role) {
@@ -11,7 +12,8 @@ String roleLabel(String role) => switch (role) {
   _ => 'Mobil',
 };
 
-/// Lead only: let joiners in, change roles, release a device or remove somebody.
+/// Let joiners in, change roles, set trust, release a device or remove somebody. What each person
+/// sees depends on their permissions; the server refuses the rest.
 class ParticipantsScreen extends ConsumerWidget {
   const ParticipantsScreen({super.key});
 
@@ -95,14 +97,22 @@ class ParticipantsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final own = ref.watch(sessionProvider)?.participantId;
+    final session = ref.watch(sessionProvider);
+    final own = session?.participantId;
+    final canManage = session?.can(Perm.participantManage) ?? false;
+    final canTrust = session?.can(Perm.trustSet) ?? false;
+    final canAssign = session?.can(Perm.roleAssign) ?? false;
+    final canQuarantine = session?.can(Perm.quarantine) ?? false;
     final all = ref.watch(missionProvider.select((s) => s.participants)).values;
-    final hints = ref.watch(plausibilityProvider).value ?? const {};
+    final hints = canTrust
+        ? ref.watch(plausibilityProvider).value ??
+              const <String, List<String>>{}
+        : const <String, List<String>>{};
     final waiting = [
       for (final p in all)
         if (p.isPending) p.id,
     ]..sort();
-    final codes = waiting.isEmpty
+    final codes = waiting.isEmpty || !canManage
         ? const <String, String>{}
         : ref.watch(joinCodesProvider(waiting.join(','))).value ??
               const <String, String>{};
@@ -116,12 +126,13 @@ class ParticipantsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Teilnehmer'),
         actions: [
-          IconButton(
-            key: const Key('refresh-hints'),
-            tooltip: 'Auffälligkeiten prüfen',
-            icon: const Icon(Icons.fact_check_outlined),
-            onPressed: () => ref.invalidate(plausibilityProvider),
-          ),
+          if (canTrust)
+            IconButton(
+              key: const Key('refresh-hints'),
+              tooltip: 'Auffälligkeiten prüfen',
+              icon: const Icon(Icons.fact_check_outlined),
+              onPressed: () => ref.invalidate(plausibilityProvider),
+            ),
         ],
       ),
       body: ListView(
@@ -138,33 +149,39 @@ class ParticipantsScreen extends ConsumerWidget {
                           : 'wartet auf Freigabe · Code ${codes[p.id]} '
                                 '(per Funk abgleichen)',
                     ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          key: Key('reject-${p.callsign}'),
-                          tooltip: 'Ablehnen',
-                          icon: const Icon(Icons.close),
-                          onPressed: () => _run(
-                            context,
-                            ref,
-                            (api) =>
-                                api.patchParticipant(p.id, status: 'rejected'),
+                    trailing: !canManage
+                        ? null
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                key: Key('reject-${p.callsign}'),
+                                tooltip: 'Ablehnen',
+                                icon: const Icon(Icons.close),
+                                onPressed: () => _run(
+                                  context,
+                                  ref,
+                                  (api) => api.patchParticipant(
+                                    p.id,
+                                    status: 'rejected',
+                                  ),
+                                ),
+                              ),
+                              IconButton.filled(
+                                key: Key('approve-${p.callsign}'),
+                                tooltip: 'Freigeben',
+                                icon: const Icon(Icons.check),
+                                onPressed: () => _run(
+                                  context,
+                                  ref,
+                                  (api) => api.patchParticipant(
+                                    p.id,
+                                    status: 'active',
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        IconButton.filled(
-                          key: Key('approve-${p.callsign}'),
-                          tooltip: 'Freigeben',
-                          icon: const Icon(Icons.check),
-                          onPressed: () => _run(
-                            context,
-                            ref,
-                            (api) =>
-                                api.patchParticipant(p.id, status: 'active'),
-                          ),
-                        ),
-                      ],
-                    ),
                   )
                 : _row(
                     context,
@@ -172,6 +189,10 @@ class ParticipantsScreen extends ConsumerWidget {
                     p,
                     isSelf: p.id == own,
                     hints: hints[p.id] ?? const [],
+                    canManage: canManage,
+                    canTrust: canTrust,
+                    canAssign: canAssign,
+                    canQuarantine: canQuarantine,
                   ),
         ],
       ),
@@ -183,6 +204,10 @@ class ParticipantsScreen extends ConsumerWidget {
     WidgetRef ref,
     Participant p, {
     required bool isSelf,
+    required bool canManage,
+    required bool canTrust,
+    required bool canAssign,
+    required bool canQuarantine,
     List<String> hints = const [],
   }) {
     final off = !p.isActive || p.status == 'rejected';
@@ -190,7 +215,14 @@ class ParticipantsScreen extends ConsumerWidget {
         ? 'entfernt'
         : p.status == 'rejected'
         ? 'abgelehnt'
-        : roleLabel(p.role);
+        : [
+            authorityLabel(p.authority),
+            // The source: a person at a fixed location, next to their standing.
+            if (p.role == 'fixed' && p.authority != 'station')
+              roleLabel(p.role),
+          ].join(' · ');
+    final hasActions =
+        !isSelf && (canManage || canTrust || canAssign || canQuarantine);
     return ListTile(
       key: Key('participant-${p.callsign}'),
       enabled: !off || !isSelf,
@@ -204,13 +236,16 @@ class ParticipantsScreen extends ConsumerWidget {
           [
             state,
             if (p.team != null) p.team!,
-            if (!p.trusted && !off) 'nicht vertraut (Daten zählen nicht)',
+            if (p.authority == 'observer' && !off)
+              'Beobachter (Daten zählen nie)'
+            else if (!p.trusted && !off)
+              'nicht vertraut (Daten zählen nicht)',
             if (!p.deviceBound && !off) 'Gerät frei',
           ].join(' · '),
           if (!off) ...hints.map((h) => 'Auffällig: $h'),
         ].join('\n'),
       ),
-      trailing: isSelf
+      trailing: !hasActions
           ? null
           : PopupMenuButton<String>(
               key: Key('menu-${p.callsign}'),
@@ -221,8 +256,9 @@ class ParticipantsScreen extends ConsumerWidget {
                       ref,
                       (api) => switch (v) {
                         'mobile' ||
-                        'fixed' ||
-                        'lead' => api.patchParticipant(p.id, role: v),
+                        'fixed' => api.patchParticipant(p.id, role: v),
+                        _ when assignableAuthorities.contains(v) =>
+                          api.patchParticipant(p.id, authority: v),
                         'trust' => api.patchParticipant(p.id, trusted: true),
                         'untrust' => api.patchParticipant(p.id, trusted: false),
                         'device' => api.patchParticipant(
@@ -240,33 +276,45 @@ class ParticipantsScreen extends ConsumerWidget {
                     ),
               itemBuilder: (_) => [
                 if (!off) ...[
-                  for (final r in ['mobile', 'fixed', 'lead'])
-                    if (r != p.role)
-                      PopupMenuItem(
-                        value: r,
-                        child: Text('Rolle: ${roleLabel(r)}'),
+                  if (canAssign) ...[
+                    for (final a in assignableAuthorities)
+                      if (a != p.authority)
+                        PopupMenuItem(
+                          key: Key('authority-$a'),
+                          value: a,
+                          child: Text('Rolle: ${authorityLabel(a)}'),
+                        ),
+                    for (final r in ['mobile', 'fixed'])
+                      if (r != p.role && p.role != 'lead')
+                        PopupMenuItem(
+                          value: r,
+                          child: Text('Rolle: ${roleLabel(r)}'),
+                        ),
+                  ],
+                  if (canTrust)
+                    PopupMenuItem(
+                      value: p.trusted ? 'untrust' : 'trust',
+                      child: Text(
+                        p.trusted ? 'Vertrauen entziehen' : 'Vertrauen',
                       ),
-                  PopupMenuItem(
-                    value: p.trusted ? 'untrust' : 'trust',
-                    child: Text(
-                      p.trusted ? 'Vertrauen entziehen' : 'Vertrauen',
                     ),
-                  ),
-                  if (p.deviceBound)
+                  if (canManage && p.deviceBound)
                     const PopupMenuItem(
                       value: 'device',
                       child: Text('Gerät freigeben (neues Handy)'),
                     ),
-                  const PopupMenuItem(
-                    key: Key('quarantine'),
-                    value: 'quarantine',
-                    child: Text('Quarantäne …'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'remove',
-                    child: Text('Entfernen'),
-                  ),
-                ] else
+                  if (canQuarantine)
+                    const PopupMenuItem(
+                      key: Key('quarantine'),
+                      value: 'quarantine',
+                      child: Text('Quarantäne …'),
+                    ),
+                  if (canManage)
+                    const PopupMenuItem(
+                      value: 'remove',
+                      child: Text('Entfernen'),
+                    ),
+                ] else if (canManage)
                   const PopupMenuItem(
                     value: 'restore',
                     child: Text('Wieder zulassen'),

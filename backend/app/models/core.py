@@ -66,6 +66,9 @@ class Invite(Base):
     mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     default_role: Mapped[str] = mapped_column(String(10), default="mobile")
+    default_authority: Mapped[str] = mapped_column(
+        String(12), default="member", server_default="member"
+    )
     max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Joiners through this link skip the lead's approval (off by default).
     auto_approve: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -92,6 +95,8 @@ class Participant(Base):
     mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"), index=True)
     callsign: Mapped[str] = mapped_column(String(20))
     role: Mapped[str] = mapped_column(String(10))
+    # What the participant may manage; see `services.permissions`. `role` is the data source.
+    authority: Mapped[str] = mapped_column(String(12), default="member", server_default="member")
     team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     last_seen_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
@@ -110,6 +115,10 @@ class Participant(Base):
         UniqueConstraint("mission_id", "callsign", name="uq_participant_callsign"),
         CheckConstraint("role in ('lead','fixed','mobile')", name="ck_participant_role"),
         CheckConstraint("status in ('pending','active','rejected')", name="ck_participant_status"),
+        CheckConstraint(
+            "authority in ('lead','deputy','analyst','coordinator','member','station','observer')",
+            name="ck_participant_authority",
+        ),
     )
 
 

@@ -9,9 +9,9 @@ autogenerate. Database triggers forbid `DELETE` on `bearings`, `bearing_revision
 | Table | Purpose and notable columns |
 |---|---|
 | `missions` | name, `frequency_mhz`, optional `search_area` polygon, `status` (`active`/`ended`), `track_retention_days`, `engine_params` (jsonb), repeater position and input/output frequency |
-| `invites` | token **hash** only, `default_role`, `max_uses`, `uses`, `expires_at`, `revoked_at`, `auto_approve` |
+| `invites` | token **hash** only, `default_role`, `default_authority` (`member`/`observer`), `max_uses`, `uses`, `expires_at`, `revoked_at`, `auto_approve` |
 | `teams` | per-mission teams (chat channels, task assignment) |
-| `participants` | callsign (unique per mission), `role` (`lead`/`fixed`/`mobile`), `team_id`, `status` (`pending`/`active`/`rejected`), `is_active` (false = removed), `trusted`, `device_hash`, `join_code`, `last_seen_at` |
+| `participants` | callsign (unique per mission), `role` (`lead`/`fixed`/`mobile`: the data source), `authority` (`lead`/`deputy`/`analyst`/`coordinator`/`member`/`station`/`observer`: what the participant may do, see [Roles](../user-guide/roles.md)), `team_id`, `status` (`pending`/`active`/`rejected`), `is_active` (false = removed), `trusted`, `device_hash`, `join_code`, `last_seen_at` |
 | `position_samples` | position tracks with `recorded_at` (client) and `received_at`; purged after the retention period |
 | `transmissions` | one open transmission per mission at most; `source` (`manual`/`relay`/`mqtt`), `started_by`, `ended_by`, note |
 | `bearings` | client-UUID primary key, station position, `azimuth_true_deg`, `azimuth_input_ref`, `declination_deg_applied`, `sigma_deg` (NOT NULL, > 0), RSSI/attenuation, polarization, `measured_at`/`received_at`, `is_outlier`, `is_active`, `source` (`manual`, `sensor`, `external`), `sensor_id`, `point_id`; never deleted |

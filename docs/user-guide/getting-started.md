@@ -18,17 +18,19 @@ Release builds connect to HTTPS servers only.
 
 ## Roles
 
-| Role | Can do |
+| Source | Meaning |
 |---|---|
-| Mobile ("Mobil") | capture bearings, readings, chat, tasks; the default for anyone joining by link |
+| Mobile ("Mobil") | capture bearings and readings in the field; the default for anyone joining by link |
 | Fixed ("Fest") | additionally reports S-values from a fixed omnidirectional station, see [Fixed stations](omni-stations.md) |
-| Lead ("Leitung") | approve and manage participants, replace invites, set the repeater, end the mission, view the security log |
+
+What a participant may *do* depends on their **role**: Einsatzleiter, Co-Leiter, Auswerter, Koordinator, Peiler (the default for a
+link) or Beobachter (read-only). See [Roles and permissions](roles.md).
 
 ## Capture a bearing
 
 1. The map shows participants, rays of all bearings, the most likely location and its error ellipse, live.
 2. When the interferer transmits, start a transmission (banner on all devices, push to those in the background); stop it afterwards.
-   Only the starter and the lead can stop it.
+   Only the starter, the lead, a deputy and an analyst can stop it.
 3. Capture a bearing at your position: azimuth, whether it is **true or magnetic** (the app converts using the declination for your
    position and shows the value used), and the **uncertainty** (mandatory): sharp ±5°, medium ±15°, poor ±30°, or custom. Optionally
    add a signal strength and a note.
@@ -46,6 +48,7 @@ Release builds connect to HTTPS servers only.
 
 - [Homing](homing.md): close-range search with signal strength.
 - [Fixed stations](omni-stations.md): omnidirectional stations on the repeater input.
-- [External bearings](external-bearings.md): the lead enters bearings received from outside, e.g. from the BNetzA.
+- [Roles and permissions](roles.md): who may do what.
+- [External bearings](external-bearings.md): the lead or an analyst enters bearings received from outside, e.g. from the BNetzA.
 - [Coordination and export](coordination.md): chat, tasks, offline behaviour, export.
 - [Known limitations](../reference/limitations.md).

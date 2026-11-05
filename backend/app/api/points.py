@@ -11,11 +11,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
-from app.api.deps import get_redis, get_scheduler, lead, member
+from app.api.deps import get_redis, get_scheduler, require
 from app.db import get_session
 from app.models import BearingPoint, Mission, Participant
 from app.schemas.api import PointIn, PointOut, PointPatch
 from app.services import domain
+from app.services.permissions import Permission
 from app.services.recompute import RecomputeScheduler
 from app.services.serialize import event_json, point_out
 
@@ -35,7 +36,7 @@ async def create_point(
     mission_id: uuid.UUID,
     body: PointIn,
     response: Response,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.POINT_MANAGE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> PointOut:
@@ -84,7 +85,7 @@ async def create_point(
 @router.get("/points", response_model=list[PointOut])
 async def list_points(
     mission_id: uuid.UUID,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[PointOut]:
     rows = await session.scalars(
@@ -100,7 +101,7 @@ async def patch_point(
     mission_id: uuid.UUID,
     point_id: uuid.UUID,
     body: PointPatch,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.POINT_MANAGE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),

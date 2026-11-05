@@ -14,18 +14,47 @@ from app.models import Participant
 from app.schemas.api import PositionIn
 from app.security import decode_jwt
 from app.services import domain
+from app.services.permissions import Permission, has_permission, permissions_of
 
 router = APIRouter()
 
 
-async def _forward(ws: WebSocket, pubsub: object, participant_id: uuid.UUID) -> None:
+async def _forward(
+    ws: WebSocket, pubsub: object, participant_id: uuid.UUID, authority: str
+) -> None:
+    granted = {p.value for p in permissions_of(authority)}
     async for message in pubsub.listen():  # type: ignore[attr-defined]
         if message["type"] != "message":
             continue
         if _is_own_removal(message["data"], participant_id):
             await ws.close(code=4403)
             return
-        await ws.send_text(message["data"])
+        if _is_own_authority_change(message["data"], participant_id, authority):
+            await ws.close(code=4409)  # permissions changed: the client reconnects
+            return
+        # Filter by permission: e.g. an observer never receives chat or other people's positions.
+        if events.event_permission(_event_type(message["data"])) in granted:
+            await ws.send_text(message["data"])
+
+
+def _is_own_authority_change(raw: str | bytes, participant_id: uuid.UUID, current: str) -> bool:
+    try:
+        event = json.loads(raw)
+    except ValueError:
+        return False
+    data = event.get("data", {})
+    return (
+        event.get("type") == "participant_updated"
+        and data.get("id") == str(participant_id)
+        and data.get("authority", current) != current
+    )
+
+
+def _event_type(raw: str | bytes) -> str:
+    try:
+        return str(json.loads(raw).get("type", ""))
+    except (ValueError, AttributeError):
+        return ""
 
 
 def _is_own_removal(raw: str | bytes, participant_id: uuid.UUID) -> bool:
@@ -59,6 +88,7 @@ async def mission_socket(
         or not participant.is_active
         or participant.status != "active"
         or participant.mission_id != mission_id
+        or not has_permission(participant, Permission.VIEW_RESULT)
     ):
         await ws.close(code=4403)
         return
@@ -68,7 +98,7 @@ async def mission_socket(
     await pubsub.subscribe(events.channel(mission_id))
     if participant.team_id is not None:
         await pubsub.subscribe(events.channel(mission_id, participant.team_id))
-    forwarder = asyncio.create_task(_forward(ws, pubsub, participant.id))
+    forwarder = asyncio.create_task(_forward(ws, pubsub, participant.id, participant.authority))
     try:
         while True:
             raw = await ws.receive_text()
@@ -78,6 +108,9 @@ async def mission_socket(
                 if kind == "ping":
                     await ws.send_text(json.dumps({"type": "pong"}))
                 elif kind == "position":
+                    if not has_permission(participant, Permission.POSITION_SHARE):
+                        await ws.send_text(json.dumps({"type": "error", "detail": "forbidden"}))
+                        continue
                     item = PositionIn.model_validate(msg.get("data", {}))
                     async with sessionmaker() as session:
                         await domain.record_positions(

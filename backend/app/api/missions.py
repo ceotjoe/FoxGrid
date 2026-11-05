@@ -8,12 +8,19 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
-from app.api.deps import current_participant, get_redis, get_scheduler, get_settings, lead, member
+from app.api.deps import (
+    current_participant,
+    get_redis,
+    get_scheduler,
+    get_settings,
+    member,
+    require,
+)
 from app.config import Settings
 from app.db import get_session
 from app.models import (
@@ -56,6 +63,7 @@ from app.schemas.api import (
 )
 from app.security import create_jwt, hash_token, new_invite_token
 from app.services import domain, plausibility, ratelimit
+from app.services.permissions import Authority, Permission, has_permission
 from app.services.recompute import RecomputeScheduler
 from app.services.serialize import (
     bearing_out,
@@ -105,6 +113,7 @@ async def create_mission(
         mission_id=mission.id,
         callsign=body.callsign,
         role="lead",
+        authority="lead",
         device_hash=hash_token(body.device_secret) if body.device_secret else None,
     )
     session.add(creator)
@@ -174,6 +183,7 @@ async def join(
             mission_id=mission.id,
             callsign=body.callsign,
             role=invite.default_role,
+            authority=invite.default_authority,
             device_hash=device_hash,
             status="active" if invite.auto_approve else "pending",
             # An open link says nothing about the person; the lead has to trust them first.
@@ -265,7 +275,7 @@ async def rejoin(
 @router.get("/missions/{mission_id}", response_model=MissionOut)
 async def get_mission(
     mission_id: uuid.UUID,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> MissionOut:
     mission = await session.get(Mission, mission_id)
@@ -278,7 +288,7 @@ async def get_mission(
 async def patch_mission(
     mission_id: uuid.UUID,
     body: MissionPatch,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.ESTIMATE_CONFIGURE)),
     session: AsyncSession = Depends(get_session),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> MissionOut:
@@ -297,7 +307,7 @@ async def patch_mission(
 @router.post("/missions/{mission_id}/end", response_model=MissionOut)
 async def end_mission(
     mission_id: uuid.UUID,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.MISSION_END)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> MissionOut:
@@ -334,10 +344,17 @@ async def end_mission(
 async def create_invite(
     mission_id: uuid.UUID,
     body: InviteCreate,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.INVITE_CREATE)),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> InviteOut:
+    # Coordinators only hand out ordinary links: no `fixed` posts, no skipping the approval.
+    if not has_permission(actor, Permission.INVITE_MANAGE) and (
+        body.default_role != "mobile" or body.auto_approve or body.default_authority != "member"
+    ):
+        raise HTTPException(403, "permission required: invite.manage")
+    if body.default_authority == "observer" and body.default_role != "mobile":
+        raise HTTPException(422, "observers are always mobile")
     return await _issue_invite(
         session,
         settings,
@@ -347,6 +364,7 @@ async def create_invite(
         max_uses=body.max_uses,
         ttl_hours=body.expires_in_hours,
         auto_approve=body.auto_approve,
+        authority=body.default_authority,
     )
 
 
@@ -360,6 +378,7 @@ async def _issue_invite(
     max_uses: int | None,
     ttl_hours: int | None,
     auto_approve: bool = False,
+    authority: str = "member",
     action: str = "create",
 ) -> InviteOut:
     """New invite; omitted limits fall back to the server defaults, so links always expire."""
@@ -368,6 +387,7 @@ async def _issue_invite(
         mission_id=mission_id,
         token_hash=hash_token(token),
         default_role=role,
+        default_authority=authority,
         auto_approve=auto_approve,
         max_uses=max_uses if max_uses is not None else settings.invite_max_uses,
         expires_at=datetime.now(UTC)
@@ -381,6 +401,7 @@ async def _issue_invite(
         id=invite.id,
         token=token,
         default_role=invite.default_role,
+        default_authority=invite.default_authority,
         max_uses=invite.max_uses,
         expires_at=invite.expires_at,
         auto_approve=invite.auto_approve,
@@ -390,7 +411,7 @@ async def _issue_invite(
 @router.post("/missions/{mission_id}/invites/replace", response_model=InviteOut, status_code=201)
 async def replace_invites(
     mission_id: uuid.UUID,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.INVITE_MANAGE)),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> InviteOut:
@@ -422,7 +443,7 @@ async def replace_invites(
 async def rotate_invite(
     mission_id: uuid.UUID,
     invite_id: uuid.UUID,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.INVITE_MANAGE)),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> InviteOut:
@@ -442,6 +463,7 @@ async def rotate_invite(
         max_uses=old.max_uses,
         ttl_hours=None,
         auto_approve=old.auto_approve,
+        authority=old.default_authority,
         action="rotate",
     )
 
@@ -450,7 +472,7 @@ async def rotate_invite(
 async def revoke_invite(
     mission_id: uuid.UUID,
     invite_id: uuid.UUID,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.INVITE_MANAGE)),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """Revokes the invite; the row is kept for the audit trail."""
@@ -466,7 +488,7 @@ async def revoke_invite(
 @router.get("/missions/{mission_id}/participants", response_model=list[ParticipantOut])
 async def list_participants(
     mission_id: uuid.UUID,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[ParticipantOut]:
     rows = (
@@ -476,7 +498,7 @@ async def list_participants(
             .order_by(Participant.joined_at)
         )
     ).all()
-    show = actor.role == "lead"
+    show = has_permission(actor, Permission.PARTICIPANT_MANAGE)
     return [
         participant_out(p, await domain.team_name(session, p.team_id), show_code=show) for p in rows
     ]
@@ -487,15 +509,28 @@ async def patch_participant(
     mission_id: uuid.UUID,
     participant_id: uuid.UUID,
     body: ParticipantPatch,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(member),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> ParticipantOut:
-    """Lead only: change the role, remove (or reinstate) a participant, release the device."""
+    """Change the role, trust, status or device binding; each field needs its own permission."""
+    needed: set[Permission] = set()
+    if body.role is not None or body.authority is not None:
+        needed.add(Permission.ROLE_ASSIGN)
+    if body.is_active is not None or body.status is not None or body.reset_device:
+        needed.add(Permission.PARTICIPANT_MANAGE)
+    if body.trusted is not None or body.status == "active":
+        needed.add(Permission.TRUST_SET)  # approving a joiner is an act of trust
+    needed = needed or {Permission.PARTICIPANT_MANAGE}  # an empty patch is a no-op for managers
+    for permission in sorted(needed):
+        if not has_permission(actor, permission):
+            raise HTTPException(403, f"permission required: {permission.value}")
     target = await session.get(Participant, participant_id)
     if target is None or target.mission_id != mission_id:
         raise HTTPException(404, "participant not found")
+    if target.authority == Authority.LEAD and actor.authority != Authority.LEAD:
+        raise HTTPException(403, "only a lead may change a lead")
     if await session.scalar(select(Sensor.id).where(Sensor.participant_id == target.id)):
         raise HTTPException(409, "sensors are managed under /sensors")
     if target.id == actor.id and (
@@ -506,10 +541,33 @@ async def patch_participant(
     ):
         raise HTTPException(409, "the lead cannot remove or demote themselves")
 
+    old_authority = target.authority
+    if body.authority is not None and body.authority != target.authority:
+        if target.status != "active" or not target.is_active:
+            raise HTTPException(409, "only active participants can be given a role")
+        if target.authority == Authority.LEAD and await _active_leads(session, mission_id) <= 1:
+            raise HTTPException(409, "a mission needs at least one lead")
+
     changes: dict[str, object] = {}
     if body.role is not None and body.role != target.role:
         changes["role"] = [target.role, body.role]
         target.role = body.role
+        # The legacy role keeps `authority` in line: `lead` is a lead, leaving it is a member.
+        if body.role == "lead":
+            target.authority = "lead"
+        elif target.authority == "lead":
+            target.authority = "member"
+    if body.authority is not None and body.authority != target.authority:
+        target.authority = body.authority
+    if target.authority != old_authority:
+        changes["authority"] = [old_authority, target.authority]
+    # `role == "lead"` and `authority == "lead"` always go together.
+    if target.authority == "lead" and target.role != "lead":
+        changes["role"] = [target.role, "lead"]
+        target.role = "lead"
+    elif target.authority != "lead" and target.role == "lead":
+        changes["role"] = [target.role, "mobile"]
+        target.role = "mobile"
     if body.is_active is not None and body.is_active != target.is_active:
         changes["is_active"] = body.is_active
         target.is_active = body.is_active
@@ -541,9 +599,23 @@ async def patch_participant(
                 redis, mission_id, "participant_removed", {"participant_id": str(target.id)}
             )
         await _announce(redis, mission_id, target)
-        if "trusted" in changes:
-            scheduler.schedule(mission_id)
+        if "trusted" in changes or "observer" in (old_authority, target.authority):
+            scheduler.schedule(mission_id)  # observers never count in the estimate
     return participant_out(target, await domain.team_name(session, target.team_id))
+
+
+async def _active_leads(session: AsyncSession, mission_id: uuid.UUID) -> int:
+    return int(
+        await session.scalar(
+            select(func.count(Participant.id)).where(
+                Participant.mission_id == mission_id,
+                Participant.authority == Authority.LEAD,
+                Participant.is_active.is_(True),
+                Participant.status == "active",
+            )
+        )
+        or 0
+    )
 
 
 SECURITY_ENTITIES = ("participant", "invite")
@@ -554,7 +626,7 @@ async def get_audit(
     mission_id: uuid.UUID,
     scope: Literal["security", "all"] = "security",
     limit: int = Query(default=200, ge=1, le=1000),
-    _: Participant = Depends(lead),
+    _: Participant = Depends(require(Permission.AUDIT_VIEW)),
     session: AsyncSession = Depends(get_session),
 ) -> list[AuditOut]:
     """Lead only: who did what, newest first. ``security`` = joins, approvals, roles, invites."""
@@ -595,7 +667,7 @@ async def get_audit(
 @router.get("/missions/{mission_id}/plausibility", response_model=list[PlausibilityOut])
 async def get_plausibility(
     mission_id: uuid.UUID,
-    _: Participant = Depends(lead),
+    _: Participant = Depends(require(Permission.TRUST_SET)),
     session: AsyncSession = Depends(get_session),
 ) -> list[PlausibilityOut]:
     """Lead only: which participants' data does not fit (hints only, nothing is changed)."""
@@ -664,7 +736,7 @@ async def quarantine_participant(
     mission_id: uuid.UUID,
     participant_id: uuid.UUID,
     body: QuarantineIn,
-    actor: Participant = Depends(lead),
+    actor: Participant = Depends(require(Permission.QUARANTINE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
@@ -680,6 +752,8 @@ async def quarantine_participant(
         raise HTTPException(404, "participant not found")
     if target.id == actor.id:
         raise HTTPException(409, "the lead cannot quarantine themselves")
+    if target.authority == Authority.LEAD and actor.authority != Authority.LEAD:
+        raise HTTPException(403, "only a lead may quarantine a lead")
     if await session.scalar(select(Sensor.id).where(Sensor.participant_id == target.id)):
         raise HTTPException(409, "sensors are managed under /sensors")
 
@@ -757,7 +831,7 @@ async def whoami(
 @router.get("/missions/{mission_id}/snapshot", response_model=SnapshotOut)
 async def snapshot(
     mission_id: uuid.UUID,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> SnapshotOut:
@@ -765,6 +839,9 @@ async def snapshot(
     mission = await session.get(Mission, mission_id)
     if mission is None:
         raise HTTPException(404, "mission not found")
+    see_positions = has_permission(actor, Permission.VIEW_POSITIONS)
+    see_chat = has_permission(actor, Permission.CHAT_READ)
+    see_tasks = has_permission(actor, Permission.TASK_WORK)
     participants = (
         await session.scalars(select(Participant).where(Participant.mission_id == mission_id))
     ).all()
@@ -832,17 +909,19 @@ async def snapshot(
         mission=mission_out(mission, await domain.search_area_ring(session, mission_id)),
         participants=[
             participant_out(
-                p, await domain.team_name(session, p.team_id), show_code=actor.role == "lead"
+                p,
+                await domain.team_name(session, p.team_id),
+                show_code=has_permission(actor, Permission.PARTICIPANT_MANAGE),
             )
             for p in participants
         ],
-        positions=[position_out(p) for p in latest],
+        positions=[position_out(p) for p in latest] if see_positions else [],
         bearings=[bearing_out(b) for b in bearings],
         transmissions=[transmission_out(t) for t in transmissions],
         estimates=estimates,
-        messages=[message_out(m, cs) for m, cs in reversed(message_rows)],
-        tasks=[task_out(t) for t in tasks],
-        teams=[TeamOut.model_validate(t) for t in teams],
+        messages=[message_out(m, cs) for m, cs in reversed(message_rows)] if see_chat else [],
+        tasks=[task_out(t) for t in tasks] if see_tasks else [],
+        teams=[TeamOut.model_validate(t) for t in teams] if see_tasks else [],
         rssi=[rssi_out(r) for r in reversed(rssi_rows)],
         points=[point_out(p) for p in points],
     )

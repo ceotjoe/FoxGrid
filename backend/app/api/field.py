@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
-from app.api.deps import get_redis, get_scheduler, get_settings, member
+from app.api.deps import get_redis, get_scheduler, get_settings, require
 from app.config import Settings
 from app.db import get_session
 from app.models import (
@@ -47,6 +47,7 @@ from app.schemas.api import (
     TransmissionStop,
 )
 from app.services import domain, push, ratelimit, transmissions
+from app.services.permissions import Permission, has_permission
 from app.services.recompute import (
     MIN_BEARINGS,
     RecomputeScheduler,
@@ -85,7 +86,7 @@ async def _active_mission(session: AsyncSession, mission_id: uuid.UUID) -> Missi
 async def post_positions(
     mission_id: uuid.UUID,
     body: list[PositionIn],
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.POSITION_SHARE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     settings: Settings = Depends(get_settings),
@@ -103,7 +104,7 @@ async def list_positions(
     participant: uuid.UUID | None = None,
     since: datetime | None = None,
     limit: int = Query(default=2000, le=10_000),
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_POSITIONS)),
     session: AsyncSession = Depends(get_session),
 ) -> list[PositionOut]:
     stmt = select(PositionSample).where(PositionSample.mission_id == mission_id)
@@ -123,7 +124,7 @@ async def start_transmission(
     request: Request,
     mission_id: uuid.UUID,
     body: TransmissionStart | None = None,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.BEARING_CREATE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
@@ -160,7 +161,7 @@ async def start_transmission(
 async def stop_transmission(
     mission_id: uuid.UUID,
     body: TransmissionStop | None = None,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.BEARING_CREATE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
@@ -181,7 +182,7 @@ async def stop_transmission(
 @router.get("/transmissions", response_model=list[TransmissionOut])
 async def list_transmissions(
     mission_id: uuid.UUID,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[TransmissionOut]:
     rows = (
@@ -214,7 +215,7 @@ async def create_bearing(
     mission_id: uuid.UUID,
     body: BearingIn,
     response: Response,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.BEARING_CREATE)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
@@ -229,8 +230,8 @@ async def create_bearing(
     if await session.get(Mission, mission_id) is None:
         raise HTTPException(404, "mission not found")
     if body.point_id is not None:
-        if actor.role != "lead":
-            raise HTTPException(403, "only a lead may enter external bearings")
+        if not has_permission(actor, Permission.BEARING_EXTERNAL):
+            raise HTTPException(403, "permission required: bearing.external")
         point = await session.get(BearingPoint, body.point_id)
         if point is None or point.mission_id != mission_id or not point.is_active:
             raise HTTPException(422, "unknown or inactive bearing point")
@@ -299,7 +300,7 @@ async def list_bearings(
     transmission: uuid.UUID | None = None,
     since: datetime | None = None,
     include_inactive: bool = True,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[BearingOut]:
     stmt = select(Bearing).where(Bearing.mission_id == mission_id)
@@ -324,7 +325,7 @@ async def _bearing_or_404(session: AsyncSession, mission_id: uuid.UUID, bid: uui
 async def get_bearing(
     mission_id: uuid.UUID,
     bearing_id: uuid.UUID,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> BearingOut:
     return bearing_out(await _bearing_or_404(session, mission_id, bearing_id))
@@ -334,7 +335,7 @@ async def get_bearing(
 async def bearing_revisions(
     mission_id: uuid.UUID,
     bearing_id: uuid.UUID,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[RevisionOut]:
     await _bearing_or_404(session, mission_id, bearing_id)
@@ -353,15 +354,21 @@ async def patch_bearing(
     mission_id: uuid.UUID,
     bearing_id: uuid.UUID,
     body: BearingPatch,
-    actor: Participant = Depends(member),
+    actor: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> BearingOut:
     """Flag/deactivate a bearing or edit its note. Bearings can never be deleted."""
     bearing = await _bearing_or_404(session, mission_id, bearing_id)
-    if actor.role != "lead" and bearing.participant_id != actor.id:
-        raise HTTPException(403, "only the owner or a lead may change this bearing")
+    own = bearing.participant_id == actor.id and has_permission(actor, Permission.BEARING_CREATE)
+    if not own:
+        # Others: flags need `bearing.flag`, any other edit `bearing.edit_any`.
+        edits = body.model_dump(exclude_unset=True).keys()
+        flags_only = set(edits) <= {"is_outlier", "is_active"}
+        needed = Permission.BEARING_FLAG if flags_only else Permission.BEARING_EDIT_ANY
+        if not has_permission(actor, needed):
+            raise HTTPException(403, f"permission required: {needed.value}")
     changes: dict[str, dict[str, object]] = {}
     for field, value in body.model_dump(exclude_unset=True).items():
         old = getattr(bearing, field)
@@ -389,7 +396,7 @@ async def patch_bearing(
 async def get_estimate(
     mission_id: uuid.UUID,
     scope: Scope = "current",
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> EstimateOut:
     est = await session.scalar(
@@ -408,7 +415,7 @@ async def estimate_history(
     mission_id: uuid.UUID,
     scope: Scope = "all",
     limit: int = Query(default=100, le=1000),
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[EstimateOut]:
     rows = (
@@ -431,7 +438,7 @@ async def query_estimate(
     half_life_s: float | None = Query(default=None, gt=0),
     include_outliers: bool = False,
     include_rssi: bool = True,
-    _: Participant = Depends(member),
+    _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> EstimateOut:
     """Ad-hoc estimate for a time window and/or selected transmissions (not stored)."""

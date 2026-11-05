@@ -11,6 +11,7 @@ import '../core/api.dart';
 import '../core/geo.dart';
 import '../core/live.dart';
 import '../core/models.dart';
+import '../core/permissions.dart';
 import '../core/save_file.dart';
 import '../core/signal.dart';
 import '../core/session.dart';
@@ -151,6 +152,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  /// A read-only link: it is shown but never kept as the session's own invite.
+  Future<void> _openObserverInvite(Session session) async {
+    try {
+      final token = await ref
+          .read(apiProvider)
+          .createInvite(authority: 'observer');
+      if (mounted) _showInvite(session.copyWith(inviteToken: token));
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   Future<void> _replaceInvite(Session session) async {
     try {
       final token = await ref.read(apiProvider).replaceInvite();
@@ -183,25 +199,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              key: const Key('open-participants'),
-              leading: Badge(
-                isLabelVisible: waiting > 0,
-                label: Text('$waiting'),
-                child: const Icon(Icons.group_outlined),
+            if (session.can(Perm.participantManage) ||
+                session.can(Perm.trustSet))
+              ListTile(
+                key: const Key('open-participants'),
+                leading: Badge(
+                  isLabelVisible: waiting > 0,
+                  label: Text('$waiting'),
+                  child: const Icon(Icons.group_outlined),
+                ),
+                title: const Text('Teilnehmer'),
+                subtitle: Text(
+                  waiting > 0
+                      ? '$waiting warten auf Freigabe'
+                      : 'Freigabe, Rollen, Vertrauen',
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _push(const ParticipantsScreen());
+                },
               ),
-              title: const Text('Teilnehmer'),
-              subtitle: Text(
-                waiting > 0
-                    ? '$waiting warten auf Freigabe'
-                    : 'Freigabe, Rollen, Vertrauen',
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _push(const ParticipantsScreen());
-              },
-            ),
-            if (session.isLead || session.inviteToken != null)
+            if (session.can(Perm.inviteCreate) || session.inviteToken != null)
               ListTile(
                 key: const Key('open-invite'),
                 leading: const Icon(Icons.qr_code_2),
@@ -216,7 +234,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   _openInvite(session);
                 },
               ),
-            if (session.isLead)
+            if (session.can(Perm.inviteManage))
+              ListTile(
+                key: const Key('open-invite-observer'),
+                leading: const Icon(Icons.visibility_outlined),
+                title: const Text('Beobachter-Einladung'),
+                subtitle: const Text('Nur lesen: kein Chat, keine Positionen'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openObserverInvite(session);
+                },
+              ),
+            if (session.can(Perm.pointManage))
               ListTile(
                 key: const Key('open-points'),
                 leading: const Icon(Icons.add_location_alt_outlined),
@@ -227,27 +256,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   _push(const PointsScreen());
                 },
               ),
-            ListTile(
-              key: const Key('open-sensors'),
-              leading: const Icon(Icons.sensors),
-              title: const Text('Sensoren'),
-              subtitle: const Text('Feste Peilstationen und API-Schlüssel'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _push(const SensorsScreen());
-              },
-            ),
-            ListTile(
-              key: const Key('open-audit'),
-              leading: const Icon(Icons.shield_outlined),
-              title: const Text('Sicherheitsprotokoll'),
-              subtitle: const Text('Beitritte, Entfernungen, Sperren'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _push(const AuditScreen());
-              },
-            ),
-            if (ref.read(missionProvider).mission?.isActive ?? false)
+            if (session.can(Perm.sensorManage))
+              ListTile(
+                key: const Key('open-sensors'),
+                leading: const Icon(Icons.sensors),
+                title: const Text('Sensoren'),
+                subtitle: const Text('Feste Peilstationen und API-Schlüssel'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _push(const SensorsScreen());
+                },
+              ),
+            if (session.can(Perm.auditView))
+              ListTile(
+                key: const Key('open-audit'),
+                leading: const Icon(Icons.shield_outlined),
+                title: const Text('Sicherheitsprotokoll'),
+                subtitle: const Text('Beitritte, Entfernungen, Sperren'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _push(const AuditScreen());
+                },
+              ),
+            if (session.can(Perm.missionEnd) &&
+                (ref.read(missionProvider).mission?.isActive ?? false))
               ListTile(
                 key: const Key('end-mission'),
                 leading: Icon(
@@ -466,8 +498,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final running = state.running;
     final canToggleTx =
         running == null ||
-        state.canStopRunning(session.participantId, session.role);
-    final waiting = session.isLead
+        state.canStopRunning(
+          session.participantId,
+          canManage: session.can(Perm.transmissionManage),
+        );
+    final waiting = session.can(Perm.participantManage)
         ? state.participants.values.where((p) => p.isPending).length
         : 0;
     ref.watch(
@@ -552,16 +587,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         actions: [
           _ConnectionDot(status: state.connection),
           const SyncChip(),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            key: const Key('open-chat'),
-            tooltip: 'Chat',
-            icon: const Icon(Icons.chat_bubble_outline),
-            onPressed: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute<void>(builder: (_) => const ChatScreen())),
-          ),
-          if (!compact)
+          if (session.can(Perm.chatRead))
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              key: const Key('open-chat'),
+              tooltip: 'Chat',
+              icon: const Icon(Icons.chat_bubble_outline),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const ChatScreen()),
+              ),
+            ),
+          if (!compact && session.can(Perm.taskWork))
             IconButton(
               visualDensity: VisualDensity.compact,
               key: const Key('open-tasks'),
@@ -626,11 +662,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             },
             itemBuilder: (_) => [
               if (compact) ...[
-                const PopupMenuItem(
-                  key: Key('menu-tasks'),
-                  value: 'tasks',
-                  child: _MenuRow(Icons.checklist, 'Aufgaben'),
-                ),
+                if (session.can(Perm.taskWork))
+                  const PopupMenuItem(
+                    key: Key('menu-tasks'),
+                    value: 'tasks',
+                    child: _MenuRow(Icons.checklist, 'Aufgaben'),
+                  ),
                 PopupMenuItem(
                   key: const Key('menu-filter'),
                   value: 'filter',
@@ -644,13 +681,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 value: 'bearings',
                 child: _MenuRow(Icons.list_alt, 'Peilungen (Liste)'),
               ),
-              if (session.role == 'fixed' || session.isLead)
+              if ((session.role == 'fixed' || session.role == 'lead') &&
+                  session.can(Perm.rssiSubmit))
                 const PopupMenuItem(
                   key: Key('open-station'),
                   value: 'station',
                   child: _MenuRow(Icons.cell_tower, 'Rundstrahl-Station'),
                 ),
-              if (session.isLead)
+              if (session.canManage)
                 PopupMenuItem(
                   key: const Key('open-manage'),
                   value: 'manage',
@@ -666,11 +704,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   value: 'invite',
                   child: _MenuRow(Icons.qr_code_2, 'Einladung'),
                 ),
-              const PopupMenuItem(
-                key: Key('open-export'),
-                value: 'export',
-                child: _MenuRow(Icons.ios_share, 'Exportieren …'),
-              ),
+              if (session.can(Perm.export))
+                const PopupMenuItem(
+                  key: Key('open-export'),
+                  value: 'export',
+                  child: _MenuRow(Icons.ios_share, 'Exportieren …'),
+                ),
               const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'settings',
@@ -943,30 +982,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            FloatingActionButton.extended(
-              key: const Key('toggle-transmission'),
-              heroTag: 'tx',
-              backgroundColor: running != null
-                  ? Colors.red
-                  : theme.colorScheme.secondaryContainer,
-              foregroundColor: running != null
-                  ? Colors.white
-                  : theme.colorScheme.onSecondaryContainer,
-              onPressed: (state.mission?.isActive ?? false) && canToggleTx
-                  ? ref.read(missionProvider.notifier).toggleTransmission
-                  : null,
-              icon: Icon(running != null ? Icons.stop : Icons.podcasts),
-              label: Text(
-                running != null ? 'Aussendung Ende' : 'Aussendung Start',
+            if (session.can(Perm.bearingCreate)) ...[
+              FloatingActionButton.extended(
+                key: const Key('toggle-transmission'),
+                heroTag: 'tx',
+                backgroundColor: running != null
+                    ? Colors.red
+                    : theme.colorScheme.secondaryContainer,
+                foregroundColor: running != null
+                    ? Colors.white
+                    : theme.colorScheme.onSecondaryContainer,
+                onPressed: (state.mission?.isActive ?? false) && canToggleTx
+                    ? ref.read(missionProvider.notifier).toggleTransmission
+                    : null,
+                icon: Icon(running != null ? Icons.stop : Icons.podcasts),
+                label: Text(
+                  running != null ? 'Aussendung Ende' : 'Aussendung Start',
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            FloatingActionButton.large(
-              key: const Key('open-capture'),
-              heroTag: 'capture',
-              onPressed: _openCapture,
-              child: const Icon(Icons.my_location),
-            ),
+              const SizedBox(width: 12),
+              FloatingActionButton.large(
+                key: const Key('open-capture'),
+                heroTag: 'capture',
+                onPressed: _openCapture,
+                child: const Icon(Icons.my_location),
+              ),
+            ],
           ],
         ),
       ),

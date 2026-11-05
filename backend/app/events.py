@@ -28,6 +28,18 @@ EVENT_TYPES = frozenset(
 )
 
 
+# Events that need more than `view.result`. Observers get neither chat nor positions of others.
+EVENT_PERMISSION: dict[str, str] = {
+    "participant_position": "view.positions",
+    "message": "chat.read",
+    "task_updated": "task.work",
+}
+
+
+def event_permission(type_: str) -> str:
+    return EVENT_PERMISSION.get(type_, "view.result")
+
+
 def channel(mission_id: uuid.UUID | str, team_id: uuid.UUID | str | None = None) -> str:
     """Mission-wide channel, or the private channel of one team."""
     base = f"mission:{mission_id}"

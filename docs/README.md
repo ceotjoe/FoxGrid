@@ -3,7 +3,7 @@
 | I want to … | Read |
 |---|---|
 | use the app | [Getting started](user-guide/getting-started.md), [Homing](user-guide/homing.md), [Fixed stations](user-guide/omni-stations.md), [External bearings](user-guide/external-bearings.md), [Coordination and export](user-guide/coordination.md) |
-| run a mission safely | [Access control and security](user-guide/mission-lead-security.md) |
+| run a mission safely | [Roles and permissions](user-guide/roles.md), [Access control and security](user-guide/mission-lead-security.md) |
 | understand how it works | [Domain rules](concepts/domain-rules.md), [Engine](concepts/engine.md), [Architecture](concepts/architecture.md) |
 | integrate or script against the server | [API reference](reference/api.md), [MQTT interface](reference/mqtt.md), [Data model](reference/data-model.md), [Configuration](reference/configuration.md) |
 | host a server | [Deployment](operations/deployment.md), [Push notifications](operations/push-notifications.md) |

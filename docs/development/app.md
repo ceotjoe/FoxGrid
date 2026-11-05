@@ -36,6 +36,10 @@ our own. Bulk download is blocked for public OSM servers (tile usage policy). Th
 - Returning without an invite: `POST /missions/{id}/rejoin` (callsign + device secret). `SessionNotifier.refresh()` runs when the
   JWT has less than 12 h left (checked every 5 s tick, at most every 5 min) and on a 401 snapshot; only `denied` logs out, being
   offline keeps the session. `RecentMissionsStore` (SharedPreferences, no secrets) feeds the "Zuletzt benutzt" list.
+- **Permissions.** Participant records carry `authority` and `permissions`; the session stores them (`Session.can(Perm.x)`,
+  `core/permissions.dart` has the names and German labels). Older stored sessions fall back to the role until the server's list
+  arrives. The UI only shows or hides functions; the server enforces. A role change closes the live socket (4409), the app
+  reconnects and `MissionNotifier._syncOwnSession` updates the session from the snapshot. Never test `role == 'lead'` in the UI.
 - `Session.status`, `ui/pending_screen.dart` (gate in `main.dart`) and `ui/participants_screen.dart` (lead menu with badge) implement
   the approval flow; `MissionNotifier.applyParticipant` also updates the own role live.
 - The device secret (`core/device_secret.dart`) is a random per-install value in SharedPreferences.
