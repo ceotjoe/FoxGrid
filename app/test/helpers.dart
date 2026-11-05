@@ -33,6 +33,7 @@ Map<String, dynamic> snapshotJson({
   List<Map<String, dynamic>> tasks = const [],
   Map<String, dynamic>? repeater,
   List<Map<String, dynamic>> rssi = const [],
+  List<Map<String, dynamic>> points = const [],
 }) => {
   'mission': {
     'id': 'm1',
@@ -42,6 +43,7 @@ Map<String, dynamic> snapshotJson({
     'repeater': ?repeater,
   },
   'rssi': rssi,
+  'points': points,
   'participants': [
     {'id': 'p1', 'callsign': 'DL1ABC', 'role': 'lead', 'team': 'Alpha'},
     {'id': 'p2', 'callsign': 'DL2XYZ', 'role': 'mobile', 'team': null},
@@ -75,6 +77,22 @@ Map<String, dynamic> bearingJson(
   'is_active': true,
   'rssi_dbm': null,
   'note': null,
+};
+
+Map<String, dynamic> pointJson(
+  String id, {
+  String name = 'BNetzA Köln',
+  bool useInEstimate = true,
+  bool active = true,
+}) => {
+  'id': id,
+  'name': name,
+  'lat': 50.9,
+  'lon': 6.9,
+  'accuracy_m': null,
+  'note': null,
+  'use_in_estimate': useInEstimate,
+  'is_active': active,
 };
 
 Map<String, dynamic> estimateJson({String scope = 'all', int n = 3}) {

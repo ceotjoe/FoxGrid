@@ -207,11 +207,15 @@ class Bearing {
     this.transmissionId,
     this.rssiDbm,
     this.note,
+    this.pointId,
   });
 
   final String id;
   final String participantId;
   final String? transmissionId;
+
+  /// Set for an external bearing (entered by the lead for a [BearingPoint]).
+  final String? pointId;
   final LatLng station;
   final double azimuthTrueDeg;
   final double sigmaDeg;
@@ -233,6 +237,58 @@ class Bearing {
     isActive: j['is_active'] as bool,
     rssiDbm: _d(j['rssi_dbm']),
     note: j['note'] as String?,
+    pointId: j['point_id'] as String?,
+  );
+
+  bool get isExternal => pointId != null;
+}
+
+/// A named location whose bearings the lead enters on behalf of a third party (e.g. BNetzA).
+/// The position cannot be edited; a wrong point is replaced by a new one.
+class BearingPoint {
+  const BearingPoint({
+    required this.id,
+    required this.name,
+    required this.position,
+    this.accuracyM,
+    this.note,
+    this.useInEstimate = true,
+    this.isActive = true,
+  });
+
+  final String id;
+  final String name;
+  final LatLng position;
+  final double? accuracyM;
+  final String? note;
+
+  /// Off: its bearings stay visible but do not move the estimate.
+  final bool useInEstimate;
+  final bool isActive;
+
+  BearingPoint copyWith({
+    String? name,
+    String? note,
+    bool? useInEstimate,
+    bool? isActive,
+  }) => BearingPoint(
+    id: id,
+    name: name ?? this.name,
+    position: position,
+    accuracyM: accuracyM,
+    note: note ?? this.note,
+    useInEstimate: useInEstimate ?? this.useInEstimate,
+    isActive: isActive ?? this.isActive,
+  );
+
+  factory BearingPoint.fromJson(Map<String, dynamic> j) => BearingPoint(
+    id: j['id'] as String,
+    name: j['name'] as String,
+    position: LatLng(_d(j['lat'])!, _d(j['lon'])!),
+    accuracyM: _d(j['accuracy_m']),
+    note: j['note'] as String?,
+    useInEstimate: (j['use_in_estimate'] as bool?) ?? true,
+    isActive: (j['is_active'] as bool?) ?? true,
   );
 }
 
