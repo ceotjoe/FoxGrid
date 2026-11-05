@@ -3,7 +3,7 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## Unreleased
+## 0.4.0 – 2026-11-05
 
 - Backend: external bearing points (`/points`) so the lead can enter bearings received from outside the group (e.g. BNetzA); per-point switch for the estimate (migration 0010). App: model, state, outbox and live events for points; the lead can add points on the map, by coordinates or from the device location and enter bearings for them; the map shows points and their rays, with a filter switch. Exports (PDF, GPX, KML, JSON) name the points.
 - App: remember the last map view per mission.
