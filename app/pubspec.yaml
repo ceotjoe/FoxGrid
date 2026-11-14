@@ -21,6 +21,7 @@ dependencies:
   flutter_riverpod: ^3.4.3
   geolocator: ^14.1.2
   latlong2: ^0.10.1
+  material_ui: ^1.11.0
   path_provider: ^2.1.6
   qr_flutter: ^4.1.0
   share_plus: ^13.3.1
