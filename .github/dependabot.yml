@@ -12,6 +12,14 @@ updates:
   - package-ecosystem: pub
     directory: /app
     schedule: { interval: weekly }
+    ignore:
+      # Stay on firebase_messaging 16.x / firebase_core 4.x: messaging 17 only offers Firebase
+      # installation IDs, not the FCM registration token the backend sends to
+      # (docs/operations/push-notifications.md).
+      - dependency-name: firebase_messaging
+        update-types: [version-update:semver-major]
+      - dependency-name: firebase_core
+        update-types: [version-update:semver-major]
   - package-ecosystem: docker
     directory: /backend
     schedule: { interval: weekly }
