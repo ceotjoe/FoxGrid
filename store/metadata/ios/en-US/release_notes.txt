@@ -1,1 +1,1 @@
-First release: record bearings, live fusion, homing with S-meter, team chat and tasks, offline operation.
+Maintenance update: internal improvements and updated components for better stability.

@@ -3,6 +3,13 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## 0.5.1 – 2026-11-16
+
+- Maintenance release: no functional changes and no migrations.
+- App: migrated to `material_ui` for Flutter 3.50; updated drift, drift_dev and flutter_riverpod.
+- Backend: updated fastapi, pydantic, geoalchemy2 and opentelemetry-api; engine and backend dev tools (ruff, pytest-asyncio).
+- Dependabot ignores Firebase major bumps.
+
 ## 0.5.0 – 2026-11-05
 
 - Roles and permissions: besides the data source (`role`) a participant now has an `authority`: lead, deputy (*Co-Leiter*), analyst

@@ -1,1 +1,1 @@
-Erste Version: Peilungen erfassen, live fusionieren, Nahpeilung mit S-Meter, Team-Chat und Aufgaben, Offline-Betrieb.
+Wartungsupdate: interne Verbesserungen und aktualisierte Komponenten für mehr Stabilität.
