@@ -1,17 +1,30 @@
 version: 2
+# One grouped PR per ecosystem/directory, so lockfile changes do not conflict with each other.
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      github-actions:
+        patterns: ["*"]
   - package-ecosystem: uv
     directory: /backend
     schedule: { interval: weekly }
+    groups:
+      backend-deps:
+        patterns: ["*"]
   - package-ecosystem: uv
     directory: /engine
     schedule: { interval: weekly }
+    groups:
+      engine-deps:
+        patterns: ["*"]
   - package-ecosystem: pub
     directory: /app
     schedule: { interval: weekly }
+    groups:
+      app-deps:
+        patterns: ["*"]
     ignore:
       # Stay on firebase_messaging 16.x / firebase_core 4.x: messaging 17 only offers Firebase
       # installation IDs, not the FCM registration token the backend sends to
@@ -23,6 +36,9 @@ updates:
   - package-ecosystem: docker
     directory: /backend
     schedule: { interval: weekly }
+    groups:
+      docker-deps:
+        patterns: ["*"]
     ignore:
       # Python is pinned to 3.12 (see .python-version and CLAUDE.md).
       - dependency-name: python
@@ -30,6 +46,12 @@ updates:
   - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: weekly }
+    groups:
+      compose-deps:
+        patterns: ["*"]
   - package-ecosystem: bundler
     directory: /
     schedule: { interval: monthly }
+    groups:
+      bundler-deps:
+        patterns: ["*"]
