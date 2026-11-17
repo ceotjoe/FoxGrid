@@ -49,6 +49,12 @@ updates:
     groups:
       compose-deps:
         patterns: ["*"]
+    ignore:
+      # PostgreSQL major upgrades need a data migration (dump/restore or pg_upgrade); do them
+      # deliberately. PostgreSQL 17 is supported until about Nov 2029; the weekly workflow
+      # .github/workflows/postgres-eol.yml warns a year ahead. Remove this rule when upgrading.
+      - dependency-name: postgis/postgis
+        update-types: [version-update:semver-major]
   - package-ecosystem: bundler
     directory: /
     schedule: { interval: monthly }

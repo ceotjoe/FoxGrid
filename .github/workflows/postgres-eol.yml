@@ -1,0 +1,37 @@
+name: PostgreSQL end-of-life
+
+# Dependabot is told to skip PostgreSQL major bumps (they need a data migration), so nothing else
+# warns us when the pinned major approaches end of life. This weekly check does; a failing run
+# notifies the repository owner.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Fail when support ends within this many days.
+  WARN_DAYS: "365"
+
+jobs:
+  eol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the PostgreSQL major in docker-compose.yml
+        run: |
+          set -euo pipefail
+          major=$(grep -oE 'postgis/postgis:[0-9]+' docker-compose.yml | head -1 | cut -d: -f2)
+          [ -n "$major" ] || { echo "No postgis/postgis image found in docker-compose.yml"; exit 1; }
+          eol=$(curl -fsS https://endoflife.date/api/postgresql.json \
+            | jq -r --arg m "$major" '.[] | select(.cycle == $m) | .eol')
+          [ -n "$eol" ] && [ "$eol" != "null" ] || { echo "No EOL data for PostgreSQL $major"; exit 1; }
+          days=$(( ( $(date -d "$eol" +%s) - $(date +%s) ) / 86400 ))
+          echo "PostgreSQL $major reaches end of life on $eol ($days days left)."
+          if [ "$days" -lt "$WARN_DAYS" ]; then
+            echo "::error::PostgreSQL $major ends support on $eol. Plan the major upgrade (docs/operations/deployment.md) and update the Dependabot ignore rule."
+            exit 1
+          fi
