@@ -8,7 +8,8 @@ All notable changes. Versions follow the app's `pubspec.yaml`; dates are from th
 - Several interferers per mission (backend, step 1 of 4): new `interferers` table, `interferer_id` on bearings, RSSI readings and
   estimates (migration 0013; existing missions get "Störer 1" with all their data). Each interferer has its own estimate;
   `/estimate`, `/estimate/query` and `/suggestions` take `interferer=`; bearings can be reassigned (revision); new permission
-  `interferer.manage`; JSON export lists interferers. Old clients keep working (default interferer). App (step 2 of 4): interferers in the model, state and outbox; the capture sheet has an interferer chip, *Menü → Störer* manages them, a long press reassigns a bearing; the map shows the active interferer's estimate. Colour schemes and the map filter follow.
+  `interferer.manage`; JSON export lists interferers. Old clients keep working (default interferer). App (step 2 of 4): interferers in the model, state and outbox; the capture sheet has an interferer chip, *Menü → Störer* manages them, a long press reassigns a bearing; Map (step 3 of 4): one estimate per interferer, each in its own colour family (shaded by field strength; brightness, dash pattern and letter badge in the red night mode), a legend that is also the quick filter, and an interferer filter (hide or dim the others) in the filter sheet.
+  Step 4: merge two interferers (`POST …/interferers/{id}/merge`, menu *Störer → Mit anderem zusammenführen*), exports (GPX, KML, PDF) with every interferer's estimate, the transmission push names the interferer, and `tools/simulator/run.py --two-interferers`.
 
 ## 0.5.1 – 2026-11-16
 

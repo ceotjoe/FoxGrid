@@ -73,10 +73,18 @@ server, then no `interferer_id` is sent). `MissionNotifier` computes it itself i
 (that provider watches the mission state: a cycle). `saveBearing` and `logRssi` add it centrally; calibration readings carry none.
 
 `createInterferer` (lowest free colour slot, at most 6 active), `patchInterferer` and `reassignBearing` go through the outbox (kinds
-`interferer_create`, `interferer_patch`, `bearing_interferer`) and are re-applied by `_overlayPending`. UI: the chip in the capture sheet
+`interferer_create`, `interferer_patch`, `bearing_interferer`, `interferer_merge`) and are re-applied by `_overlayPending`. UI: the chip in the capture sheet
 switches the active interferer; *Menü → Störer* (`ui/interferers_screen.dart`) adds, renames, marks as found and deactivates; a long
-press on a bearing in the list reassigns it (owner, or `interferer.manage`). The map still draws the active interferer's estimate; the
-filter and the colour schemes per interferer come with the map step.
+press on a bearing in the list reassigns it (owner, or `interferer.manage`). 
+
+**Map.** With a single interferer the map looks as before (participant colours, red estimate). With several (`state.interferers.length > 1`)
+it draws one estimate per shown interferer (ellipses, contours, MLE marker with letter badge, station rings from that interferer's
+readings) and colours each bearing with its interferer's family from `MapPalette.interferer(slot)`, shaded by field strength
+(`interfererSignal`: weak = pale by day, dim by night). Each ray ends in a letter badge. The red night mode has only red hues, so the
+slots also differ in brightness and dash pattern (`interfererDash`: solid, dashed, dotted) and the badge. `BearingFilter.interfererIds`
+(empty = all) hides the other interferers' bearings, estimates and readings, or with `dimOthers` fades their bearings to 25 %. The
+legend (chips under the scope buttons) is the quick filter: tap = only this one (again = all), long press = add to / remove from the
+selection; the filter sheet has the same choice. Ad-hoc estimates (`filteredEstimatesProvider`) are queried per shown interferer.
 
 ## External bearing points
 

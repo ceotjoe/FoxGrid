@@ -53,6 +53,71 @@ class MapPalette {
     Color(0xFFC62828),
   ];
 
+  // One colour family per interferer slot. Participants keep their own colours while a mission
+  // has a single interferer; with several, the family says *which* interferer, the shade how
+  // strong the signal was.
+  static const _interfererDay = [
+    Color(0xFFD32F2F), // A red
+    Color(0xFF1976D2), // B blue
+    Color(0xFF2E7D32), // C green
+    Color(0xFF7B1FA2), // D purple
+    Color(0xFFEF6C00), // E orange
+    Color(0xFF00838F), // F teal
+  ];
+  static const _interfererDark = [
+    Color(0xFFFF8A80),
+    Color(0xFF64B5F6),
+    Color(0xFF81C784),
+    Color(0xFFCE93D8),
+    Color(0xFFFFB74D),
+    Color(0xFF4DD0E1),
+  ];
+  // Red night mode: only red hues, told apart by brightness, dash pattern and the letter badge.
+  static const _interfererNight = [
+    Color(0xFFFF3B30),
+    Color(0xFFFF8A80),
+    Color(0xFFD32F2F),
+    Color(0xFFFFA39A),
+    Color(0xFFC62828),
+    Color(0xFFFF5252),
+  ];
+
+  /// Colour family of interferer [slot] at full strength.
+  Color interferer(int slot) {
+    final list = switch (_mode) {
+      _Mode.day => _interfererDay,
+      _Mode.dark => _interfererDark,
+      _Mode.night => _interfererNight,
+    };
+    return list[slot % list.length];
+  }
+
+  /// The family of [slot], shaded by field strength: weak readings are pale (day) or dim (dark
+  /// and night), strong ones take the full colour. Without a reading: full colour.
+  Color interfererSignal(
+    int slot,
+    double? dbm, {
+    double min = -110,
+    double max = -40,
+  }) {
+    final base = interferer(slot);
+    if (dbm == null) return base;
+    final t = ((dbm - min) / (max - min)).clamp(0.0, 1.0);
+    final weak = isDark ? Colors.black : Colors.white;
+    return Color.lerp(weak, base, 0.45 + 0.55 * t)!;
+  }
+
+  /// Dash pattern that tells interferers apart where colour cannot (red night mode): solid,
+  /// dashed, dotted. Day and dark mode stay solid.
+  List<double>? interfererDash(int slot) {
+    if (!isNight) return null;
+    return switch (slot % 3) {
+      1 => const [12, 6],
+      2 => const [3, 6],
+      _ => null,
+    };
+  }
+
   Color participant(String id) {
     final list = switch (_mode) {
       _Mode.day => _day,

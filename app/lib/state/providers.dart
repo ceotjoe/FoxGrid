@@ -578,6 +578,12 @@ class MissionNotifier extends Notifier<MissionState> {
                 interferers: {...s.interferers, id: _patchInterferer(i, body)},
               );
             }
+          case 'interferer_merge':
+            s = _merged(
+              s,
+              e.path.split('/').reversed.elementAt(1),
+              body['into'] as String,
+            );
           case 'bearing_interferer':
             final id = e.path.split('/').last;
             final b = s.bearings[id];
@@ -1042,6 +1048,37 @@ class MissionNotifier extends Notifier<MissionState> {
       method: 'PATCH',
       path: '$_base/interferers/$id',
       body: changes,
+    );
+  }
+
+  /// Two interferers turned out to be one: everything of [source] moves to [into] and [source] is
+  /// deactivated (needs `interferer.manage`). Nothing is deleted; the server writes revisions.
+  Future<void> mergeInterferer(String source, String into) async {
+    state = _merged(state, source, into);
+    await _enqueue(
+      kind: 'interferer_merge',
+      method: 'POST',
+      path: '$_base/interferers/$source/merge',
+      body: {'into': into},
+    );
+  }
+
+  static MissionState _merged(MissionState s, String source, String into) {
+    final from = s.interferers[source];
+    return s.copyWith(
+      bearings: {
+        for (final e in s.bearings.entries)
+          e.key: e.value.interfererId == source
+              ? e.value.copyWith(interfererId: into)
+              : e.value,
+      },
+      rssi: [
+        for (final r in s.rssi)
+          r.interfererId == source ? r.copyWith(interfererId: into) : r,
+      ],
+      interferers: from == null
+          ? null
+          : {...s.interferers, source: from.copyWith(isActive: false)},
     );
   }
 

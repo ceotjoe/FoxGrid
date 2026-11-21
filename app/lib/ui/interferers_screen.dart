@@ -147,6 +147,59 @@ class InterferersScreen extends ConsumerWidget {
     }
   }
 
+  /// Picks the interferer to merge [i] into and asks once more: the move cannot be undone.
+  Future<void> _merge(BuildContext context, WidgetRef ref, Interferer i) async {
+    final others = [
+      for (final o in ref.read(missionProvider).activeInterferers)
+        if (o.id != i.id) o,
+    ];
+    final target = await showModalBottomSheet<Interferer>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text('„${i.name}" zusammenführen mit')),
+            for (final o in others)
+              ListTile(
+                key: Key('merge-into-${o.id}'),
+                leading: InterfererBadge(o),
+                title: Text(o.name),
+                onTap: () => Navigator.pop(ctx, o),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (target == null || !context.mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Zusammenführen?'),
+        content: Text(
+          'Alle Peilungen und Messwerte von „${i.name}" gehören danach zu '
+          '„${target.name}". „${i.name}" wird deaktiviert. Das lässt sich '
+          'nur per Hand zurückordnen.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            key: const Key('merge-confirm'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Zusammenführen'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(missionProvider.notifier).mergeInterferer(i.id, target.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(missionProvider);
@@ -217,6 +270,8 @@ class InterferersScreen extends ConsumerWidget {
                                         ? 'active'
                                         : 'resolved',
                                   });
+                                case 'merge':
+                                  _merge(context, ref, i);
                                 case 'toggle':
                                   notifier.patchInterferer(i.id, {
                                     'is_active': !i.isActive,
@@ -237,6 +292,15 @@ class InterferersScreen extends ConsumerWidget {
                                     i.isResolved
                                         ? 'Wieder als aktiv markieren'
                                         : 'Als gefunden markieren',
+                                  ),
+                                ),
+                              if (i.isActive &&
+                                  list.where((o) => o.isActive).length > 1)
+                                PopupMenuItem(
+                                  key: Key('interferer-merge-${i.id}'),
+                                  value: 'merge',
+                                  child: const Text(
+                                    'Mit anderem zusammenführen …',
                                   ),
                                 ),
                               PopupMenuItem(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/filter.dart';
 import '../state/providers.dart';
+import 'interferers_screen.dart';
 
 /// Choose which bearings feed the estimate: transmissions, time window, age weighting.
 class FilterSheet extends ConsumerWidget {
@@ -25,6 +26,9 @@ class FilterSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final f = ref.watch(filterProvider);
     final txs = ref.watch(missionProvider.select((s) => s.transmissions));
+    final interferers = ref.watch(
+      missionProvider.select((s) => s.activeInterferers),
+    );
     final notifier = ref.read(filterProvider.notifier);
     final theme = Theme.of(context);
 
@@ -54,6 +58,44 @@ class FilterSheet extends ConsumerWidget {
             children: [
               Text('Filter', style: theme.textTheme.titleLarge),
               const SizedBox(height: 12),
+              if (interferers.length > 1) ...[
+                Text('Störer', style: theme.textTheme.labelLarge),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      key: const Key('filter-interferer-all'),
+                      label: const Text('alle'),
+                      selected: f.interfererIds.isEmpty,
+                      onSelected: (_) =>
+                          notifier.set(f.copyWith(interfererIds: {})),
+                    ),
+                    for (final i in interferers)
+                      FilterChip(
+                        key: Key('filter-interferer-${i.id}'),
+                        avatar: InterfererBadge(i, radius: 10),
+                        label: Text(i.name),
+                        selected: f.interfererIds.contains(i.id),
+                        onSelected: (on) {
+                          final ids = {...f.interfererIds};
+                          on ? ids.add(i.id) : ids.remove(i.id);
+                          notifier.set(f.copyWith(interfererIds: ids));
+                        },
+                      ),
+                  ],
+                ),
+                SwitchListTile(
+                  key: const Key('filter-dim-others'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Andere Störer abblenden'),
+                  subtitle: const Text('Statt sie auszublenden'),
+                  value: f.dimOthers,
+                  onChanged: f.interfererIds.isEmpty
+                      ? null
+                      : (v) => notifier.set(f.copyWith(dimOthers: v)),
+                ),
+                const SizedBox(height: 12),
+              ],
               Text('Aussendungen', style: theme.textTheme.labelLarge),
               Wrap(
                 spacing: 8,

@@ -501,6 +501,19 @@ class RssiSample {
   /// Level at the antenna: the attenuator reduced what the receiver saw.
   double get correctedDbm => rssiDbm + attenuationDb;
 
+  RssiSample copyWith({String? interfererId}) => RssiSample(
+    id: id,
+    participantId: participantId,
+    point: point,
+    rssiDbm: rssiDbm,
+    measuredAt: measuredAt,
+    attenuationDb: attenuationDb,
+    pending: pending,
+    receiver: receiver,
+    isCalibration: isCalibration,
+    interfererId: interfererId ?? this.interfererId,
+  );
+
   factory RssiSample.fromJson(Map<String, dynamic> j) => RssiSample(
     id: j['id'] as String,
     participantId: (j['participant_id'] as String?) ?? '',

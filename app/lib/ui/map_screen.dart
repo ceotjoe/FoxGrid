@@ -100,8 +100,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   /// Everything worth showing: estimate area, bearing stations and participants.
-  List<LatLng> _interestingPoints(MissionState state, Estimate? estimate) => [
-    if (estimate != null) ...estimate.ellipse2s.ring,
+  List<LatLng> _interestingPoints(MissionState state, List<_Shown> shown) => [
+    for (final s in shown) ...s.estimate.ellipse2s.ring,
     for (final b in state.bearings.values) b.station,
     for (final p in state.points.values) p.position,
     for (final p in state.positions.values) p.point,
@@ -517,14 +517,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ? (ref.watch(suggestionsProvider).value ?? const <Suggestion>[])
         : const <Suggestion>[];
     final activeInterferer = ref.watch(activeInterfererIdProvider);
-    final filtered = ref.watch(filteredEstimateProvider).value;
-    final liveEstimate =
-        state.estimateFor(activeInterferer, scope.name) ??
-        state.estimateFor(
-          activeInterferer,
-          scope == EstimateScope.current ? 'all' : 'current',
-        );
-    final estimate = filter.needsQuery ? filtered : liveEstimate;
+    final filtered = ref.watch(filteredEstimatesProvider).value ?? const {};
+    final multi = state.interferers.length > 1;
+    final other = scope == EstimateScope.current ? 'all' : 'current';
+    // One estimate per shown interferer; a mission with a single one draws it as before.
+    final shown = <_Shown>[
+      if (multi)
+        for (final i in state.activeInterferers)
+          if (filter.selects(i.id))
+            if ((filter.needsQuery
+                    ? filtered[i.id]
+                    : state.estimateFor(i.id, scope.name) ??
+                          state.estimateFor(i.id, other))
+                case final e?)
+              _Shown(i, e),
+      if (!multi)
+        if ((filter.needsQuery
+                ? filtered[activeInterferer]
+                : state.estimateFor(activeInterferer, scope.name) ??
+                      state.estimateFor(activeInterferer, other))
+            case final e?)
+          _Shown(null, e),
+    ];
+    final estimate = shown.isEmpty ? null : shown.first.estimate;
 
     ref.listen<String?>(missionProvider.select((s) => s.error), (_, error) {
       if (error != null) {
@@ -534,7 +549,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       }
     });
 
-    final interesting = _interestingPoints(state, estimate);
+    final interesting = _interestingPoints(state, shown);
     if (!_fitted && state.loaded && interesting.length >= 2) {
       _fitted = true;
       _centered = true;
@@ -557,7 +572,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final now = DateTime.now().toUtc();
     final compact = MediaQuery.sizeOf(context).width < 600;
-    final filterActive = filter.needsQuery || filter.hideOutliers;
+    final filterActive =
+        filter.needsQuery ||
+        filter.hideOutliers ||
+        filter.interfererIds.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -784,26 +802,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ],
                 ),
               if (state.rssi.any((r) => !r.isStation))
-                _rssiDots(state.rssi.where((r) => !r.isStation).toList()),
-              if (estimate != null && filter.showContours)
-                PolygonLayer(polygons: _contourPolygons(estimate)),
-              if (estimate != null && filter.showRings)
-                _stationRings(state, estimate),
-              if (estimate != null)
+                _rssiDots([
+                  for (final r in state.rssi)
+                    if (!r.isStation && filter.selects(r.interfererId)) r,
+                ]),
+              if (shown.isNotEmpty && filter.showContours)
                 PolygonLayer(
                   polygons: [
-                    Polygon(
-                      points: estimate.ellipse2s.ring,
-                      color: _pal.estimate.withValues(alpha: 0.08),
-                      borderColor: _pal.estimate.withValues(alpha: 0.6),
-                      borderStrokeWidth: 1.5,
-                    ),
-                    Polygon(
-                      points: estimate.ellipse1s.ring,
-                      color: _pal.estimate.withValues(alpha: 0.18),
-                      borderColor: _pal.estimate,
-                      borderStrokeWidth: 2,
-                    ),
+                    for (final s in shown)
+                      ..._contourPolygons(s.estimate, _contourColor(s)),
+                  ],
+                ),
+              if (filter.showRings)
+                for (final s in shown) _stationRings(state, s, filter),
+              if (shown.isNotEmpty)
+                PolygonLayer(
+                  polygons: [
+                    for (final s in shown) ...[
+                      Polygon(
+                        points: s.estimate.ellipse2s.ring,
+                        color: _estimateColor(s).withValues(alpha: 0.08),
+                        borderColor: _estimateColor(s).withValues(alpha: 0.6),
+                        borderStrokeWidth: 1.5,
+                      ),
+                      Polygon(
+                        points: s.estimate.ellipse1s.ring,
+                        color: _estimateColor(s).withValues(alpha: 0.18),
+                        borderColor: _estimateColor(s),
+                        borderStrokeWidth: 2,
+                      ),
+                    ],
                   ],
                 ),
               PolygonLayer(polygons: _fans(state, filter, now)),
@@ -838,7 +866,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         ),
                       ),
                     ),
-                  ..._stationMarkers(state),
+                  ..._stationMarkers(state, filter),
+                  if (multi) ..._rayBadges(state, filter, now),
                   if (filter.showExternal)
                     for (final p in state.points.values)
                       if (p.isActive) _pointMarker(p),
@@ -854,18 +883,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         key: Key('repeater-marker'),
                       ),
                     ),
-                  if (estimate != null)
-                    Marker(
-                      point: estimate.point,
-                      width: 44,
-                      height: 44,
-                      child: Icon(
-                        Icons.gps_fixed,
-                        color: _pal.estimate,
-                        size: 40,
-                        key: Key('mle-marker'),
-                      ),
-                    ),
+                  for (final s in shown) _estimateMarker(s),
                   for (final e in state.positions.entries)
                     if (e.key != session.participantId)
                       _participantMarker(
@@ -970,21 +988,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ],
                   ),
                 ),
-                if (estimate != null)
+                if (multi) _legend(state, filter),
+                if (shown.isNotEmpty)
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 6,
                       ),
-                      child: Text(
-                        'Schätzung aus ${estimate.nBearings} Peilungen · '
-                        '1σ ${estimate.ellipse1s.semiMajorM.round()} × '
-                        '${estimate.ellipse1s.semiMinorM.round()} m'
-                        '${estimate.rssi == null ? '' : ' · n=${estimate.rssi!.exponent.toStringAsFixed(1)}'}',
-                        key: const Key('estimate-summary'),
-                        style: theme.textTheme.bodyMedium,
-                      ),
+                      child: multi
+                          ? Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (final s in shown)
+                                  Text(
+                                    '${s.interferer!.letter} ${s.interferer!.name}: '
+                                    '${_summary(s.estimate)}',
+                                    key: Key(
+                                      'estimate-summary-${s.interferer!.id}',
+                                    ),
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                              ],
+                            )
+                          : Text(
+                              'Schätzung aus ${_summary(estimate!)}',
+                              key: const Key('estimate-summary'),
+                              style: theme.textTheme.bodyMedium,
+                            ),
                     ),
                   ),
               ],
@@ -1078,19 +1110,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   /// Fixed omnidirectional stations: the latest S value of each, coloured by level.
-  Map<String, RssiSample> _latestStations(MissionState state) {
+  Map<String, RssiSample> _latestStations(
+    MissionState state, [
+    String? interfererId,
+  ]) {
     final latest = <String, RssiSample>{};
     for (final r in state.rssi) {
-      if (r.isStation && !r.isCalibration) latest[r.participantId] = r;
+      if (!r.isStation || r.isCalibration) continue;
+      // With several interferers a station's level only belongs to the one it was read for.
+      if (interfererId != null &&
+          r.interfererId != null &&
+          r.interfererId != interfererId) {
+        continue;
+      }
+      latest[r.participantId] = r;
     }
     return latest;
   }
 
   /// Distance rings: where the fitted path loss model puts the interferer for each station's
   /// level, plus a faint band for the scatter of the fit. The estimate is where they agree.
-  Widget _stationRings(MissionState state, Estimate estimate) {
-    final fit = estimate.rssi;
-    final latest = _latestStations(state);
+  Widget _stationRings(MissionState state, _Shown shown, BearingFilter filter) {
+    final fit = shown.estimate.rssi;
+    final latest = _latestStations(state, shown.interferer?.id);
     if (fit == null || latest.isEmpty) return const SizedBox.shrink();
     final (lo, hi) = levelRange(latest.values.map((r) => r.correctedDbm));
     final circles = <CircleMarker>[];
@@ -1118,11 +1160,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ..add(ring(dist(-fit.residualDb), 0.35, 1))
         ..add(ring(dist(0), 0.9, 2.5));
     }
-    return CircleLayer(key: const Key('station-rings'), circles: circles);
+    return CircleLayer(
+      key: Key(
+        shown.interferer == null
+            ? 'station-rings'
+            : 'station-rings-${shown.interferer!.id}',
+      ),
+      circles: circles,
+    );
   }
 
-  List<Marker> _stationMarkers(MissionState state) {
-    final latest = _latestStations(state);
+  List<Marker> _stationMarkers(MissionState state, BearingFilter filter) {
+    final latest = {
+      for (final e in _latestStations(state).entries)
+        if (filter.selects(e.value.interfererId)) e.key: e.value,
+    };
     final (lo, hi) = levelRange(latest.values.map((r) => r.correctedDbm));
     return [
       for (final r in latest.values)
@@ -1170,13 +1222,128 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  List<Polygon> _contourPolygons(Estimate e) => [
+  /// Estimate colour: the interferer's family with several, the single red otherwise.
+  Color _estimateColor(_Shown s) => s.interferer == null
+      ? _pal.estimate
+      : _pal.interferer(s.interferer!.colorSlot);
+
+  Color _contourColor(_Shown s) => s.interferer == null
+      ? _pal.contour
+      : _pal.interferer(s.interferer!.colorSlot);
+
+  String _summary(Estimate e) =>
+      '${e.nBearings} Peilungen · '
+      '1σ ${e.ellipse1s.semiMajorM.round()} × ${e.ellipse1s.semiMinorM.round()} m'
+      '${e.rssi == null ? '' : ' · n=${e.rssi!.exponent.toStringAsFixed(1)}'}';
+
+  Marker _estimateMarker(_Shown s) {
+    final i = s.interferer;
+    if (i == null) {
+      return Marker(
+        point: s.estimate.point,
+        width: 44,
+        height: 44,
+        child: Icon(
+          Icons.gps_fixed,
+          color: _pal.estimate,
+          size: 40,
+          key: const Key('mle-marker'),
+        ),
+      );
+    }
+    return Marker(
+      point: s.estimate.point,
+      width: 52,
+      height: 64,
+      child: Column(
+        key: Key('mle-marker-${i.id}'),
+        children: [
+          Icon(Icons.gps_fixed, color: _pal.interferer(i.colorSlot), size: 36),
+          _letterBadge(i, 14),
+        ],
+      ),
+    );
+  }
+
+  /// Letter in a disc of the interferer's colour: tells interferers apart without colour.
+  Widget _letterBadge(Interferer i, double size) {
+    final color = _pal.interferer(i.colorSlot);
+    final dark = ThemeData.estimateBrightnessForColor(color) == Brightness.dark;
+    return Container(
+      width: size * 1.5,
+      height: size * 1.5,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: _pal.outline, width: 1),
+      ),
+      child: Text(
+        i.letter,
+        style: TextStyle(
+          fontSize: size,
+          height: 1,
+          fontWeight: FontWeight.bold,
+          color: dark ? Colors.white : Colors.black,
+        ),
+      ),
+    );
+  }
+
+  /// Legend that doubles as the quick filter: tap = only this one (again = all), long press =
+  /// add to / remove from the selection.
+  Widget _legend(MissionState state, BearingFilter filter) {
+    final notifier = ref.read(filterProvider.notifier);
+    int count(Interferer i) => state.bearings.values
+        .where((b) => b.isActive && b.interfererId == i.id)
+        .length;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(
+          key: const Key('interferer-legend'),
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            for (final i in state.activeInterferers)
+              GestureDetector(
+                onLongPress: () {
+                  final ids = {...filter.interfererIds};
+                  ids.contains(i.id) ? ids.remove(i.id) : ids.add(i.id);
+                  notifier.set(filter.copyWith(interfererIds: ids));
+                },
+                child: FilterChip(
+                  key: Key('legend-${i.id}'),
+                  visualDensity: VisualDensity.compact,
+                  avatar: _letterBadge(i, 9),
+                  label: Text(
+                    '${i.name}${i.isResolved ? ' ✓' : ''} · ${count(i)}',
+                  ),
+                  selected: filter.interfererIds.contains(i.id),
+                  onSelected: (_) {
+                    final only =
+                        filter.interfererIds.length == 1 &&
+                        filter.interfererIds.contains(i.id);
+                    notifier.set(
+                      filter.copyWith(interfererIds: only ? {} : {i.id}),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Polygon> _contourPolygons(Estimate e, Color color) => [
     for (final entry in const [('95', 0.10), ('80', 0.16), ('50', 0.24)])
       for (final ring in e.contours[entry.$1] ?? const <List<LatLng>>[])
         Polygon(
           points: ring,
-          color: _pal.contour.withValues(alpha: entry.$2),
-          borderColor: _pal.contour.withValues(alpha: 0.7),
+          color: color.withValues(alpha: entry.$2),
+          borderColor: color.withValues(alpha: 0.7),
           borderStrokeWidth: 1,
         ),
   ];
@@ -1219,16 +1386,59 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               b.sigmaDeg,
               _rayLengthM,
             ),
-            color: _bearingColor(b).withValues(
-              alpha: 0.10 * _alpha(b, now) * (_counts(state, b) ? 1 : 0.5),
+            color: _bearingColor(state, b).withValues(
+              alpha:
+                  0.10 *
+                  _alpha(b, now) *
+                  (_counts(state, b) ? 1 : 0.5) *
+                  _dim(filter, b),
             ),
           ),
       ];
 
-  /// External bearings take the colour of their point, all others the participant's.
-  Color _bearingColor(Bearing b) => _pal.participant(
-    b.pointId != null ? 'point:${b.pointId}' : b.participantId,
-  );
+  /// With several interferers a bearing takes its interferer's colour family, shaded by field
+  /// strength. Otherwise external bearings take the colour of their point, all others the
+  /// participant's.
+  Color _bearingColor(MissionState state, Bearing b) {
+    final i = state.interferers.length > 1
+        ? state.interferers[b.interfererId]
+        : null;
+    if (i != null) return _pal.interfererSignal(i.colorSlot, b.rssiDbm);
+    return _pal.participant(
+      b.pointId != null ? 'point:${b.pointId}' : b.participantId,
+    );
+  }
+
+  /// Bearings of interferers that are not selected stay faintly visible when the filter dims.
+  double _dim(BearingFilter filter, Bearing b) =>
+      filter.selects(b.interfererId) ? 1 : 0.25;
+
+  StrokePattern _interfererPattern(MissionState state, Bearing b) {
+    final i = state.interferers.length > 1
+        ? state.interferers[b.interfererId]
+        : null;
+    final dash = i == null ? null : _pal.interfererDash(i.colorSlot);
+    return dash == null
+        ? const StrokePattern.solid()
+        : StrokePattern.dashed(segments: dash);
+  }
+
+  /// Letter badge at the far end of each ray (several interferers only).
+  List<Marker> _rayBadges(
+    MissionState state,
+    BearingFilter filter,
+    DateTime now,
+  ) => [
+    for (final b in _visible(state, filter, now))
+      if (filter.selects(b.interfererId) &&
+          state.interferers[b.interfererId] != null)
+        Marker(
+          point: destination(b.station, b.azimuthTrueDeg, _rayLengthM),
+          width: 20,
+          height: 20,
+          child: _letterBadge(state.interferers[b.interfererId]!, 9),
+        ),
+  ];
 
   /// False for bearings of an external point that is off or deactivated.
   bool _counts(MissionState state, Bearing b) {
@@ -1279,14 +1489,24 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           destination(b.station, b.azimuthTrueDeg, _rayLengthM),
         ],
         strokeWidth: 2.5,
-        color: _bearingColor(b)
-            .withValues(alpha: (b.isOutlier ? 0.7 : 1) * _alpha(b, now)),
+        color: _bearingColor(state, b).withValues(
+          alpha: (b.isOutlier ? 0.7 : 1) * _alpha(b, now) * _dim(filter, b),
+        ),
         // Dashed: flagged as outlier, or an external point that does not count in the estimate.
+        // In the red night mode each interferer also gets its own dash pattern.
         pattern: (b.isOutlier || !_counts(state, b))
             ? StrokePattern.dashed(segments: const [8, 8])
-            : const StrokePattern.solid(),
+            : _interfererPattern(state, b),
       ),
   ];
+}
+
+/// An estimate to draw and whose it is (`null`: the mission has a single interferer).
+class _Shown {
+  const _Shown(this.interferer, this.estimate);
+
+  final Interferer? interferer;
+  final Estimate estimate;
 }
 
 class _ConnectionDot extends StatelessWidget {

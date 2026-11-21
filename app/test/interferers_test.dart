@@ -228,6 +228,34 @@ void main() {
       expect(_body(e), {'interferer_id': 'ib'});
     });
 
+    test(
+      'merging moves bearings and readings and deactivates the source',
+      () async {
+        await start(
+          api: offline(
+            snapshot: _snapshot(
+              bearings: [
+                bearingJson('b1', interferer: 'ib'),
+                bearingJson('b2', interferer: 'ia'),
+              ],
+            ),
+          ),
+        );
+        await env.container
+            .read(activeInterfererProvider.notifier)
+            .select('ib');
+        await env.mission.mergeInterferer('ib', 'ia');
+        expect(env.state.bearings['b1']!.interfererId, 'ia');
+        expect(env.state.bearings['b2']!.interfererId, 'ia');
+        expect(env.state.interferers['ib']!.isActive, isFalse);
+        expect(env.container.read(activeInterfererIdProvider), 'ia');
+        final e = (await queue()).single;
+        expect((e.kind, e.method), ('interferer_merge', 'POST'));
+        expect(e.path, endsWith('/interferers/ib/merge'));
+        expect(_body(e), {'into': 'ia'});
+      },
+    );
+
     test('queued interferer changes survive a reload', () async {
       final api = offline();
       await start(api: api);
@@ -369,6 +397,40 @@ void main() {
         'interferer_create',
         'interferer_patch',
       ]);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('merging asks for confirmation and queues the merge', (
+      tester,
+    ) async {
+      final api = FakeApi()
+        ..snapshotData = _snapshot(
+          bearings: [bearingJson('b1', interferer: 'ib')],
+        )
+        ..sendResult = const SendResult(SendOutcome.retry, 'offline');
+      final w = await pumpWith(tester, const InterferersScreen(), api: api);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('interferer-menu-ib')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('interferer-merge-ib')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('merge-into-ia')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Abbrechen'));
+      await tester.pumpAndSettle();
+      expect(await w.store.all(), isEmpty);
+
+      await tester.tap(find.byKey(const Key('interferer-menu-ib')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('interferer-merge-ib')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('merge-into-ia')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('merge-confirm')));
+      await tester.pumpAndSettle();
+      final e = (await w.store.all()).single;
+      expect(e.kind, 'interferer_merge');
+      expect(find.textContaining('deaktiviert'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
 

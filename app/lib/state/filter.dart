@@ -13,7 +13,22 @@ class BearingFilter {
     this.showRings = true,
     this.hideOutliers = false,
     this.showExternal = true,
+    this.interfererIds = const {},
+    this.dimOthers = false,
   });
+
+  /// Interferers to show; empty = all. Their bearings, estimates and readings only.
+  final Set<String> interfererIds;
+
+  /// Fade the bearings of the other interferers instead of hiding them.
+  final bool dimOthers;
+
+  /// Whether [interfererId] is among the selected interferers (everything is when none is chosen;
+  /// bearings from a server without interferers always are).
+  bool selects(String? interfererId) =>
+      interfererIds.isEmpty ||
+      interfererId == null ||
+      interfererIds.contains(interfererId);
 
   final Set<String> transmissionIds;
   final Duration? window;
@@ -41,6 +56,8 @@ class BearingFilter {
     bool? showRings,
     bool? hideOutliers,
     bool? showExternal,
+    Set<String>? interfererIds,
+    bool? dimOthers,
   }) => BearingFilter(
     transmissionIds: transmissionIds ?? this.transmissionIds,
     window: clearWindow ? null : (window ?? this.window),
@@ -49,12 +66,15 @@ class BearingFilter {
     showRings: showRings ?? this.showRings,
     hideOutliers: hideOutliers ?? this.hideOutliers,
     showExternal: showExternal ?? this.showExternal,
+    interfererIds: interfererIds ?? this.interfererIds,
+    dimOthers: dimOthers ?? this.dimOthers,
   );
 
   /// Client-side check used for drawing rays.
   bool allows(Bearing b, DateTime now) {
     if (hideOutliers && b.isOutlier) return false;
     if (!showExternal && b.isExternal) return false;
+    if (!dimOthers && !selects(b.interfererId)) return false;
     if (transmissionIds.isNotEmpty &&
         !transmissionIds.contains(b.transmissionId)) {
       return false;
@@ -100,3 +120,41 @@ final filteredEstimateProvider = FutureProvider.autoDispose<Estimate?>((
         halfLifeS: filter.halfLife?.inSeconds.toDouble(),
       );
 });
+
+/// Ad-hoc estimates for the active filter, one per shown interferer (keyed by interferer id,
+/// `null` for a server without interferers); empty when the live estimates apply.
+final filteredEstimatesProvider =
+    FutureProvider.autoDispose<Map<String?, Estimate>>((ref) async {
+      final filter = ref.watch(filterProvider);
+      if (!filter.needsQuery) return const {};
+      ref.watch(missionProvider.select((s) => s.bearings.length));
+      ref.watch(
+        missionProvider.select(
+          (s) => s.bearings.values.where((b) => b.isOutlier).length,
+        ),
+      );
+      final joined = ref.watch(
+        missionProvider.select(
+          (s) => [
+            for (final i in s.activeInterferers)
+              if (filter.selects(i.id)) i.id,
+          ].join(','),
+        ),
+      );
+      final ids = joined.isEmpty ? <String?>[null] : joined.split(',');
+      final window = filter.window;
+      final api = ref.read(apiProvider);
+      final out = <String?, Estimate>{};
+      for (final id in ids) {
+        final e = await api.queryEstimate(
+          interfererId: id,
+          transmissions: filter.transmissionIds.toList(),
+          since: window == null
+              ? null
+              : DateTime.now().toUtc().subtract(window),
+          halfLifeS: filter.halfLife?.inSeconds.toDouble(),
+        );
+        if (e != null) out[id] = e;
+      }
+      return out;
+    });
