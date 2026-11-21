@@ -261,6 +261,7 @@ class MissionState {
     this.teams = const [],
     this.rssi = const [],
     this.points = const {},
+    this.interferers = const {},
     this.connection = LiveStatus.connecting,
     this.error,
     this.loaded = false,
@@ -283,12 +284,36 @@ class MissionState {
 
   /// External bearing points by id (see [BearingPoint]).
   final Map<String, BearingPoint> points;
+
+  /// The mission's interferers by id, in creation order.
+  final Map<String, Interferer> interferers;
   final LiveStatus connection;
   final String? error;
   final bool loaded;
 
   /// Showing the cached snapshot because the server could not be reached yet.
   final bool stale;
+
+  /// Interferers that are still searched for, in creation order.
+  List<Interferer> get activeInterferers => [
+    for (final i in interferers.values)
+      if (i.isActive) i,
+  ];
+
+  /// What a bearing without an explicit interferer belongs to: the oldest active one.
+  Interferer? get defaultInterferer {
+    final active = activeInterferers;
+    return active.isEmpty ? null : active.first;
+  }
+
+  /// Latest estimate of [interfererId] for [scope]. A server that predates interferers sends
+  /// them without an id: those are stored under the scope alone and answer for everybody.
+  Estimate? estimateFor(String? interfererId, String scope) =>
+      estimates[estimateKey(interfererId, scope)] ?? estimates[scope];
+
+  /// The `current` estimate, else the one over all bearings.
+  Estimate? bestEstimateFor(String? interfererId) =>
+      estimateFor(interfererId, 'current') ?? estimateFor(interfererId, 'all');
 
   Transmission? get running {
     for (final t in transmissions.reversed) {
@@ -318,6 +343,7 @@ class MissionState {
     List<Team>? teams,
     List<RssiSample>? rssi,
     Map<String, BearingPoint>? points,
+    Map<String, Interferer>? interferers,
     LiveStatus? connection,
     String? error,
     bool clearError = false,
@@ -336,6 +362,7 @@ class MissionState {
     teams: teams ?? this.teams,
     rssi: rssi ?? this.rssi,
     points: points ?? this.points,
+    interferers: interferers ?? this.interferers,
     connection: connection ?? this.connection,
     error: clearError ? null : (error ?? this.error),
     loaded: loaded ?? this.loaded,
@@ -458,7 +485,9 @@ class MissionNotifier extends Notifier<MissionState> {
       ],
       estimates: {
         for (final e in s['estimates'] as List)
-          (e as Map<String, dynamic>)['scope'] as String: Estimate.fromJson(e),
+          Estimate.fromJson(e as Map<String, dynamic>).key: Estimate.fromJson(
+            e,
+          ),
       },
       messages: [
         for (final m in (s['messages'] as List?) ?? const [])
@@ -479,6 +508,10 @@ class MissionNotifier extends Notifier<MissionState> {
       points: {
         for (final p in (s['points'] as List?) ?? const [])
           (p as Map<String, dynamic>)['id'] as String: BearingPoint.fromJson(p),
+      },
+      interferers: {
+        for (final i in (s['interferers'] as List?) ?? const [])
+          (i as Map<String, dynamic>)['id'] as String: Interferer.fromJson(i),
       },
       loaded: true,
       stale: stale,
@@ -529,6 +562,31 @@ class MissionNotifier extends Notifier<MissionState> {
             if (pt != null) {
               s = s.copyWith(points: {...s.points, id: _patchPoint(pt, body)});
             }
+          case 'interferer_create':
+            s = s.copyWith(
+              interferers: {
+                ...s.interferers,
+                body['id'] as String:
+                    s.interferers[body['id']] ?? Interferer.fromJson(body),
+              },
+            );
+          case 'interferer_patch':
+            final id = e.path.split('/').last;
+            final i = s.interferers[id];
+            if (i != null) {
+              s = s.copyWith(
+                interferers: {...s.interferers, id: _patchInterferer(i, body)},
+              );
+            }
+          case 'bearing_interferer':
+            final id = e.path.split('/').last;
+            final b = s.bearings[id];
+            if (b != null) {
+              s = _withBearing(
+                s,
+                b.copyWith(interfererId: body['interferer_id'] as String),
+              );
+            }
           case 'message':
             if (!s.messages.any((m) => m.id == body['id'])) {
               s = s.copyWith(
@@ -556,7 +614,7 @@ class MissionNotifier extends Notifier<MissionState> {
               s = s.copyWith(
                 bearings: {
                   ...s.bearings,
-                  id: _withOutlier(b, body['is_outlier'] as bool),
+                  id: b.copyWith(isOutlier: body['is_outlier'] as bool),
                 },
               );
             }
@@ -658,6 +716,9 @@ class MissionNotifier extends Notifier<MissionState> {
       case 'point_created' || 'point_updated':
         final pt = BearingPoint.fromJson(data);
         state = state.copyWith(points: {...state.points, pt.id: pt});
+      case 'interferer_created' || 'interferer_updated':
+        final i = Interferer.fromJson(data);
+        state = state.copyWith(interferers: {...state.interferers, i.id: i});
       case 'transmission_started':
         // The server copy replaces our optimistic local one.
         state = state.copyWith(
@@ -673,7 +734,7 @@ class MissionNotifier extends Notifier<MissionState> {
         _upsertTransmission(Transmission.fromJson(data));
       case 'estimate_updated':
         final e = Estimate.fromJson(data);
-        state = state.copyWith(estimates: {...state.estimates, e.scope: e});
+        state = state.copyWith(estimates: {...state.estimates, e.key: e});
       case 'message':
         final m = ChatMessage.fromJson(data);
         final list = [
@@ -705,20 +766,14 @@ class MissionNotifier extends Notifier<MissionState> {
   static MissionState _withBearing(MissionState s, Bearing b) =>
       s.copyWith(bearings: {...s.bearings, b.id: b});
 
-  static Bearing _withOutlier(Bearing b, bool outlier) => Bearing(
-    id: b.id,
-    participantId: b.participantId,
-    station: b.station,
-    azimuthTrueDeg: b.azimuthTrueDeg,
-    sigmaDeg: b.sigmaDeg,
-    measuredAt: b.measuredAt,
-    isOutlier: outlier,
-    isActive: b.isActive,
-    transmissionId: b.transmissionId,
-    rssiDbm: b.rssiDbm,
-    note: b.note,
-    pointId: b.pointId,
-  );
+  static Interferer _patchInterferer(Interferer i, Map<String, dynamic> c) =>
+      i.copyWith(
+        name: c['name'] as String?,
+        note: c['note'] as String?,
+        frequencyMhz: (c['frequency_mhz'] as num?)?.toDouble(),
+        status: c['status'] as String?,
+        isActive: c['is_active'] as bool?,
+      );
 
   static BearingPoint _pointFromPayload(Map<String, dynamic> p) => BearingPoint(
     id: p['id'] as String,
@@ -756,6 +811,7 @@ class MissionNotifier extends Notifier<MissionState> {
         rssiDbm: (p['rssi_dbm'] as num?)?.toDouble(),
         note: p['note'] as String?,
         pointId: p['point_id'] as String?,
+        interfererId: p['interferer_id'] as String?,
       );
 
   static RssiSample _rssiFromPayload(Map<String, dynamic> p, Session s) =>
@@ -772,6 +828,7 @@ class MissionNotifier extends Notifier<MissionState> {
         pending: true,
         receiver: (p['receiver'] as String?) ?? 'mobile',
         isCalibration: (p['is_calibration'] as bool?) ?? false,
+        interfererId: p['interferer_id'] as String?,
       );
 
   static ChatMessage _messageFromPayload(Map<String, dynamic> p, Session s) =>
@@ -824,6 +881,7 @@ class MissionNotifier extends Notifier<MissionState> {
     seq: s.transmissions.fold(0, (m, t) => t.seq > m ? t.seq : m) + 1,
     startedAt: DateTime.parse(body['at'] as String).toUtc(),
     local: true,
+    interfererId: body['interferer_id'] as String?,
   );
 
   static MissionState _endRunning(MissionState s, DateTime at) => s.copyWith(
@@ -872,6 +930,9 @@ class MissionNotifier extends Notifier<MissionState> {
       'source': source,
       if (receiver != 'mobile') 'receiver': receiver,
       if (isCalibration) 'is_calibration': true,
+      // Calibration readings (repeater output) belong to no interferer.
+      if (!isCalibration && _activeInterfererId != null)
+        'interferer_id': _activeInterfererId,
     };
     state = state.copyWith(
       rssi: [...state.rssi, _rssiFromPayload(payload, _session)],
@@ -906,13 +967,96 @@ class MissionNotifier extends Notifier<MissionState> {
     );
   }
 
-  Future<void> saveBearing(Map<String, dynamic> payload) async {
+  /// The interferer new bearings and readings are for: the one chosen in the app, else the
+  /// mission's default. `null` while the server knows no interferers (an older server).
+  String? get _activeInterfererId => effectiveInterfererId(
+    state.interferers,
+    ref.read(activeInterfererProvider),
+  );
+
+  Future<void> saveBearing(Map<String, dynamic> body) async {
+    final id = _activeInterfererId;
+    final payload = {
+      ...body,
+      // An explicit choice (e.g. a bearing for a specific interferer) wins.
+      if (id != null && body['interferer_id'] == null) 'interferer_id': id,
+    };
     state = _withBearing(state, _bearingFromPayload(payload, _session));
     await _enqueue(
       kind: 'bearing',
       method: 'POST',
       path: '$_base/bearings',
       body: payload,
+    );
+  }
+
+  /// Adds an interferer (needs `interferer.manage`). Returns its id; bearings for it can be
+  /// queued right away because the queue keeps the order. The colour slot is the lowest free one.
+  Future<String> createInterferer({
+    required String name,
+    String? note,
+    double? frequencyMhz,
+    String? id,
+  }) async {
+    final used = {for (final i in state.activeInterferers) i.colorSlot};
+    final slot = [
+      for (var s = 0; s < maxInterferers; s++)
+        if (!used.contains(s)) s,
+    ];
+    if (slot.isEmpty) {
+      throw StateError('Es sind höchstens $maxInterferers Störer aktiv');
+    }
+    final payload = {
+      'id': id ?? _newId(),
+      'name': name.trim(),
+      'note': note,
+      'frequency_mhz': frequencyMhz,
+      'color_slot': slot.first,
+    };
+    state = state.copyWith(
+      interferers: {
+        ...state.interferers,
+        payload['id']! as String: Interferer.fromJson(payload),
+      },
+    );
+    await _enqueue(
+      kind: 'interferer_create',
+      method: 'POST',
+      path: '$_base/interferers',
+      body: payload,
+    );
+    return payload['id']! as String;
+  }
+
+  /// Rename, mark as found (`status`) or deactivate; only `name`, `note`, `frequency_mhz`,
+  /// `status` and `is_active` can change.
+  Future<void> patchInterferer(String id, Map<String, dynamic> changes) async {
+    final i = state.interferers[id];
+    if (i != null) {
+      state = state.copyWith(
+        interferers: {...state.interferers, id: _patchInterferer(i, changes)},
+      );
+    }
+    await _enqueue(
+      kind: 'interferer_patch',
+      method: 'PATCH',
+      path: '$_base/interferers/$id',
+      body: changes,
+    );
+  }
+
+  /// Moves a bearing to another interferer (a revision on the server). Allowed for its owner and
+  /// for whoever holds `interferer.manage`.
+  Future<void> reassignBearing(String bearingId, String interfererId) async {
+    final b = state.bearings[bearingId];
+    if (b != null) {
+      state = _withBearing(state, b.copyWith(interfererId: interfererId));
+    }
+    await _enqueue(
+      kind: 'bearing_interferer',
+      method: 'PATCH',
+      path: '$_base/bearings/$bearingId',
+      body: {'interferer_id': interfererId},
     );
   }
 
@@ -1060,7 +1204,7 @@ class MissionNotifier extends Notifier<MissionState> {
   Future<void> setOutlier(String bearingId, {required bool outlier}) async {
     final b = state.bearings[bearingId];
     if (b != null) {
-      state = _withBearing(state, _withOutlier(b, outlier));
+      state = _withBearing(state, b.copyWith(isOutlier: outlier));
     }
     await _enqueue(
       kind: 'outlier',
@@ -1072,7 +1216,8 @@ class MissionNotifier extends Notifier<MissionState> {
 
   Future<void> toggleTransmission() async {
     final at = DateTime.now().toUtc();
-    final body = {'at': at.toIso8601String()};
+    final interferer = _activeInterfererId;
+    final body = {'at': at.toIso8601String(), 'interferer_id': ?interferer};
     if (state.running != null &&
         !state.canStopRunning(
           _session.participantId,
@@ -1220,6 +1365,54 @@ final estimateScopeProvider = NotifierProvider<ScopeNotifier, EstimateScope>(
   ScopeNotifier.new,
 );
 
+/// The interferer the user captures for (persisted per mission). Prefer [activeInterfererIdProvider],
+/// which falls back to the mission's default when this one is unknown or deactivated.
+class ActiveInterfererNotifier extends Notifier<String?> {
+  String? get _key {
+    final id = ref.watch(sessionProvider)?.missionId;
+    return id == null ? null : 'foxgrid.interferer.$id';
+  }
+
+  @override
+  String? build() {
+    final key = _key;
+    return key == null ? null : ref.watch(sharedPrefsProvider).getString(key);
+  }
+
+  Future<void> select(String id) async {
+    state = id;
+    final key = _key;
+    if (key != null) await ref.read(sharedPrefsProvider).setString(key, id);
+  }
+}
+
+final activeInterfererProvider =
+    NotifierProvider<ActiveInterfererNotifier, String?>(
+      ActiveInterfererNotifier.new,
+    );
+
+/// The effective active interferer: the chosen one while it exists and is active, else the
+/// mission's default. `null` while the server knows no interferers.
+final activeInterfererIdProvider = Provider<String?>(
+  (ref) => effectiveInterfererId(
+    ref.watch(missionProvider.select((s) => s.interferers)),
+    ref.watch(activeInterfererProvider),
+  ),
+);
+
+/// [chosen] while it exists and is active, else the oldest active interferer.
+String? effectiveInterfererId(
+  Map<String, Interferer> interferers,
+  String? chosen,
+) {
+  final c = interferers[chosen];
+  if (c != null && c.isActive) return c.id;
+  for (final i in interferers.values) {
+    if (i.isActive) return i.id;
+  }
+  return null;
+}
+
 /// Latest known magnetic declination, cached so it works offline.
 class DeclinationNotifier extends Notifier<double?> {
   static const _key = 'foxgrid.declination';
@@ -1335,13 +1528,17 @@ final suggestionsProvider = FutureProvider.autoDispose<List<Suggestion>>((
 ) async {
   if (!ref.watch(showSuggestionsProvider)) return const [];
   final scope = ref.watch(estimateScopeProvider);
+  final interferer = ref.watch(activeInterfererIdProvider);
   ref.watch(
     missionProvider.select(
       (s) =>
-          s.estimates[scope.name]?.computedAt ?? s.estimates['all']?.computedAt,
+          s.estimateFor(interferer, scope.name)?.computedAt ??
+          s.estimateFor(interferer, 'all')?.computedAt,
     ),
   );
-  return ref.read(apiProvider).suggestions(scope: scope.name);
+  return ref
+      .read(apiProvider)
+      .suggestions(scope: scope.name, interfererId: interferer);
 });
 
 /// Security log for the lead (newest first).

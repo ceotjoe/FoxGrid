@@ -97,7 +97,8 @@ class _StationScreenState extends ConsumerState<StationScreen> {
         .where((r) => r.participantId == session.participantId && r.isStation)
         .toList();
     final recent = mine.reversed.take(5).toList();
-    final offset = (state.estimates['current'] ?? state.estimates['all'])
+    final offset = state
+        .bestEstimateFor(ref.watch(activeInterfererIdProvider))
         ?.rssi
         ?.stationOffsetsDb[session.participantId];
     final inputMhz = repeater?.inputMhz;

@@ -221,11 +221,15 @@ class Bearing {
     this.rssiDbm,
     this.note,
     this.pointId,
+    this.interfererId,
   });
 
   final String id;
   final String participantId;
   final String? transmissionId;
+
+  /// The interferer this bearing is for; `null` only from a server that predates interferers.
+  final String? interfererId;
 
   /// Set for an external bearing (entered by the lead for a [BearingPoint]).
   final String? pointId;
@@ -251,9 +255,88 @@ class Bearing {
     rssiDbm: _d(j['rssi_dbm']),
     note: j['note'] as String?,
     pointId: j['point_id'] as String?,
+    interfererId: j['interferer_id'] as String?,
+  );
+
+  Bearing copyWith({bool? isOutlier, String? interfererId}) => Bearing(
+    id: id,
+    participantId: participantId,
+    station: station,
+    azimuthTrueDeg: azimuthTrueDeg,
+    sigmaDeg: sigmaDeg,
+    measuredAt: measuredAt,
+    isOutlier: isOutlier ?? this.isOutlier,
+    isActive: isActive,
+    transmissionId: transmissionId,
+    rssiDbm: rssiDbm,
+    note: note,
+    pointId: pointId,
+    interfererId: interfererId ?? this.interfererId,
   );
 
   bool get isExternal => pointId != null;
+}
+
+/// At most this many interferers are active in a mission (one colour family each).
+const maxInterferers = 6;
+
+/// One source of interference the mission is looking for. Every bearing belongs to one; each has
+/// its own estimate. Never deleted, only deactivated.
+class Interferer {
+  const Interferer({
+    required this.id,
+    required this.name,
+    required this.colorSlot,
+    this.note,
+    this.frequencyMhz,
+    this.status = 'active',
+    this.isActive = true,
+  });
+
+  final String id;
+  final String name;
+
+  /// 0..5: selects the colour family and the letter badge. Fixed once assigned.
+  final int colorSlot;
+  final String? note;
+
+  /// Informational: the mission frequency stays the reference.
+  final double? frequencyMhz;
+
+  /// `active` or `resolved` (found).
+  final String status;
+  final bool isActive;
+
+  bool get isResolved => status == 'resolved';
+
+  /// Letter badge shown next to the name and on the map (A, B, C ...).
+  String get letter => String.fromCharCode(0x41 + colorSlot % maxInterferers);
+
+  Interferer copyWith({
+    String? name,
+    String? note,
+    double? frequencyMhz,
+    String? status,
+    bool? isActive,
+  }) => Interferer(
+    id: id,
+    name: name ?? this.name,
+    colorSlot: colorSlot,
+    note: note ?? this.note,
+    frequencyMhz: frequencyMhz ?? this.frequencyMhz,
+    status: status ?? this.status,
+    isActive: isActive ?? this.isActive,
+  );
+
+  factory Interferer.fromJson(Map<String, dynamic> j) => Interferer(
+    id: j['id'] as String,
+    name: j['name'] as String,
+    colorSlot: (j['color_slot'] as int?) ?? 0,
+    note: j['note'] as String?,
+    frequencyMhz: _d(j['frequency_mhz']),
+    status: (j['status'] as String?) ?? 'active',
+    isActive: (j['is_active'] as bool?) ?? true,
+  );
 }
 
 /// A named location whose bearings the lead enters on behalf of a third party (e.g. BNetzA).
@@ -313,10 +396,14 @@ class Transmission {
     this.endedAt,
     this.startedBy,
     this.local = false,
+    this.interfererId,
   });
 
   final String id;
   final int seq;
+
+  /// Default interferer for the bearings taken during this transmission.
+  final String? interfererId;
   final DateTime startedAt;
   final DateTime? endedAt;
 
@@ -333,6 +420,7 @@ class Transmission {
     endedAt: endedAt ?? this.endedAt,
     startedBy: startedBy,
     local: local,
+    interfererId: interfererId,
   );
 
   bool get isRunning => endedAt == null;
@@ -343,6 +431,7 @@ class Transmission {
     startedAt: _time(j['started_at']),
     endedAt: j['ended_at'] == null ? null : _time(j['ended_at']),
     startedBy: j['started_by'] as String?,
+    interfererId: j['interferer_id'] as String?,
   );
 }
 
@@ -388,11 +477,13 @@ class RssiSample {
     this.pending = false,
     this.receiver = 'mobile',
     this.isCalibration = false,
+    this.interfererId,
   });
 
   final String id;
   final String participantId;
   final LatLng point;
+  final String? interfererId;
 
   /// `mobile` = the moving homing device, `omni` = a fixed omnidirectional station.
   final String receiver;
@@ -419,6 +510,7 @@ class RssiSample {
     measuredAt: _time(j['measured_at']),
     receiver: (j['receiver'] as String?) ?? 'mobile',
     isCalibration: (j['is_calibration'] as bool?) ?? false,
+    interfererId: j['interferer_id'] as String?,
   );
 }
 
@@ -446,9 +538,15 @@ class EllipseShape {
   }
 }
 
+/// Key of an estimate in [MissionState.estimates]: the scope alone for a server that predates
+/// interferers, else `interferer:scope`.
+String estimateKey(String? interfererId, String scope) =>
+    interfererId == null ? scope : '$interfererId:$scope';
+
 class Estimate {
   const Estimate({
     required this.scope,
+    this.interfererId,
     required this.nBearings,
     required this.point,
     required this.ellipse1s,
@@ -459,6 +557,9 @@ class Estimate {
   });
 
   final String scope;
+
+  /// Whose position this is.
+  final String? interfererId;
   final int nBearings;
   final LatLng point;
   final EllipseShape ellipse1s;
@@ -487,12 +588,15 @@ class Estimate {
         ],
     },
     scope: j['scope'] as String,
+    interfererId: j['interferer_id'] as String?,
     nBearings: j['n_bearings'] as int,
     point: LatLng(_d(j['lat'])!, _d(j['lon'])!),
     ellipse1s: EllipseShape.fromJson(j['ellipse_1s'] as Map<String, dynamic>),
     ellipse2s: EllipseShape.fromJson(j['ellipse_2s'] as Map<String, dynamic>),
     computedAt: _time(j['computed_at']),
   );
+
+  String get key => estimateKey(interfererId, scope);
 }
 
 class Team {

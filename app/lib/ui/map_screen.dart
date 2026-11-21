@@ -27,6 +27,7 @@ import 'filter_sheet.dart';
 import 'homing_screen.dart';
 import 'audit_screen.dart';
 import 'participants_screen.dart';
+import 'interferers_screen.dart';
 import 'points_screen.dart';
 import 'station_screen.dart';
 import 'settings_screen.dart';
@@ -515,10 +516,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final suggestions = showSuggestions
         ? (ref.watch(suggestionsProvider).value ?? const <Suggestion>[])
         : const <Suggestion>[];
+    final activeInterferer = ref.watch(activeInterfererIdProvider);
     final filtered = ref.watch(filteredEstimateProvider).value;
     final liveEstimate =
-        state.estimates[scope.name] ??
-        state.estimates[scope == EstimateScope.current ? 'all' : 'current'];
+        state.estimateFor(activeInterferer, scope.name) ??
+        state.estimateFor(
+          activeInterferer,
+          scope == EstimateScope.current ? 'all' : 'current',
+        );
     final estimate = filter.needsQuery ? filtered : liveEstimate;
 
     ref.listen<String?>(missionProvider.select((s) => s.error), (_, error) {
@@ -646,6 +651,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   _sheet((_) => const FilterSheet());
                 case 'bearings':
                   _sheet((_) => const BearingsSheet());
+                case 'interferers':
+                  _push(const InterferersScreen());
                 case 'station':
                   _push(const StationScreen());
                 case 'manage':
@@ -681,6 +688,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 value: 'bearings',
                 child: _MenuRow(Icons.list_alt, 'Peilungen (Liste)'),
               ),
+              if (state.interferers.isNotEmpty)
+                PopupMenuItem(
+                  key: const Key('open-interferers'),
+                  value: 'interferers',
+                  child: _MenuRow(
+                    Icons.radio_button_checked,
+                    'Störer (${state.activeInterferers.length})',
+                  ),
+                ),
               if ((session.role == 'fixed' || session.role == 'lead') &&
                   session.can(Perm.rssiSubmit))
                 const PopupMenuItem(

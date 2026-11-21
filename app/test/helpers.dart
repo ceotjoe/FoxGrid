@@ -34,6 +34,7 @@ Map<String, dynamic> snapshotJson({
   Map<String, dynamic>? repeater,
   List<Map<String, dynamic>> rssi = const [],
   List<Map<String, dynamic>> points = const [],
+  List<Map<String, dynamic>> interferers = const [],
 }) => {
   'mission': {
     'id': 'm1',
@@ -44,6 +45,7 @@ Map<String, dynamic> snapshotJson({
   },
   'rssi': rssi,
   'points': points,
+  'interferers': interferers,
   'participants': [
     {'id': 'p1', 'callsign': 'DL1ABC', 'role': 'lead', 'team': 'Alpha'},
     {'id': 'p2', 'callsign': 'DL2XYZ', 'role': 'mobile', 'team': null},
@@ -64,10 +66,12 @@ Map<String, dynamic> bearingJson(
   double az = 90,
   bool outlier = false,
   String? tx,
+  String? interferer,
 }) => {
   'id': id,
   'participant_id': 'p2',
   'transmission_id': tx,
+  'interferer_id': ?interferer,
   'lat': 48.1,
   'lon': 11.5,
   'azimuth_true_deg': az,
@@ -95,7 +99,27 @@ Map<String, dynamic> pointJson(
   'is_active': active,
 };
 
-Map<String, dynamic> estimateJson({String scope = 'all', int n = 3}) {
+Map<String, dynamic> interfererJson(
+  String id, {
+  String name = 'Störer 1',
+  int slot = 0,
+  String status = 'active',
+  bool active = true,
+}) => {
+  'id': id,
+  'name': name,
+  'color_slot': slot,
+  'note': null,
+  'frequency_mhz': null,
+  'status': status,
+  'is_active': active,
+};
+
+Map<String, dynamic> estimateJson({
+  String scope = 'all',
+  int n = 3,
+  String? interferer,
+}) {
   Map<String, dynamic> ellipse() => {
     'semi_major_m': 100.0,
     'semi_minor_m': 50.0,
@@ -114,6 +138,7 @@ Map<String, dynamic> estimateJson({String scope = 'all', int n = 3}) {
   return {
     'id': 'e1',
     'scope': scope,
+    'interferer_id': ?interferer,
     'n_bearings': n,
     'lat': 48.1,
     'lon': 11.5,
@@ -188,11 +213,13 @@ class FakeApi implements FoxGridApi {
     List<String> transmissions = const [],
     DateTime? since,
     double? halfLifeS,
+    String? interfererId,
   }) async {
     queries.add({
       'transmissions': transmissions,
       'since': since,
       'halfLifeS': halfLifeS,
+      'interfererId': interfererId,
     });
     return queried;
   }
@@ -208,6 +235,7 @@ class FakeApi implements FoxGridApi {
   Future<List<Suggestion>> suggestions({
     required String scope,
     double sigmaDeg = 10,
+    String? interfererId,
   }) async {
     suggestionCalls.add(scope);
     if (suggestionsError != null) throw suggestionsError!;

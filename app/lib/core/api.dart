@@ -91,6 +91,7 @@ abstract class FoxGridApi {
     List<String> transmissions = const [],
     DateTime? since,
     double? halfLifeS,
+    String? interfererId,
   });
 
   Future<List<int>> exportBytes(String format);
@@ -99,6 +100,7 @@ abstract class FoxGridApi {
   Future<List<Suggestion>> suggestions({
     required String scope,
     double sigmaDeg = 10,
+    String? interfererId,
   });
 
   Future<List<SensorInfo>> listSensors();
@@ -390,8 +392,10 @@ class DioFoxGridApi implements FoxGridApi {
     List<String> transmissions = const [],
     DateTime? since,
     double? halfLifeS,
+    String? interfererId,
   }) async {
     final query = <String>[
+      if (interfererId != null) 'interferer=$interfererId',
       for (final t in transmissions) 'transmission=$t',
       if (since != null)
         'since=${Uri.encodeQueryComponent(since.toUtc().toIso8601String())}',
@@ -410,11 +414,13 @@ class DioFoxGridApi implements FoxGridApi {
   Future<List<Suggestion>> suggestions({
     required String scope,
     double sigmaDeg = 10,
+    String? interfererId,
   }) async {
     try {
       final r = await _call(
         'GET',
-        '$_mission/suggestions?scope=$scope&sigma_deg=$sigmaDeg',
+        '$_mission/suggestions?scope=$scope&sigma_deg=$sigmaDeg'
+            '${interfererId == null ? '' : '&interferer=$interfererId'}',
       );
       return [
         for (final s in (r.data as Map<String, dynamic>)['suggestions'] as List)

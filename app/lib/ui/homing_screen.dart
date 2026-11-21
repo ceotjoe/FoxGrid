@@ -68,7 +68,7 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
   }
 
   Estimate? _estimate(MissionState s) =>
-      s.estimates['current'] ?? s.estimates['all'];
+      s.bestEstimateFor(ref.read(activeInterfererIdProvider));
 
   @override
   Widget build(BuildContext context) {

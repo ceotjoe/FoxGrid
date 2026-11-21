@@ -94,6 +94,7 @@ final filteredEstimateProvider = FutureProvider.autoDispose<Estimate?>((
   return ref
       .read(apiProvider)
       .queryEstimate(
+        interfererId: ref.watch(activeInterfererIdProvider),
         transmissions: filter.transmissionIds.toList(),
         since: window == null ? null : DateTime.now().toUtc().subtract(window),
         halfLifeS: filter.halfLife?.inSeconds.toDouble(),

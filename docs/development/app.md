@@ -60,6 +60,24 @@ The map draws, per station, the distance ring from `ringDistanceM` (`core/signal
 offsets) with ± residual bands; the filter toggle is `showRings`. The calibration offset is not known to the app, so rings use only
 the estimated offset. Homing dots show `mobile` readings only.
 
+## Interferers
+
+`Interferer` (`core/models.dart`) and `MissionState.interferers` (snapshot `interferers`, live `interferer_created` /
+`interferer_updated`). Bearings, readings and transmissions carry `interfererId`. `MissionState.estimates` is keyed by
+`estimateKey(interfererId, scope)` (`interferer:scope`; the plain scope for a server that predates interferers, which then answers
+for everybody); read it with `estimateFor` / `bestEstimateFor`, never by scope alone.
+
+The **active interferer** is what new bearings, readings and transmissions are for: `activeInterfererProvider` (chosen, persisted per
+mission) resolved by `effectiveInterfererId` (chosen while it exists and is active, else the oldest active one; `null` for an older
+server, then no `interferer_id` is sent). `MissionNotifier` computes it itself instead of reading `activeInterfererIdProvider`
+(that provider watches the mission state: a cycle). `saveBearing` and `logRssi` add it centrally; calibration readings carry none.
+
+`createInterferer` (lowest free colour slot, at most 6 active), `patchInterferer` and `reassignBearing` go through the outbox (kinds
+`interferer_create`, `interferer_patch`, `bearing_interferer`) and are re-applied by `_overlayPending`. UI: the chip in the capture sheet
+switches the active interferer; *Menü → Störer* (`ui/interferers_screen.dart`) adds, renames, marks as found and deactivates; a long
+press on a bearing in the list reassigns it (owner, or `interferer.manage`). The map still draws the active interferer's estimate; the
+filter and the colour schemes per interferer come with the map step.
+
 ## External bearing points
 
 `BearingPoint` (`core/models.dart`) and `MissionState.points` (snapshot `points`, live `point_created` / `point_updated`). The lead's

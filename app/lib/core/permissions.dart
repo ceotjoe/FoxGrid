@@ -20,6 +20,7 @@ class Perm {
   static const quarantine = 'quarantine';
   static const estimateConfigure = 'estimate.configure';
   static const pointManage = 'point.manage';
+  static const interfererManage = 'interferer.manage';
   static const taskManage = 'task.manage';
   static const taskWork = 'task.work';
   static const inviteCreate = 'invite.create';
@@ -87,6 +88,7 @@ Set<String> legacyPermissions(String role) {
     Perm.quarantine,
     Perm.estimateConfigure,
     Perm.pointManage,
+    Perm.interfererManage,
     Perm.taskManage,
     Perm.inviteCreate,
     Perm.inviteManage,

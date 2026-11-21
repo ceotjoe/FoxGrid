@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/geo.dart';
+import '../core/permissions.dart';
 import '../state/providers.dart';
+import 'interferers_screen.dart';
 
 enum AzimuthRef { trueNorth, magnetic }
 
@@ -157,7 +159,17 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Peilung erfassen', style: theme.textTheme.titleLarge),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Peilung erfassen',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                      ),
+                      _InterfererChip(),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     fix == null
@@ -352,6 +364,67 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Result of the picker for "new interferer" (real ids are UUIDs).
+const _newInterferer = 'new';
+
+/// Shows which interferer the bearing is for and switches it with one tap. Hidden while the
+/// mission has a single interferer and the user cannot add one.
+class _InterfererChip extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(missionProvider);
+    final activeId = ref.watch(activeInterfererIdProvider);
+    final active = activeId == null ? null : state.interferers[activeId];
+    final canManage =
+        ref.watch(sessionProvider)?.can(Perm.interfererManage) ?? false;
+    if (active == null || (state.activeInterferers.length < 2 && !canManage)) {
+      return const SizedBox.shrink();
+    }
+    return ActionChip(
+      key: const Key('interferer-chip'),
+      avatar: InterfererBadge(active, radius: 11),
+      label: Text(active.name),
+      onPressed: () async {
+        final picked = await showModalBottomSheet<String>(
+          context: context,
+          showDragHandle: true,
+          builder: (ctx) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final i in state.activeInterferers)
+                  ListTile(
+                    key: Key('pick-interferer-${i.id}'),
+                    leading: InterfererBadge(i),
+                    title: Text(i.name),
+                    selected: i.id == active.id,
+                    trailing: i.id == active.id
+                        ? const Icon(Icons.check)
+                        : null,
+                    onTap: () => Navigator.pop(ctx, i.id),
+                  ),
+                if (canManage)
+                  ListTile(
+                    key: const Key('pick-interferer-new'),
+                    leading: const Icon(Icons.add),
+                    title: const Text('Neuer Störer …'),
+                    onTap: () => Navigator.pop(ctx, _newInterferer),
+                  ),
+              ],
+            ),
+          ),
+        );
+        if (picked == null || !context.mounted) return;
+        if (picked == _newInterferer) {
+          await createInterfererDialog(context, ref);
+        } else {
+          await ref.read(activeInterfererProvider.notifier).select(picked);
+        }
+      },
     );
   }
 }
