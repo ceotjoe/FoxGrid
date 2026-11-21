@@ -87,3 +87,18 @@ Do not edit these by hand; regenerate them:
 ## Commits and pull requests
 
 Small, traceable commits with meaningful messages (`feat(app): …`, `fix(backend): …`). See [CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+## Bearer cheat sheet (screenshots)
+
+The two-page PDFs in `docs/user-guide/` are built from annotated app screenshots:
+
+```bash
+uv run tools/cheatsheet/seed.py          # demo mission (rural area, simulated bearers); prints invite and lead token
+uv run tools/cheatsheet/build.py         # annotates docs/user-guide/img/cheatsheet/raw/*.png, builds DE + EN PDFs (needs Chrome)
+```
+
+Take the raw screenshots in the iOS simulator (light mode, `xcrun simctl status_bar booted override --time 9:41 ...`,
+fresh install so no real server or mission shows in "Zuletzt benutzt"); join as a bearer and let the lead approve through
+the API. Marker positions are in `tools/cheatsheet/annotations.json`; when the UI changes, replace the raw image and adjust
+the rectangles.
+
