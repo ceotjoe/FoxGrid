@@ -167,6 +167,7 @@ async def get_suggestions(
     scope: Scope = "all",
     count: int = Query(default=3, ge=1, le=10),
     sigma_deg: float = Query(default=10.0, gt=0, le=45),
+    interferer: uuid.UUID | None = None,
     _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> SuggestionsOut:
@@ -174,18 +175,25 @@ async def get_suggestions(
     mission = await session.get(Mission, mission_id)
     if mission is None:
         raise HTTPException(404, "mission not found")
+    try:
+        interferer_id = await domain.read_interferer(session, mission_id, interferer)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     stmt = domain.trusted_only(
         select(Bearing).where(
             Bearing.mission_id == mission_id,
+            Bearing.interferer_id == interferer_id,
             Bearing.is_active.is_(True),
             Bearing.is_outlier.is_(False),
         ),
         Bearing,
     )
     if scope == "current":
+        # The newest transmission that has bearings of this interferer.
         current = await session.scalar(
             select(Transmission.id)
-            .where(Transmission.mission_id == mission_id)
+            .join(Bearing, Bearing.transmission_id == Transmission.id)
+            .where(Transmission.mission_id == mission_id, Bearing.interferer_id == interferer_id)
             .order_by(Transmission.started_at.desc())
             .limit(1)
         )

@@ -27,7 +27,7 @@ returns 200 (idempotent), with different content 409.
 | GET / PATCH | `/missions/{id}` | `view.result` / `estimate.configure` | read; PATCH sets the repeater (`repeater.lat/lon/input_mhz/output_mhz`) |
 | POST | `/missions/{id}/end` | `mission.end` | end the mission (event `mission_ended`) |
 | GET | `/missions/{id}/me` | any participant incl. pending | own participant record (also the join code for a pending joiner) |
-| GET | `/missions/{id}/snapshot` | `view.result` | everything a client needs after (re)connect: mission, participants, bearings, transmissions, estimate, and, depending on permissions, positions (`view.positions`), messages the caller may see (`chat.read`), tasks and teams (`task.work`) |
+| GET | `/missions/{id}/snapshot` | `view.result` | everything a client needs after (re)connect: mission, participants, interferers, bearings, transmissions, the latest estimate per interferer and scope, and, depending on permissions, positions (`view.positions`), messages the caller may see (`chat.read`), tasks and teams (`task.work`) |
 | POST | `/missions/{id}/invites` | `invite.create` | new invite (`default_role`, `default_authority`, `max_uses`, `expires_in_hours`, `auto_approve`). Without `invite.manage` only ordinary links (`mobile`, `member`, no `auto_approve`); `default_authority: observer` needs `invite.manage` and `mobile` |
 | POST | `/missions/{id}/invites/replace` | `invite.manage` | revoke all open invites and issue one default link |
 | POST | `/missions/{id}/invites/{invite_id}/rotate` | `invite.manage` | revoke and replace a single invite (keeps its role) |
@@ -44,20 +44,23 @@ returns 200 (idempotent), with different content 409.
 |---|---|---|
 | POST | `/missions/{id}/positions` | batch of position samples (throttled; 202); needs `position.share` |
 | GET | `/missions/{id}/positions?participant=&since=&limit=` | tracks; needs `view.positions` (not for observers) |
-| POST | `/missions/{id}/transmissions/start` · `/stop` | start/stop a transmission (409 on a repeated start/stop is treated as success by the app); needs `bearing.create`; only the starter and holders of `transmission.manage` (lead, deputy, analyst) may stop |
+| POST | `/missions/{id}/transmissions/start` · `/stop` | start/stop a transmission (start takes an optional `interferer_id`, the default for the bearings taken during it; 409 on a repeated start/stop is treated as success by the app); needs `bearing.create`; only the starter and holders of `transmission.manage` (lead, deputy, analyst) may stop |
 | GET | `/missions/{id}/transmissions` | list |
 
 ## Bearings
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/missions/{id}/bearings` | create (client UUID, idempotent); assigned to the open transmission or an explicit `transmission_id`. Needs `bearing.create`. With `point_id` (needs `bearing.external`: lead, deputy, analyst; lat/lon must equal the point) it is an external bearing, `source: external` |
+| POST | `/missions/{id}/bearings` | create (client UUID, idempotent); assigned to the open transmission or an explicit `transmission_id`, and to an interferer: the explicit `interferer_id`, else the transmission's, else the mission's default (422 for an unknown or inactive one). Needs `bearing.create`. With `point_id` (needs `bearing.external`: lead, deputy, analyst; lat/lon must equal the point) it is an external bearing, `source: external` |
 | GET | `/missions/{id}/bearings?transmission=&since=&include_inactive=` | list |
 | GET | `/missions/{id}/bearings/{bid}` · `/revisions` | one bearing / its revision history |
 | POST | `/missions/{id}/points` | `point.manage` | create an external bearing point (client UUID, idempotent; 409 on a duplicate name) |
 | GET | `/missions/{id}/points` | `view.result` | list points |
 | PATCH | `/missions/{id}/points/{pid}` | `point.manage` | only `name`, `note`, `use_in_estimate`, `is_active`; position is immutable |
-| PATCH | `/missions/{id}/bearings/{bid}` | only `is_outlier`, `is_active`, `note`; writes a revision. The owner may always; others need `bearing.flag` for the flags (lead, deputy, analyst) and `bearing.edit_any` for the note (lead, deputy) |
+| PATCH | `/missions/{id}/bearings/{bid}` | only `is_outlier`, `is_active`, `note`, `interferer_id` (reassign; cannot be cleared); writes a revision. The owner may always; others need `bearing.flag` for the flags (lead, deputy, analyst), `bearing.edit_any` for the note (lead, deputy) and `interferer.manage` for `interferer_id` (lead, deputy, analyst) |
+| POST | `/missions/{id}/interferers` | `interferer.manage` | create an interferer (client UUID, idempotent; 409 on a duplicate name or when 6 are active). `color_slot` (0–5) is assigned to the lowest free one unless given |
+| GET | `/missions/{id}/interferers` | `view.result` | list, deactivated ones included |
+| PATCH | `/missions/{id}/interferers/{iid}` | `interferer.manage` | only `name`, `note`, `frequency_mhz`, `status` (`active`/`resolved`), `is_active`; the colour slot is fixed. Never deleted |
 
 There is deliberately **no DELETE**.
 
@@ -65,7 +68,7 @@ There is deliberately **no DELETE**.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/missions/{id}/rssi` | batch of readings (idempotent by client UUID); `receiver`: `mobile` or `omni` (omni only from `fixed`/lead), `is_calibration`; needs `rssi.submit` |
+| POST | `/missions/{id}/rssi` | batch of readings (idempotent by client UUID; optional `interferer_id` per reading, resolved like for bearings); `receiver`: `mobile` or `omni` (omni only from `fixed`/lead), `is_calibration`; needs `rssi.submit` |
 | GET | `/missions/{id}/rssi` | list |
 | PATCH | `/missions/{id}/rssi/{sample_id}` | deactivate/reactivate; the owner, or `bearing.flag` |
 
@@ -73,10 +76,10 @@ There is deliberately **no DELETE**.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/missions/{id}/estimate?scope=current\|all` | latest stored estimate |
-| GET | `/missions/{id}/estimate/history?scope=&limit=` | history |
-| GET | `/missions/{id}/estimate/query` | ad-hoc estimate (not stored): `transmission` (repeatable), `since`, `until`, `half_life_s`, `include_outliers`, `include_rssi` |
-| GET | `/missions/{id}/suggestions?scope=&count=&sigma_deg=` | best places for the next bearing |
+| GET | `/missions/{id}/estimate?scope=current\|all&interferer=` | latest stored estimate of one interferer (default: the mission's default interferer, the oldest active one). `current` = the newest transmission with data for that interferer |
+| GET | `/missions/{id}/estimate/history?scope=&limit=&interferer=` | history |
+| GET | `/missions/{id}/estimate/query` | ad-hoc estimate (not stored): `interferer`, `transmission` (repeatable), `since`, `until`, `half_life_s`, `include_outliers`, `include_rssi` |
+| GET | `/missions/{id}/suggestions?scope=&count=&sigma_deg=&interferer=` | best places for the next bearing |
 
 ## Sensors (MQTT stations)
 
@@ -123,8 +126,9 @@ Events are **filtered per permission**: `participant_position` needs `view.posit
 | `participant_removed` | a participant was removed (closes their socket) |
 | `bearing_created`, `bearing_updated` | bearing changes |
 | `point_created`, `point_updated` | external bearing point changes |
+| `interferer_created`, `interferer_updated` | interferer changes |
 | `transmission_started`, `transmission_ended` | transmission changes |
-| `estimate_updated` | a new estimate was computed |
+| `estimate_updated` | a new estimate was computed (carries `interferer_id`) |
 | `message` | chat message (team messages only to team members) |
 | `task_updated` | task changes |
 | `mission_ended` | the lead ended the mission |
@@ -141,6 +145,6 @@ Used in the tables above and carried in every participant record (`permissions`)
 [Roles and permissions](../user-guide/roles.md); the source of truth is `backend/app/services/permissions.py`.
 
 `view.result`, `view.positions`, `chat.read`, `bearing.create`, `bearing.external`, `rssi.submit`, `position.share`,
-`bearing.flag`, `bearing.edit_any`, `transmission.manage`, `trust.set`, `quarantine`, `estimate.configure`, `point.manage`,
+`bearing.flag`, `bearing.edit_any`, `transmission.manage`, `trust.set`, `quarantine`, `estimate.configure`, `point.manage`, `interferer.manage`,
 `chat.write`, `chat.moderate`, `task.manage`, `task.work`, `team.manage`, `invite.create`, `invite.manage`,
 `participant.manage`, `sensor.manage`, `audit.view`, `role.assign`, `mission.end`, `export`, `export.tracks`.

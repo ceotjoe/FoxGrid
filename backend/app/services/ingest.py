@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import events
 from app.config import Settings
-from app.models import Bearing, Mission, Participant, RssiSample, Sensor
+from app.models import Bearing, Mission, Participant, RssiSample, Sensor, Transmission
 from app.security import hash_token
 from app.services import domain, push, transmissions
 from app.services.recompute import RecomputeScheduler
@@ -222,6 +222,8 @@ async def _bearing(
     if await session.get(Mission, sensor.mission_id) is None:
         raise RejectedError("mission")
     tx_id = await domain.assign_transmission(session, sensor.mission_id, msg.measured_at)
+    tx = await session.get(Transmission, tx_id) if tx_id is not None else None
+    interferer_id = await domain.resolve_interferer(session, sensor.mission_id, None, tx)
     bearing = Bearing(
         id=msg.id,
         mission_id=sensor.mission_id,
@@ -239,6 +241,7 @@ async def _bearing(
         note=msg.note,
         source="sensor",
         sensor_id=sensor.id,
+        interferer_id=interferer_id,
     )
     session.add(bearing)
     await session.commit()
@@ -257,14 +260,15 @@ async def _rssi(ctx: IngestContext, session: AsyncSession, sensor: Sensor, msg: 
         if item.id in known:
             continue
         lat, lon = _position(sensor, item.lat, item.lon)
+        tx_id = await domain.assign_transmission(session, sensor.mission_id, item.measured_at)
+        tx = await session.get(Transmission, tx_id) if tx_id is not None else None
         session.add(
             RssiSample(
                 id=item.id,
                 mission_id=sensor.mission_id,
                 participant_id=sensor.participant_id,
-                transmission_id=await domain.assign_transmission(
-                    session, sensor.mission_id, item.measured_at
-                ),
+                transmission_id=tx_id,
+                interferer_id=await domain.resolve_interferer(session, sensor.mission_id, None, tx),
                 lat=lat,
                 lon=lon,
                 rssi_dbm=item.rssi_dbm,

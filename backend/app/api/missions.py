@@ -29,6 +29,7 @@ from app.models import (
     BearingPoint,
     BearingRevision,
     Estimate,
+    Interferer,
     Invite,
     Message,
     Mission,
@@ -69,6 +70,7 @@ from app.services.serialize import (
     bearing_out,
     estimate_out,
     event_json,
+    interferer_out,
     message_out,
     mission_out,
     participant_out,
@@ -117,6 +119,8 @@ async def create_mission(
         device_hash=hash_token(body.device_secret) if body.device_secret else None,
     )
     session.add(creator)
+    await session.flush()
+    await domain.create_default_interferer(session, mission.id, creator.id)
     invite_token = new_invite_token()
     session.add(
         Invite(
@@ -671,13 +675,14 @@ async def get_plausibility(
     session: AsyncSession = Depends(get_session),
 ) -> list[PlausibilityOut]:
     """Lead only: which participants' data does not fit (hints only, nothing is changed)."""
-    est = await session.scalar(
+    # Bearings are only compared with the estimate of the interferer they were taken for.
+    estimates: dict[uuid.UUID, tuple[float, float, int]] = {}
+    for est in await session.scalars(
         select(Estimate)
         .where(Estimate.mission_id == mission_id, Estimate.scope == "all")
-        .order_by(Estimate.computed_at.desc())
-        .limit(1)
-    )
-    estimate = (est.lat, est.lon, est.n_bearings) if est is not None else None
+        .order_by(Estimate.computed_at)
+    ):
+        estimates[est.interferer_id] = (est.lat, est.lon, est.n_bearings)  # newest wins
     sensor_ids = select(Sensor.participant_id).where(Sensor.mission_id == mission_id)
     people = (
         await session.scalars(
@@ -690,6 +695,9 @@ async def get_plausibility(
         )
     ).all()
     facts: dict[uuid.UUID, list[plausibility.BearingFact]] = {p.id: [] for p in people}
+    by_interferer: dict[uuid.UUID, dict[uuid.UUID, list[plausibility.BearingFact]]] = {
+        p.id: {} for p in people
+    }
     for b in (
         await session.scalars(
             select(Bearing).where(
@@ -700,11 +708,11 @@ async def get_plausibility(
         )
     ).all():
         if b.participant_id in facts:
-            facts[b.participant_id].append(
-                plausibility.BearingFact(
-                    b.lat, b.lon, float(b.azimuth_true_deg), float(b.sigma_deg), b.measured_at
-                )
+            fact = plausibility.BearingFact(
+                b.lat, b.lon, float(b.azimuth_true_deg), float(b.sigma_deg), b.measured_at
             )
+            facts[b.participant_id].append(fact)
+            by_interferer[b.participant_id].setdefault(b.interferer_id, []).append(fact)
     fixes: dict[uuid.UUID, list[plausibility.Fix]] = {p.id: [] for p in people}
     for s in (
         await session.scalars(
@@ -721,7 +729,15 @@ async def get_plausibility(
             bearings=len(facts[p.id]),
             flags=[
                 PlausibilityFlag(code=f.code, detail=f.detail)
-                for f in plausibility.assess(facts[p.id], fixes[p.id], estimate)
+                for f in [
+                    # track-based hints once, then the disagreement per interferer
+                    *plausibility.assess(facts[p.id], fixes[p.id], None),
+                    *(
+                        f
+                        for interferer_id, group in by_interferer[p.id].items()
+                        for f in plausibility.assess(group, [], estimates.get(interferer_id))
+                    ),
+                ]
             ],
         )
         for p in people
@@ -865,16 +881,28 @@ async def snapshot(
             .order_by(Transmission.seq)
         )
     ).all()
-    estimates = []
-    for scope in ("current", "all"):
-        est = await session.scalar(
-            select(Estimate)
-            .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
-            .order_by(Estimate.computed_at.desc())
-            .limit(1)
+    interferers = (
+        await session.scalars(
+            select(Interferer)
+            .where(Interferer.mission_id == mission_id)
+            .order_by(Interferer.created_at, Interferer.id)
         )
-        if est is not None:
-            estimates.append(estimate_out(est))
+    ).all()
+    estimates = []
+    for interferer in interferers:
+        for scope in ("current", "all"):
+            est = await session.scalar(
+                select(Estimate)
+                .where(
+                    Estimate.mission_id == mission_id,
+                    Estimate.interferer_id == interferer.id,
+                    Estimate.scope == scope,
+                )
+                .order_by(Estimate.computed_at.desc())
+                .limit(1)
+            )
+            if est is not None:
+                estimates.append(estimate_out(est))
     message_rows = (
         await session.execute(
             select(Message, Participant.callsign)
@@ -919,6 +947,7 @@ async def snapshot(
         bearings=[bearing_out(b) for b in bearings],
         transmissions=[transmission_out(t) for t in transmissions],
         estimates=estimates,
+        interferers=[interferer_out(i) for i in interferers],
         messages=[message_out(m, cs) for m, cs in reversed(message_rows)] if see_chat else [],
         tasks=[task_out(t) for t in tasks] if see_tasks else [],
         teams=[TeamOut.model_validate(t) for t in teams] if see_tasks else [],

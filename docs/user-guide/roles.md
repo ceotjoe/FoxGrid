@@ -10,7 +10,7 @@ can be the lead.
 |---|---|---|
 | **Einsatzleiter** (`lead`) | the mission lead | everything: assign roles, end the mission, all of the below |
 | **Co-Leiter** (`deputy`) | the lead's stand-in | everything except assigning roles and ending the mission; cannot change or quarantine a lead |
-| **Auswerter** (`analyst`) | whoever judges the data | mark anybody's bearing as outlier, set trust, enter external bearings and manage external points, set the repeater and estimate parameters; may stop any transmission |
+| **Auswerter** (`analyst`) | whoever judges the data | mark anybody's bearing as outlier, set trust, enter external bearings, manage external points and interferers (reassign anybody's bearing to another interferer), set the repeater and estimate parameters; may stop any transmission |
 | **Koordinator** (`coordinator`) | whoever organises the team | create and assign tasks, moderate chat (sees all team channels), create ordinary invite links |
 | **Peiler** (`member`) | everybody else; the default for a link | capture bearings and readings, chat, work on tasks assigned to them, share their position, export |
 | **Feststation** (`station`) | a sensor's automatic account | only delivers readings; never assigned by hand |
@@ -25,6 +25,7 @@ can be the lead.
 | read and write chat | ✓ | ✓ | ✓ | ✓ | ✓ | – |
 | capture own bearings and readings | ✓ | ✓ | ✓ | ✓ | ✓ | – |
 | enter external bearings, manage points | ✓ | ✓ | ✓ | – | – | – |
+| create interferers, reassign other people's bearings (`interferer.manage`) | ✓ | ✓ | ✓ | – | – | – |
 | flag other people's bearings as outlier | ✓ | ✓ | ✓ | – | – | – |
 | edit the note of other people's bearings | ✓ | ✓ | – | – | – | – |
 | set trust, see plausibility hints | ✓ | ✓ | ✓ | – | – | – |

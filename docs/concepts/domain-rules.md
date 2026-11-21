@@ -28,6 +28,20 @@ violate them.
   `domain.trusted_only` together with `is_active`. Switched-off bearings stay listed and exported.
 - External bearings are excluded from the plausibility check (no own track to compare against).
 
+## Interferers
+
+- A mission can look for several interferers. Every bearing and every RSSI reading belongs to **exactly one** (`interferer_id`,
+  NOT NULL). Without an explicit id the transmission's interferer applies, else the mission's default one (the oldest active), so
+  clients that predate interferers keep working.
+- Every interferer has its **own estimate**, per scope. Data of one interferer never moves the estimate of another. The `current`
+  scope is the newest transmission that has data for that interferer. Calibration readings (repeater output) belong to no
+  interferer and are used for all of them.
+- Interferers are deactivated, never deleted (DB trigger). A mission has at most 6 active ones, each with a fixed `color_slot`
+  that the clients use for its colour family and letter badge. `status = resolved` marks an interferer as found; it keeps its data.
+- Reassigning a bearing is an append-only revision like any other edit. The owner may do it; for others it needs
+  `interferer.manage` (lead, deputy, analyst).
+- Plausibility hints compare a bearing only with the estimate of its own interferer.
+
 ## Data retention
 
 - Position tracks are purged N days after the mission ended (default 30, `track_retention_days`, configurable per mission).

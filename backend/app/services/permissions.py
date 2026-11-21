@@ -58,6 +58,7 @@ class Permission(StrEnum):
     QUARANTINE = "quarantine"
     ESTIMATE_CONFIGURE = "estimate.configure"  # engine parameters, search area, repeater
     POINT_MANAGE = "point.manage"  # external bearing points
+    INTERFERER_MANAGE = "interferer.manage"  # create interferers, reassign anybody's bearings
     # --- team work
     CHAT_WRITE = "chat.write"
     CHAT_MODERATE = "chat.moderate"
@@ -100,6 +101,7 @@ _ANALYST = _MEMBER | {
     P.TRUST_SET,
     P.ESTIMATE_CONFIGURE,
     P.POINT_MANAGE,
+    P.INTERFERER_MANAGE,
 }
 
 _COORDINATOR = _MEMBER | {

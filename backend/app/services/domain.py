@@ -17,6 +17,7 @@ from app.models import (
     AuditLog,
     Bearing,
     BearingPoint,
+    Interferer,
     Message,
     Mission,
     Participant,
@@ -24,11 +25,12 @@ from app.models import (
     Team,
     Transmission,
 )
-from app.schemas.api import PositionIn
+from app.schemas.api import MAX_INTERFERERS, PositionIn
 from app.services.permissions import Permission, has_permission
 from app.services.serialize import event_json, position_out
 
 ASSIGN_SLACK = timedelta(seconds=5)
+DEFAULT_INTERFERER_NAME = "Störer 1"
 
 
 def trusted_only[S: Select[Any]](stmt: S, model: type) -> S:
@@ -126,6 +128,95 @@ async def assign_transmission(
         .limit(1)
     )
     return await session.scalar(stmt)
+
+
+async def default_interferer_id(session: AsyncSession, mission_id: uuid.UUID) -> uuid.UUID:
+    """The mission's default interferer: the oldest active one, created on demand.
+
+    Used when a client does not name an interferer (old clients, sensors) and as the target of
+    estimate endpoints called without one.
+    """
+    found = await session.scalar(
+        select(Interferer.id)
+        .where(Interferer.mission_id == mission_id, Interferer.is_active.is_(True))
+        .order_by(Interferer.created_at, Interferer.id)
+        .limit(1)
+    )
+    if found is not None:
+        return found
+    # All deactivated (or a mission from before interferers existed): keep the data flowing.
+    anything = await session.scalar(
+        select(Interferer.id)
+        .where(Interferer.mission_id == mission_id)
+        .order_by(Interferer.created_at, Interferer.id)
+        .limit(1)
+    )
+    if anything is not None:
+        return anything
+    return (await create_default_interferer(session, mission_id, None)).id
+
+
+async def create_default_interferer(
+    session: AsyncSession, mission_id: uuid.UUID, creator_id: uuid.UUID | None
+) -> Interferer:
+    interferer = Interferer(
+        id=uuid.uuid4(),
+        mission_id=mission_id,
+        name=DEFAULT_INTERFERER_NAME,
+        color_slot=0,
+        created_by=creator_id,
+    )
+    session.add(interferer)
+    await session.flush()
+    return interferer
+
+
+async def free_color_slot(session: AsyncSession, mission_id: uuid.UUID) -> int | None:
+    """Lowest colour slot no active interferer uses; None when all are taken."""
+    used = set(
+        await session.scalars(
+            select(Interferer.color_slot).where(
+                Interferer.mission_id == mission_id, Interferer.is_active.is_(True)
+            )
+        )
+    )
+    return next((s for s in range(MAX_INTERFERERS) if s not in used), None)
+
+
+async def resolve_interferer(
+    session: AsyncSession,
+    mission_id: uuid.UUID,
+    interferer_id: uuid.UUID | None,
+    transmission: Transmission | None = None,
+) -> uuid.UUID:
+    """The interferer a new bearing or reading belongs to.
+
+    An explicit id must exist in the mission and be active (``ValueError`` otherwise). Without
+    one the transmission's interferer applies, then the mission's default.
+    """
+    if interferer_id is None and transmission is not None:
+        interferer_id = transmission.interferer_id
+    if interferer_id is None:
+        return await default_interferer_id(session, mission_id)
+    found = await session.get(Interferer, interferer_id)
+    if found is None or found.mission_id != mission_id or not found.is_active:
+        raise ValueError("unknown or inactive interferer")
+    return interferer_id
+
+
+async def read_interferer(
+    session: AsyncSession, mission_id: uuid.UUID, interferer_id: uuid.UUID | None
+) -> uuid.UUID:
+    """The interferer a read endpoint refers to: the given one (also if deactivated) or default.
+
+    ``ValueError`` when the id is not an interferer of the mission.
+    """
+    if interferer_id is None:
+        return await default_interferer_id(session, mission_id)
+    found = await session.get(Interferer, interferer_id)
+    if found is None or found.mission_id != mission_id:
+        raise ValueError("unknown interferer")
+    return interferer_id
 
 
 async def record_positions(

@@ -13,6 +13,8 @@ AssignableAuthority = Literal["lead", "deputy", "analyst", "coordinator", "membe
 Polarization = Literal["h", "v", "unknown"]
 AzimuthRef = Literal["true", "magnetic", "compass"]
 Scope = Literal["current", "all"]
+# Colour families of the clients: at most this many active interferers per mission.
+MAX_INTERFERERS = 6
 
 _CALLSIGN = re.compile(r"^[A-Z0-9/]{3,15}$")
 
@@ -265,6 +267,9 @@ class BearingIn(BaseModel):
     transmission_id: uuid.UUID | None = None
     # External bearing (lead only): lat/lon must be the point's position.
     point_id: uuid.UUID | None = None
+    # Which interferer this bearing is for. Omitted: the transmission's interferer, else the
+    # mission's default one (so clients that predate several interferers keep working).
+    interferer_id: uuid.UUID | None = None
 
 
 class BearingPatch(BaseModel):
@@ -273,6 +278,8 @@ class BearingPatch(BaseModel):
     is_outlier: bool | None = None
     is_active: bool | None = None
     note: str | None = Field(default=None, max_length=1000)
+    # Reassign to another interferer (cannot be cleared: every bearing has one).
+    interferer_id: uuid.UUID | None = None
 
 
 class BearingOut(ORM):
@@ -298,6 +305,41 @@ class BearingOut(ORM):
     is_active: bool
     source: str
     point_id: uuid.UUID | None = None
+    interferer_id: uuid.UUID
+
+
+class InterfererIn(BaseModel):
+    id: uuid.UUID  # client generated, idempotent
+    name: str = Field(min_length=1, max_length=60)
+    note: str | None = Field(default=None, max_length=1000)
+    frequency_mhz: float | None = Field(default=None, gt=0, lt=100000)
+    # Omitted: the lowest colour slot not used by an active interferer.
+    color_slot: int | None = Field(default=None, ge=0, lt=MAX_INTERFERERS)
+
+
+class InterfererPatch(BaseModel):
+    """The colour slot is fixed once assigned; everything else may change. Never deleted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    note: str | None = Field(default=None, max_length=1000)
+    frequency_mhz: float | None = Field(default=None, gt=0, lt=100000)
+    status: Literal["active", "resolved"] | None = None
+    is_active: bool | None = None
+
+
+class InterfererOut(ORM):
+    id: uuid.UUID
+    mission_id: uuid.UUID
+    name: str
+    color_slot: int
+    note: str | None
+    frequency_mhz: float | None
+    status: str
+    is_active: bool
+    created_by: uuid.UUID | None
+    created_at: datetime
 
 
 class PointIn(BaseModel):
@@ -346,6 +388,8 @@ class RevisionOut(ORM):
 class TransmissionStart(BaseModel):
     at: AwareDatetime | None = None
     note: str | None = Field(default=None, max_length=500)
+    # Default interferer for bearings taken during this transmission.
+    interferer_id: uuid.UUID | None = None
 
 
 class TransmissionStop(BaseModel):
@@ -362,6 +406,7 @@ class TransmissionOut(ORM):
     started_by: uuid.UUID | None
     ended_by: uuid.UUID | None
     note: str | None
+    interferer_id: uuid.UUID | None = None
 
 
 class EllipseOut(BaseModel):
@@ -383,6 +428,7 @@ class RssiFitOut(BaseModel):
 class EstimateOut(BaseModel):
     id: uuid.UUID
     mission_id: uuid.UUID
+    interferer_id: uuid.UUID
     scope: Scope
     transmission_id: uuid.UUID | None
     computed_at: datetime
@@ -481,7 +527,8 @@ class SnapshotOut(BaseModel):
     positions: list[PositionOut]  # latest per participant
     bearings: list[BearingOut]
     transmissions: list[TransmissionOut]
-    estimates: list[EstimateOut]  # latest per scope
+    estimates: list[EstimateOut]  # latest per interferer and scope
+    interferers: list[InterfererOut] = Field(default_factory=list)
     messages: list[MessageOut] = Field(default_factory=list)  # visible to the caller
     tasks: list[TaskOut] = Field(default_factory=list)
     teams: list[TeamOut] = Field(default_factory=list)
@@ -500,6 +547,7 @@ class RssiIn(BaseModel):
     measured_at: AwareDatetime
     source: Literal["manual", "cat", "sensor"] = "manual"
     transmission_id: uuid.UUID | None = None
+    interferer_id: uuid.UUID | None = None  # omitted: as for bearings
     receiver: Literal["mobile", "omni"] = "mobile"
     # reading of the repeater output (not the interferer) to calibrate a fixed station
     is_calibration: bool = False
@@ -532,6 +580,7 @@ class RssiOut(BaseModel):
     is_active: bool
     receiver: str = "mobile"
     is_calibration: bool = False
+    interferer_id: uuid.UUID
 
 
 class RssiBatchResult(BaseModel):

@@ -132,6 +132,11 @@ async def start_transmission(
     mission = await _active_mission(session, mission_id)
     body = body or TransmissionStart()
     app = request.app
+    if body.interferer_id is not None:
+        try:
+            await domain.resolve_interferer(session, mission_id, body.interferer_id)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     def notify(_: Transmission) -> None:
         task = asyncio.create_task(
@@ -151,6 +156,7 @@ async def start_transmission(
             actor,
             at=body.at,
             note=body.note,
+            interferer_id=body.interferer_id,
             after_commit=notify,
         )
     except transmissions.AlreadyRunningError as exc:
@@ -207,6 +213,7 @@ def _same_bearing(existing: Bearing, body: BearingIn, actor: Participant) -> boo
         and abs(existing.lon - body.lon) < 1e-9
         and existing.measured_at == body.measured_at
         and existing.point_id == body.point_id
+        and (body.interferer_id is None or existing.interferer_id == body.interferer_id)
     )
 
 
@@ -244,6 +251,11 @@ async def create_bearing(
             raise HTTPException(422, "unknown transmission")
     else:
         tx_id = await domain.assign_transmission(session, mission_id, body.measured_at)
+        tx = await session.get(Transmission, tx_id) if tx_id is not None else None
+    try:
+        interferer_id = await domain.resolve_interferer(session, mission_id, body.interferer_id, tx)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
     bearing = Bearing(
         id=body.id,
@@ -264,6 +276,7 @@ async def create_bearing(
         measured_at=body.measured_at,
         note=body.note,
         point_id=body.point_id,
+        interferer_id=interferer_id,
         source="external" if body.point_id is not None else "manual",
     )
     session.add(bearing)
@@ -312,6 +325,11 @@ async def list_bearings(
         stmt = stmt.where(Bearing.is_active.is_(True))
     rows = (await session.scalars(stmt.order_by(Bearing.measured_at))).all()
     return [bearing_out(b) for b in rows]
+
+
+def _jsonable(value: object) -> object:
+    """UUIDs go into the JSON revision and audit detail as strings."""
+    return str(value) if isinstance(value, uuid.UUID) else value
 
 
 async def _bearing_or_404(session: AsyncSession, mission_id: uuid.UUID, bid: uuid.UUID) -> Bearing:
@@ -364,16 +382,30 @@ async def patch_bearing(
     own = bearing.participant_id == actor.id and has_permission(actor, Permission.BEARING_CREATE)
     if not own:
         # Others: flags need `bearing.flag`, any other edit `bearing.edit_any`.
-        edits = body.model_dump(exclude_unset=True).keys()
-        flags_only = set(edits) <= {"is_outlier", "is_active"}
-        needed = Permission.BEARING_FLAG if flags_only else Permission.BEARING_EDIT_ANY
-        if not has_permission(actor, needed):
-            raise HTTPException(403, f"permission required: {needed.value}")
+        # Reassigning to another interferer needs `interferer.manage`.
+        edits = set(body.model_dump(exclude_unset=True))
+        needed: set[Permission] = set()
+        if edits - {"is_outlier", "is_active", "interferer_id"}:
+            needed.add(Permission.BEARING_EDIT_ANY)
+        if "interferer_id" in edits:
+            needed.add(Permission.INTERFERER_MANAGE)
+        if edits & {"is_outlier", "is_active"} or not needed:
+            needed.add(Permission.BEARING_FLAG)
+        for permission in sorted(needed):
+            if not has_permission(actor, permission):
+                raise HTTPException(403, f"permission required: {permission.value}")
     changes: dict[str, dict[str, object]] = {}
     for field, value in body.model_dump(exclude_unset=True).items():
+        if field == "interferer_id":
+            if value is None:
+                continue  # every bearing keeps an interferer
+            try:
+                await domain.resolve_interferer(session, mission_id, value)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
         old = getattr(bearing, field)
         if old != value:
-            changes[field] = {"from": old, "to": value}
+            changes[field] = {"from": _jsonable(old), "to": _jsonable(value)}
             setattr(bearing, field, value)
     if changes:
         session.add(BearingRevision(bearing_id=bearing_id, changed_by=actor.id, changes=changes))
@@ -383,7 +415,7 @@ async def patch_bearing(
         await session.commit()
         out = bearing_out(bearing)
         await events.publish(redis, mission_id, "bearing_updated", event_json(out))
-        if "is_outlier" in changes or "is_active" in changes:
+        if changes.keys() & {"is_outlier", "is_active", "interferer_id"}:
             scheduler.schedule(mission_id)
         return out
     return bearing_out(bearing)
@@ -392,16 +424,32 @@ async def patch_bearing(
 # --- estimates ---------------------------------------------------------------------------
 
 
+async def _interferer_or_422(
+    session: AsyncSession, mission_id: uuid.UUID, interferer: uuid.UUID | None
+) -> uuid.UUID:
+    try:
+        return await domain.read_interferer(session, mission_id, interferer)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.get("/estimate", response_model=EstimateOut)
 async def get_estimate(
     mission_id: uuid.UUID,
     scope: Scope = "current",
+    interferer: uuid.UUID | None = None,
     _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> EstimateOut:
+    """Latest estimate of one interferer (default: the mission's default interferer)."""
+    interferer_id = await _interferer_or_422(session, mission_id, interferer)
     est = await session.scalar(
         select(Estimate)
-        .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
+        .where(
+            Estimate.mission_id == mission_id,
+            Estimate.interferer_id == interferer_id,
+            Estimate.scope == scope,
+        )
         .order_by(Estimate.computed_at.desc())
         .limit(1)
     )
@@ -415,13 +463,19 @@ async def estimate_history(
     mission_id: uuid.UUID,
     scope: Scope = "all",
     limit: int = Query(default=100, le=1000),
+    interferer: uuid.UUID | None = None,
     _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[EstimateOut]:
+    interferer_id = await _interferer_or_422(session, mission_id, interferer)
     rows = (
         await session.scalars(
             select(Estimate)
-            .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
+            .where(
+                Estimate.mission_id == mission_id,
+                Estimate.interferer_id == interferer_id,
+                Estimate.scope == scope,
+            )
             .order_by(Estimate.computed_at.desc())
             .limit(limit)
         )
@@ -433,6 +487,7 @@ async def estimate_history(
 async def query_estimate(
     mission_id: uuid.UUID,
     transmission: list[uuid.UUID] = Query(default=[]),
+    interferer: uuid.UUID | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     half_life_s: float | None = Query(default=None, gt=0),
@@ -445,8 +500,13 @@ async def query_estimate(
     mission = await session.get(Mission, mission_id)
     if mission is None:
         raise HTTPException(404, "mission not found")
+    interferer_id = await _interferer_or_422(session, mission_id, interferer)
     stmt = domain.trusted_only(
-        select(Bearing).where(Bearing.mission_id == mission_id, Bearing.is_active.is_(True)),
+        select(Bearing).where(
+            Bearing.mission_id == mission_id,
+            Bearing.interferer_id == interferer_id,
+            Bearing.is_active.is_(True),
+        ),
         Bearing,
     )
     if not include_outliers:
@@ -462,7 +522,9 @@ async def query_estimate(
     if include_rssi and uses_rssi(mission):
         rstmt = domain.trusted_only(
             select(RssiSample).where(
-                RssiSample.mission_id == mission_id, RssiSample.is_active.is_(True)
+                RssiSample.mission_id == mission_id,
+                RssiSample.interferer_id == interferer_id,
+                RssiSample.is_active.is_(True),
             ),
             RssiSample,
         )
@@ -486,6 +548,12 @@ async def query_estimate(
     except EngineError as exc:
         raise HTTPException(422, str(exc)) from exc
     est = build_estimate(
-        mission_id, "all", None, _input_hash(bearings, params, rssi_rows, offsets), result, params
+        mission_id,
+        interferer_id,
+        "all",
+        None,
+        _input_hash(bearings, params, rssi_rows, offsets),
+        result,
+        params,
     )
     return estimate_out(est)

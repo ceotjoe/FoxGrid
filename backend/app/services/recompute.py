@@ -9,6 +9,8 @@ import logging
 import math
 import time
 import uuid
+from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from foxgrid_engine import Bearing as EngineBearing
@@ -22,7 +24,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import events
 from app.config import Settings
-from app.models import Bearing, Estimate, Mission, RssiSample, Transmission, utcnow
+from app.models import (
+    Bearing,
+    Estimate,
+    Interferer,
+    Mission,
+    RssiSample,
+    Transmission,
+    utcnow,
+)
 from app.services.domain import trusted_only
 from app.services.serialize import estimate_out, event_json
 
@@ -196,6 +206,7 @@ def contours_json(result: Any) -> dict[str, list[dict[str, Any]]]:
 
 def build_estimate(
     mission_id: uuid.UUID,
+    interferer_id: uuid.UUID,
     scope: str,
     transmission_id: uuid.UUID | None,
     digest: str,
@@ -206,6 +217,7 @@ def build_estimate(
         id=uuid.uuid4(),
         computed_at=utcnow(),
         mission_id=mission_id,
+        interferer_id=interferer_id,
         scope=scope,
         transmission_id=transmission_id,
         input_hash=digest,
@@ -230,16 +242,36 @@ def build_estimate(
     )
 
 
+def current_transmission(
+    transmissions: dict[uuid.UUID, datetime], rows: Sequence[Bearing | RssiSample]
+) -> uuid.UUID | None:
+    """The newest transmission among the rows' transmissions (None when none has one)."""
+    ids = {r.transmission_id for r in rows if r.transmission_id is not None}
+    known = [t for t in ids if t in transmissions]
+    return max(known, key=lambda t: transmissions[t], default=None)
+
+
 async def compute_mission(
     session: AsyncSession, redis: Redis, mission_id: uuid.UUID, now: float | None = None
 ) -> list[Estimate]:
-    """Recompute and persist estimates for both scopes; publish ``estimate_updated``."""
+    """Recompute and persist estimates per interferer and scope; publish ``estimate_updated``.
+
+    Each active interferer is fused from its own bearings and readings. Its ``current`` scope is
+    the newest transmission that has data for *that* interferer.
+    """
     now = time.time() if now is None else now
     mission = await session.get(Mission, mission_id)
     if mission is None:
         return []
     params = engine_params_for(mission, now)
 
+    interferer_ids = list(
+        await session.scalars(
+            select(Interferer.id)
+            .where(Interferer.mission_id == mission_id, Interferer.is_active.is_(True))
+            .order_by(Interferer.created_at, Interferer.id)
+        )
+    )
     rows = (
         await session.scalars(
             trusted_only(
@@ -267,52 +299,66 @@ async def compute_mission(
                 )
             ).all()
         )
+        # Calibration readings (repeater output) are independent of any interferer.
         offsets = calibration_offsets(mission, all_rssi)
         rssi_rows = [r for r in all_rssi if not r.is_calibration]
-    current_tx = await session.scalar(
-        select(Transmission)
-        .where(Transmission.mission_id == mission_id)
-        .order_by(Transmission.started_at.desc())
-        .limit(1)
-    )
-    current_id = current_tx.id if current_tx else None
-    scopes = {
-        "current": (
-            [b for b in rows if b.transmission_id == current_id],
-            [r for r in rssi_rows if r.transmission_id == current_id],
-        ),
-        "all": (list(rows), list(rssi_rows)),
+    started = {
+        tx_id: started_at
+        for tx_id, started_at in (
+            await session.execute(
+                select(Transmission.id, Transmission.started_at).where(
+                    Transmission.mission_id == mission_id
+                )
+            )
+        ).all()
     }
 
     created: list[Estimate] = []
-    for scope, (subset, rssi_subset) in scopes.items():
-        engine_rssi = [_to_engine_rssi(r, offsets) for r in rssi_subset]
-        if len(subset) < MIN_BEARINGS and not usable_samples(engine_rssi, params):
-            continue
-        digest = _input_hash(subset, params, rssi_subset, offsets)
-        last = await session.scalar(
-            select(Estimate)
-            .where(Estimate.mission_id == mission_id, Estimate.scope == scope)
-            .order_by(Estimate.computed_at.desc())
-            .limit(1)
-        )
-        tx_id = current_id if scope == "current" else None
-        if last is not None and last.input_hash == digest and last.transmission_id == tx_id:
-            continue
-        try:
-            result = await asyncio.to_thread(
-                run_engine,
-                [_to_engine(b) for b in subset],
-                params,
-                engine_rssi,
+    for interferer_id in interferer_ids:
+        mine = [b for b in rows if b.interferer_id == interferer_id]
+        mine_rssi = [r for r in rssi_rows if r.interferer_id == interferer_id]
+        current_id = current_transmission(started, [*mine, *mine_rssi])
+        scopes = {
+            "current": (
+                [b for b in mine if b.transmission_id == current_id],
+                [r for r in mine_rssi if r.transmission_id == current_id],
+            ),
+            "all": (mine, mine_rssi),
+        }
+        for scope, (subset, rssi_subset) in scopes.items():
+            engine_rssi = [_to_engine_rssi(r, offsets) for r in rssi_subset]
+            if len(subset) < MIN_BEARINGS and not usable_samples(engine_rssi, params):
+                continue
+            digest = _input_hash(subset, params, rssi_subset, offsets)
+            last = await session.scalar(
+                select(Estimate)
+                .where(
+                    Estimate.mission_id == mission_id,
+                    Estimate.interferer_id == interferer_id,
+                    Estimate.scope == scope,
+                )
+                .order_by(Estimate.computed_at.desc())
+                .limit(1)
             )
-        except EngineError:
-            log.exception("engine rejected input for mission %s", mission_id)
-            continue
-        est = build_estimate(mission_id, scope, tx_id, digest, result, params)
-        session.add(est)
-        await session.flush()
-        created.append(est)
+            tx_id = current_id if scope == "current" else None
+            if last is not None and last.input_hash == digest and last.transmission_id == tx_id:
+                continue
+            try:
+                result = await asyncio.to_thread(
+                    run_engine,
+                    [_to_engine(b) for b in subset],
+                    params,
+                    engine_rssi,
+                )
+            except EngineError:
+                log.exception(
+                    "engine rejected input for mission %s interferer %s", mission_id, interferer_id
+                )
+                continue
+            est = build_estimate(mission_id, interferer_id, scope, tx_id, digest, result, params)
+            session.add(est)
+            await session.flush()
+            created.append(est)
     await session.commit()
     for est in created:
         await events.publish(redis, mission_id, "estimate_updated", event_json(estimate_out(est)))

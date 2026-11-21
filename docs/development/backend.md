@@ -27,7 +27,10 @@ backend/
   (`ws/router.py` filters per event and closes the socket with 4409 when the own authority changes). See
   [ADR 0007](../adr/0007-roles-and-permissions.md).
 - **External points.** `api/points.py` (`point.manage`); `domain.trusted_only(stmt, Bearing)` also drops bearings whose point is switched off or inactive.
-- **Recompute.** Per-mission trailing debounce (500 ms, max wait 2 s) plus a Redis lock; both scopes (`current`, `all`). Calibration
+- **Interferers.** `api/interferers.py` (`interferer.manage`). New bearings and readings resolve their interferer through
+  `domain.resolve_interferer` (explicit id, else the transmission's, else `default_interferer_id`); read endpoints use
+  `domain.read_interferer` (also accepts deactivated ones). Anything that fuses bearings must filter on `interferer_id`.
+- **Recompute.** Per-mission trailing debounce (500 ms, max wait 2 s) plus a Redis lock; per active interferer, both scopes (`current`, `all`). Calibration
   readings (repeater **output**, known position) never enter the fit: `calibration_offsets` in `services/recompute.py` turns them into
   relative station offsets (assumed exponent 3, needs 3 stations, centred on the mean) which are passed to the engine as `offset_db`.
 - **Stations.** Omnidirectional readings are accepted only from role `fixed`/`lead`; sensor RSSI is stored as `omni`. A mission has

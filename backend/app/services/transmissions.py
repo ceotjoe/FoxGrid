@@ -42,6 +42,7 @@ async def start_transmission(
     at: datetime | None = None,
     note: str | None = None,
     source: str = "manual",
+    interferer_id: uuid.UUID | None = None,
     after_commit: Callable[[Transmission], None] | None = None,
 ) -> TransmissionOut:
     seq = (
@@ -60,6 +61,7 @@ async def start_transmission(
         started_by=actor.id,
         note=note,
         source=source,
+        interferer_id=interferer_id,
     )
     session.add(tx)
     try:

@@ -8,6 +8,7 @@ from app.models import (
     Bearing,
     BearingPoint,
     Estimate,
+    Interferer,
     Message,
     Mission,
     Participant,
@@ -19,6 +20,7 @@ from app.models import (
 from app.schemas.api import (
     BearingOut,
     EstimateOut,
+    InterfererOut,
     MessageOut,
     MissionOut,
     ParticipantOut,
@@ -101,6 +103,22 @@ def bearing_out(b: Bearing) -> BearingOut:
         is_active=b.is_active,
         source=b.source,
         point_id=b.point_id,
+        interferer_id=b.interferer_id,
+    )
+
+
+def interferer_out(i: Interferer) -> InterfererOut:
+    return InterfererOut(
+        id=i.id,
+        mission_id=i.mission_id,
+        name=i.name,
+        color_slot=i.color_slot,
+        note=i.note,
+        frequency_mhz=None if i.frequency_mhz is None else float(i.frequency_mhz),
+        status=i.status,
+        is_active=i.is_active,
+        created_by=i.created_by,
+        created_at=i.created_at,
     )
 
 
@@ -120,6 +138,7 @@ def estimate_out(e: Estimate) -> EstimateOut:
     return EstimateOut(
         id=e.id,
         mission_id=e.mission_id,
+        interferer_id=e.interferer_id,
         scope=e.scope,  # type: ignore[arg-type]
         transmission_id=e.transmission_id,
         computed_at=e.computed_at,
@@ -187,4 +206,5 @@ def rssi_out(r: RssiSample) -> RssiOut:
         is_active=r.is_active,
         receiver=r.receiver,
         is_calibration=r.is_calibration,
+        interferer_id=r.interferer_id,
     )

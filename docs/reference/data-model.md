@@ -1,10 +1,10 @@
 # Data model
 
-PostgreSQL 16 with PostGIS; schema managed by Alembic (`backend/alembic/versions/`, migrations 0001–0009). ORM models are in
+PostgreSQL 16 with PostGIS; schema managed by Alembic (`backend/alembic/versions/`, migrations 0001–0013). ORM models are in
 `backend/app/models/core.py`. Times are `timestamptz` (UTC), IDs `uuid` unless noted.
 
 Bearings store `lat`/`lon` floats; the PostGIS `geom` columns are generated in SQL (migration 0001) and ignored by Alembic
-autogenerate. Database triggers forbid `DELETE` on `bearings`, `bearing_revisions`, `bearing_points` and `rssi_samples`.
+autogenerate. Database triggers forbid `DELETE` on `bearings`, `bearing_revisions`, `bearing_points`, `interferers` and `rssi_samples`.
 
 | Table | Purpose and notable columns |
 |---|---|
@@ -13,12 +13,13 @@ autogenerate. Database triggers forbid `DELETE` on `bearings`, `bearing_revision
 | `teams` | per-mission teams (chat channels, task assignment) |
 | `participants` | callsign (unique per mission), `role` (`lead`/`fixed`/`mobile`: the data source), `authority` (`lead`/`deputy`/`analyst`/`coordinator`/`member`/`station`/`observer`: what the participant may do, see [Roles](../user-guide/roles.md)), `team_id`, `status` (`pending`/`active`/`rejected`), `is_active` (false = removed), `trusted`, `device_hash`, `join_code`, `last_seen_at` |
 | `position_samples` | position tracks with `recorded_at` (client) and `received_at`; purged after the retention period |
-| `transmissions` | one open transmission per mission at most; `source` (`manual`/`relay`/`mqtt`), `started_by`, `ended_by`, note |
-| `bearings` | client-UUID primary key, station position, `azimuth_true_deg`, `azimuth_input_ref`, `declination_deg_applied`, `sigma_deg` (NOT NULL, > 0), RSSI/attenuation, polarization, `measured_at`/`received_at`, `is_outlier`, `is_active`, `source` (`manual`, `sensor`, `external`), `sensor_id`, `point_id`; never deleted |
+| `transmissions` | one open transmission per mission at most; `source` (`manual`/`relay`/`mqtt`), `started_by`, `ended_by`, note, optional `interferer_id` (default for its bearings) |
+| `bearings` | client-UUID primary key, station position, `azimuth_true_deg`, `azimuth_input_ref`, `declination_deg_applied`, `sigma_deg` (NOT NULL, > 0), RSSI/attenuation, polarization, `measured_at`/`received_at`, `is_outlier`, `is_active`, `source` (`manual`, `sensor`, `external`), `sensor_id`, `point_id`, `interferer_id` (NOT NULL); never deleted |
+| `interferers` | the sources of a mission: `name` (unique per mission), `color_slot` (0–5, unique among active ones), `note`, `frequency_mhz` (informational), `status` (`active`/`resolved`), `is_active`; every mission starts with "Störer 1"; never deleted |
 | `bearing_points` | named external bearing locations the lead enters (e.g. BNetzA): `name` (unique per mission), `lat`/`lon` (immutable), `accuracy_m`, `use_in_estimate`, `is_active`; never deleted |
 | `bearing_revisions` | append-only change history of bearings |
-| `rssi_samples` | signal readings: client UUID, position, `rssi_dbm`, `attenuation_db`, `receiver` (`mobile`/`omni`), `is_calibration`, `is_active`; never deleted |
-| `estimates` | computed results per `scope` (`current`/`all`): MLE point, covariance, 1σ/2σ ellipses, `contours` (GeoJSON keyed `"50"`/`"80"`/`"95"`), `params` incl. `rssi_fit`, `input_hash` |
+| `rssi_samples` | signal readings: client UUID, position, `rssi_dbm`, `attenuation_db`, `receiver` (`mobile`/`omni`), `is_calibration`, `is_active`, `interferer_id` (NOT NULL); never deleted |
+| `estimates` | computed results per `interferer_id` and `scope` (`current`/`all`): MLE point, covariance, 1σ/2σ ellipses, `contours` (GeoJSON keyed `"50"`/`"80"`/`"95"`), `params` incl. `rssi_fit`, `input_hash` |
 | `sensors` | MQTT stations and relays: name, kind, fixed position, API-key **hash**, `last_seen_at`; each owns a virtual participant (role `fixed`) |
 | `messages` | chat (client UUID); `team_id` null = mission channel |
 | `tasks`, `task_events` | tasks with status, assignee (team or participant) and history |

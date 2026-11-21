@@ -142,6 +142,36 @@ class PositionSample(Base):
     )
 
 
+class Interferer(Base):
+    """One interference source of a mission. Every bearing and reading belongs to exactly one.
+
+    Interferers are deactivated, never deleted (their bearings stay in the log). Each interferer
+    has its own estimate; `color_slot` selects its colour family and letter badge in the clients.
+    """
+
+    __tablename__ = "interferers"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True)  # client generated
+    mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    color_slot: Mapped[int] = mapped_column(Integer)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Informational: the mission frequency stays the one the engine and clients work with.
+    frequency_mhz: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    status: Mapped[str] = mapped_column(String(10), default="active", server_default="active")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("participants.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("mission_id", "name", name="uq_interferer_name"),
+        CheckConstraint("status in ('active','resolved')", name="ck_interferer_status"),
+        CheckConstraint("color_slot >= 0 AND color_slot < 6", name="ck_interferer_color_slot"),
+    )
+
+
 class Transmission(Base):
     __tablename__ = "transmissions"
 
@@ -156,6 +186,10 @@ class Transmission(Base):
     )
     ended_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("participants.id"), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Default interferer for bearings taken during this transmission (a bearing may differ).
+    interferer_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("interferers.id"), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint("mission_id", "seq", name="uq_transmission_seq"),
@@ -224,6 +258,7 @@ class Bearing(Base):
     point_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("bearing_points.id"), nullable=True
     )
+    interferer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("interferers.id"), index=True)
 
     __table_args__ = (
         CheckConstraint("azimuth_true_deg >= 0 AND azimuth_true_deg < 360", name="ck_bearing_az"),
@@ -252,6 +287,7 @@ class Estimate(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(_UUID, primary_key=True, default=uuid.uuid4)
     mission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("missions.id"))
+    interferer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("interferers.id"))
     computed_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     scope: Mapped[str] = mapped_column(String(10))
     transmission_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -273,6 +309,7 @@ class Estimate(Base):
     __table_args__ = (
         CheckConstraint("scope in ('current','all')", name="ck_estimate_scope"),
         Index("ix_estimate_mission_scope_time", "mission_id", "scope", "computed_at"),
+        Index("ix_estimate_interferer_scope_time", "interferer_id", "scope", "computed_at"),
     )
 
 
@@ -383,6 +420,9 @@ class RssiSample(Base):
     receiver: Mapped[str] = mapped_column(String(6), default="mobile", server_default="mobile")
     # Reading of the repeater *output* (known position) used to calibrate a fixed station
     is_calibration: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Calibration readings (repeater output) belong to no interferer in practice; they carry the
+    # mission's default one and are used for every interferer's estimate.
+    interferer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("interferers.id"), index=True)
 
     __table_args__ = (
         CheckConstraint("source in ('manual','cat','sensor')", name="ck_rssi_source"),

@@ -19,6 +19,7 @@ from app.models import (
     BearingPoint,
     BearingRevision,
     Estimate,
+    Interferer,
     Mission,
     Participant,
     PositionSample,
@@ -30,6 +31,7 @@ from app.services.serialize import (
     bearing_out,
     estimate_out,
     event_json,
+    interferer_out,
     mission_out,
     participant_out,
     point_out,
@@ -50,11 +52,14 @@ class MissionData:
     bearings: list[Bearing]
     revisions: list[BearingRevision]
     positions: list[PositionSample]
-    estimate_all: Estimate | None
+    estimate_all: Estimate | None  # of the default interferer (the first active one)
     estimate_current: Estimate | None
     rssi: list[RssiSample] = field(default_factory=list)
     points: dict[uuid.UUID, BearingPoint] = field(default_factory=dict)
     callsigns: dict[uuid.UUID, str] = field(default_factory=dict)
+    interferers: dict[uuid.UUID, Interferer] = field(default_factory=dict)
+    # latest estimate per interferer and scope, for the machine-readable export
+    all_estimates: list[Estimate] = field(default_factory=list)
 
     @property
     def best_estimate(self) -> Estimate | None:
@@ -112,14 +117,36 @@ async def load_mission_data(
             .order_by(BearingPoint.created_at)
         )
     }
-    estimates: dict[str, Estimate | None] = {}
-    for scope in ("all", "current"):
-        estimates[scope] = await session.scalar(
-            select(Estimate)
-            .where(Estimate.mission_id == mid, Estimate.scope == scope)
-            .order_by(Estimate.computed_at.desc())
-            .limit(1)
+    interferers = {
+        i.id: i
+        for i in await session.scalars(
+            select(Interferer)
+            .where(Interferer.mission_id == mid)
+            .order_by(Interferer.created_at, Interferer.id)
         )
+    }
+    default = next((i for i in interferers.values() if i.is_active), None) or next(
+        iter(interferers.values()), None
+    )
+    all_estimates: list[Estimate] = []
+    estimates: dict[str, Estimate | None] = {"all": None, "current": None}
+    for interferer in interferers.values():
+        for scope in ("all", "current"):
+            est = await session.scalar(
+                select(Estimate)
+                .where(
+                    Estimate.mission_id == mid,
+                    Estimate.interferer_id == interferer.id,
+                    Estimate.scope == scope,
+                )
+                .order_by(Estimate.computed_at.desc())
+                .limit(1)
+            )
+            if est is None:
+                continue
+            all_estimates.append(est)
+            if default is not None and interferer.id == default.id:
+                estimates[scope] = est
     return MissionData(
         mission=mission,
         participants=participants,
@@ -132,6 +159,8 @@ async def load_mission_data(
         rssi=rssi,
         points=points,
         callsigns={pid: p.callsign for pid, p in participants.items()},
+        interferers=interferers,
+        all_estimates=all_estimates,
     )
 
 
@@ -178,6 +207,8 @@ def _bearing_label(data: MissionData, b: Bearing) -> str:
     flag = " [Ausreißer]" if b.is_outlier else ""
     flag += " [inaktiv]" if not b.is_active else ""
     flag += " [nicht in Schätzung]" if _excluded(data, b) else ""
+    if len(data.interferers) > 1 and b.interferer_id in data.interferers:
+        flag += f" [{data.interferers[b.interferer_id].name}]"
     return f"{who} {float(b.azimuth_true_deg):.0f}° ±{float(b.sigma_deg):.0f}°{flag}"
 
 
@@ -349,7 +380,6 @@ def build_kml(data: MissionData) -> bytes:
 
 
 def build_json(data: MissionData) -> bytes:
-    estimates = [e for e in (data.estimate_all, data.estimate_current) if e is not None]
     doc = {
         "format": "foxgrid-export/1",
         "exported_at": _iso(datetime.now(UTC)),
@@ -359,7 +389,8 @@ def build_json(data: MissionData) -> bytes:
         "points": [event_json(point_out(p)) for p in data.points.values()],
         "bearings": [event_json(bearing_out(b)) for b in data.bearings],
         "bearing_revisions": [event_json(RevisionOut.model_validate(r)) for r in data.revisions],
-        "estimates": [event_json(estimate_out(e)) for e in estimates],
+        "interferers": [event_json(interferer_out(i)) for i in data.interferers.values()],
+        "estimates": [event_json(estimate_out(e)) for e in data.all_estimates],
         "positions": [event_json(position_out(p)) for p in data.positions],
         "rssi_samples": [event_json(rssi_out(r)) for r in data.rssi],
     }

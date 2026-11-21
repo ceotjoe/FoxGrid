@@ -28,7 +28,7 @@ Sensors / relay hook ──MQTT──► Mosquitto ──► ingest process ─�
 1. The app writes the bearing (client UUID) to the local Drift database and the outbox queue, then `POST /bearings` when online.
 2. The backend stores the bearing, assigns it to the open transmission and publishes `bearing_created` on Redis.
 3. A **recompute** is scheduled per mission: trailing debounce 500 ms (maximum wait 2 s) plus a Redis lock, so exactly one worker
-   runs the engine in a thread pool, for both scopes (`current` and `all`).
+   runs the engine in a thread pool, for every active interferer and both scopes (`current` and `all`); an interferer's estimate is fused from its own bearings only.
 4. The result is stored in `estimates` and announced with `estimate_updated`; all connected clients draw the new ellipse.
 
 ## Live events

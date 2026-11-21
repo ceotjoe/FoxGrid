@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_redis, get_scheduler, get_settings, require
 from app.config import Settings
 from app.db import get_session
-from app.models import Mission, Participant, RssiSample
+from app.models import Mission, Participant, RssiSample, Transmission
 from app.schemas.api import RssiBatchResult, RssiIn, RssiOut, RssiPatch
 from app.services import domain, ratelimit
 from app.services.permissions import Permission, has_permission
@@ -34,6 +34,7 @@ def _same(existing: RssiSample, body: RssiIn, actor: Participant, mission_id: uu
         and abs(existing.lon - body.lon) < 1e-9
         and existing.receiver == body.receiver
         and existing.is_calibration == body.is_calibration
+        and (body.interferer_id is None or existing.interferer_id == body.interferer_id)
     )
 
 
@@ -57,6 +58,13 @@ async def post_rssi(
         mission = await session.get(Mission, mission_id)
         if mission is None or mission.repeater_lat is None:
             raise HTTPException(422, "set the repeater position before calibration readings")
+    try:
+        resolved = {
+            i: await domain.resolve_interferer(session, mission_id, i)
+            for i in {s.interferer_id for s in body}
+        }
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     ids = [s.id for s in body]
     if len(set(ids)) != len(ids):
         raise HTTPException(422, "duplicate ids in one request")
@@ -74,6 +82,11 @@ async def post_rssi(
         tx_id = sample.transmission_id or await domain.assign_transmission(
             session, mission_id, sample.measured_at
         )
+        interferer_id = resolved[sample.interferer_id]
+        if sample.interferer_id is None and tx_id is not None:
+            tx = await session.get(Transmission, tx_id)
+            if tx is not None and tx.interferer_id is not None:
+                interferer_id = tx.interferer_id
         session.add(
             RssiSample(
                 id=sample.id,
@@ -90,6 +103,7 @@ async def post_rssi(
                 source=sample.source,
                 receiver=sample.receiver,
                 is_calibration=sample.is_calibration,
+                interferer_id=interferer_id,
             )
         )
         stored += 1
