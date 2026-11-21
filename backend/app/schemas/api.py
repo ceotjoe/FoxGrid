@@ -329,6 +329,12 @@ class InterfererPatch(BaseModel):
     is_active: bool | None = None
 
 
+class InterfererMerge(BaseModel):
+    """Moves everything of one interferer to another one (the source is then deactivated)."""
+
+    into: uuid.UUID
+
+
 class InterfererOut(ORM):
     id: uuid.UUID
     mission_id: uuid.UUID

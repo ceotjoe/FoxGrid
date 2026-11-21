@@ -65,6 +65,24 @@ class MissionData:
     def best_estimate(self) -> Estimate | None:
         return self.estimate_all or self.estimate_current
 
+    def shown_estimates(self) -> list[tuple[Interferer | None, Estimate]]:
+        """The estimates to draw: one per active interferer, or the single one as before.
+
+        With a single interferer the first element is ``None`` so formats keep their old names.
+        """
+        if len(self.interferers) <= 1:
+            est = self.best_estimate
+            return [(None, est)] if est else []
+        out: list[tuple[Interferer | None, Estimate]] = []
+        for interferer in self.interferers.values():
+            if not interferer.is_active:
+                continue
+            by_scope = {e.scope: e for e in self.all_estimates if e.interferer_id == interferer.id}
+            est = by_scope.get("all") or by_scope.get("current")
+            if est:
+                out.append((interferer, est))
+        return out
+
 
 async def load_mission_data(
     session: AsyncSession, mission: Mission, *, include_tracks: bool = True
@@ -202,6 +220,17 @@ def _excluded(data: MissionData, b: Bearing) -> bool:
     return point is not None and not (point.use_in_estimate and point.is_active)
 
 
+# Colour family per interferer slot, as in the app (day scheme).
+_PDF_INTERFERER = ("#d32f2f", "#1976d2", "#2e7d32", "#7b1fa2", "#ef6c00", "#00838f")
+
+
+def _interferer_suffix(data: MissionData, b: Bearing) -> str:
+    """` (Störer B)` when the mission has several interferers, else nothing."""
+    if len(data.interferers) > 1 and b.interferer_id in data.interferers:
+        return f" ({data.interferers[b.interferer_id].name})"
+    return ""
+
+
 def _bearing_label(data: MissionData, b: Bearing) -> str:
     who = _source(data, b)
     flag = " [Ausreißer]" if b.is_outlier else ""
@@ -228,10 +257,11 @@ def build_gpx(data: MissionData) -> bytes:
     ET.SubElement(meta, "name").text = data.mission.name
     ET.SubElement(meta, "time").text = _iso(datetime.now(UTC))
 
-    est = data.best_estimate
-    if est:
+    for interferer, est in data.shown_estimates():
         wpt = ET.SubElement(gpx, "wpt", {"lat": f"{est.lat:.7f}", "lon": f"{est.lon:.7f}"})
-        ET.SubElement(wpt, "name").text = "Störer (Schätzung)"
+        ET.SubElement(wpt, "name").text = (
+            "Störer (Schätzung)" if interferer is None else f"{interferer.name} (Schätzung)"
+        )
         major = est.ellipse_1s["semi_major_m"]
         minor = est.ellipse_1s["semi_minor_m"]
         ET.SubElement(
@@ -315,12 +345,15 @@ def build_kml(data: MissionData) -> bytes:
         st = ET.SubElement(doc, "Style", {"id": sid})
         ET.SubElement(ET.SubElement(st, "PolyStyle"), "color").text = colour
 
-    est = data.best_estimate
-    if est:
+    for interferer, est in data.shown_estimates():
         folder = ET.SubElement(doc, "Folder")
-        ET.SubElement(folder, "name").text = "Schätzung"
+        ET.SubElement(folder, "name").text = (
+            "Schätzung" if interferer is None else f"Schätzung: {interferer.name}"
+        )
         pm = ET.SubElement(folder, "Placemark")
-        ET.SubElement(pm, "name").text = "Störer (Schätzung)"
+        ET.SubElement(pm, "name").text = (
+            "Störer (Schätzung)" if interferer is None else f"{interferer.name} (Schätzung)"
+        )
         ET.SubElement(pm, "description").text = f"{est.n_bearings} Peilungen"
         pt = ET.SubElement(pm, "Point")
         ET.SubElement(pt, "coordinates").text = f"{est.lon:.7f},{est.lat:.7f},0"
@@ -436,10 +469,10 @@ def _map_drawing(data: MissionData, width: float, height: float) -> Any:
     from reportlab.graphics.shapes import Circle, Drawing, Line, Polygon, Rect, String
     from reportlab.lib import colors
 
-    est = data.best_estimate
+    shown = data.shown_estimates()
     points: list[tuple[float, float]] = [(b.lon, b.lat) for b in data.bearings]
     points += [(r.lon, r.lat) for r in data.rssi[-500:]]
-    if est:
+    for _, est in shown:
         points.append((est.lon, est.lat))
         points += [(p[0], p[1]) for p in est.ellipse_2s["polygon"]["coordinates"][0]]
         for poly in (est.contours or {}).get("95", []):
@@ -478,15 +511,17 @@ def _map_drawing(data: MissionData, width: float, height: float) -> Any:
             flat += list(to_px(p[0], p[1]))
         d.add(Polygon(flat, fillColor=fill, strokeColor=stroke, strokeWidth=0.8))
 
-    if est:
-        for mass, fill in (
-            ("95", colors.Color(0.9, 0.3, 0.3, 0.12)),
-            ("80", colors.Color(0.9, 0.3, 0.3, 0.2)),
-            ("50", colors.Color(0.9, 0.2, 0.2, 0.3)),
-        ):
+    for interferer, est in shown:
+        base = colors.HexColor(
+            _PDF_INTERFERER[interferer.color_slot % 6] if interferer else "#d32f2f"
+        )
+        for mass, alpha in (("95", 0.12), ("80", 0.2), ("50", 0.3)):
+            fill = colors.Color(base.red, base.green, base.blue, alpha)
             for pg in (est.contours or {}).get(mass, []):
-                draw_poly(pg["coordinates"][0], fill, colors.Color(0.8, 0.1, 0.1, 0.7))
-        draw_poly(est.ellipse_1s["polygon"]["coordinates"][0], None, colors.HexColor("#b00020"))
+                draw_poly(
+                    pg["coordinates"][0], fill, colors.Color(base.red, base.green, base.blue, 0.7)
+                )
+        draw_poly(est.ellipse_1s["polygon"]["coordinates"][0], None, base)
 
     if data.rssi:
         levels = [r.rssi_dbm + r.attenuation_db for r in data.rssi]
@@ -532,11 +567,24 @@ def _map_drawing(data: MissionData, width: float, height: float) -> Any:
                 fillColor=col,
             )
         )
-    if est:
+    for interferer, est in shown:
+        mark = colors.HexColor(
+            _PDF_INTERFERER[interferer.color_slot % 6] if interferer else "#ff0000"
+        )
         ex, ey = to_px(est.lon, est.lat)
-        d.add(Line(ex - 6, ey, ex + 6, ey, strokeColor=colors.red, strokeWidth=1.6))
-        d.add(Line(ex, ey - 6, ex, ey + 6, strokeColor=colors.red, strokeWidth=1.6))
-        d.add(Circle(ex, ey, 4, fillColor=None, strokeColor=colors.red, strokeWidth=1.2))
+        d.add(Line(ex - 6, ey, ex + 6, ey, strokeColor=mark, strokeWidth=1.6))
+        d.add(Line(ex, ey - 6, ex, ey + 6, strokeColor=mark, strokeWidth=1.6))
+        d.add(Circle(ex, ey, 4, fillColor=None, strokeColor=mark, strokeWidth=1.2))
+        if interferer is not None:
+            d.add(
+                String(
+                    ex + 6,
+                    ey + 5,
+                    chr(0x41 + interferer.color_slot % 6),
+                    fontSize=9,
+                    fillColor=mark,
+                )
+            )
 
     # scale bar and north arrow
     bar_m = _nice_length(span * 0.2)
@@ -594,19 +642,21 @@ def build_pdf(data: MissionData) -> bytes:
         Spacer(1, 6 * mm),
         Paragraph("Ergebnis", styles["Heading2"]),
     ]
-    est = data.best_estimate
-    if est:
+    shown = data.shown_estimates()
+    est = shown[0][1] if shown else None
+    for interferer, e in shown:
+        who = "" if interferer is None else f"<b>{_esc(interferer.name)}</b>: "
         story.append(
             Paragraph(
-                f"Wahrscheinlichster Standort: <b>{est.lat:.5f}° N, {est.lon:.5f}° E</b> "
-                f"(aus {est.n_bearings} Peilungen). 1σ-Ellipse "
-                f"{est.ellipse_1s['semi_major_m']:.0f} × {est.ellipse_1s['semi_minor_m']:.0f} m, "
-                f"Hauptachse {est.ellipse_1s['orientation_deg']:.0f}°; 2σ-Ellipse "
-                f"{est.ellipse_2s['semi_major_m']:.0f} × {est.ellipse_2s['semi_minor_m']:.0f} m.",
+                f"{who}Wahrscheinlichster Standort: <b>{e.lat:.5f}° N, {e.lon:.5f}° E</b> "
+                f"(aus {e.n_bearings} Peilungen). 1σ-Ellipse "
+                f"{e.ellipse_1s['semi_major_m']:.0f} × {e.ellipse_1s['semi_minor_m']:.0f} m, "
+                f"Hauptachse {e.ellipse_1s['orientation_deg']:.0f}°; 2σ-Ellipse "
+                f"{e.ellipse_2s['semi_major_m']:.0f} × {e.ellipse_2s['semi_minor_m']:.0f} m.",
                 styles["Normal"],
             )
         )
-    else:
+    if not shown:
         story.append(
             Paragraph("Noch keine Schätzung (mindestens zwei Peilungen nötig).", styles["Normal"])
         )
@@ -641,7 +691,7 @@ def build_pdf(data: MissionData) -> bytes:
         rows.append(
             [
                 b.measured_at.astimezone(UTC).strftime("%d.%m. %H:%M:%S"),
-                Paragraph(_esc(_source(data, b)), styles["BodyText"]),
+                Paragraph(_esc(_source(data, b) + _interferer_suffix(data, b)), styles["BodyText"]),
                 f"{float(b.azimuth_true_deg):.1f}°",
                 f"±{float(b.sigma_deg):.0f}°",
                 "" if b.rssi_dbm is None else f"{b.rssi_dbm:.0f} dBm",

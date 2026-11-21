@@ -66,6 +66,7 @@ The generated PostGIS `geom` columns are ignored by autogenerate. Review every g
 
 ```bash
 uv run tools/simulator/run.py --interval-s 8
+uv run tools/simulator/run.py --two-interferers   # a second emitter 4 km east, its own interferer
 ```
 
 Creates a mission, lets five simulated bearers join (one with a grossly wrong bearing), starts a transmission and, after every

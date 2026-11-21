@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.models import Participant, PushToken
+from app.models import Interferer, Participant, PushToken
 
 log = logging.getLogger(__name__)
 
@@ -120,6 +120,7 @@ async def notify_transmission_started(
     mission_id: uuid.UUID,
     starter_id: uuid.UUID,
     mission_name: str,
+    interferer_id: uuid.UUID | None = None,
 ) -> None:
     """Push "interferer is transmitting" to everyone in the mission except the starter."""
     try:
@@ -139,10 +140,25 @@ async def notify_transmission_started(
             ).all()
             if not rows:
                 return
+            body = f"{mission_name}: Aussendung gestartet"
+            if interferer_id is not None:
+                # Only worth saying which one when there are several to tell apart.
+                names = list(
+                    await session.scalars(
+                        select(Interferer.name)
+                        .where(Interferer.mission_id == mission_id, Interferer.is_active.is_(True))
+                        .order_by(Interferer.created_at)
+                    )
+                )
+                named = await session.scalar(
+                    select(Interferer.name).where(Interferer.id == interferer_id)
+                )
+                if len(names) > 1 and named:
+                    body = f"{mission_name}: {named} sendet"
             invalid = await sender.send(
                 [PushTarget(t, p) for t, p in rows],
                 "STÖRER SENDET",
-                f"{mission_name}: Aussendung gestartet",
+                body,
                 {"type": "transmission_started", "mission_id": str(mission_id)},
             )
             if invalid:

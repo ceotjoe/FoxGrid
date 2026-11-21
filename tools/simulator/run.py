@@ -21,7 +21,9 @@ import random
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from pyproj import Geod
@@ -93,6 +95,52 @@ def homing_walk(
     return last_est
 
 
+def second_interferer(
+    http: httpx.Client,
+    base: str,
+    hdr: Callable[[int], dict[str, str]],
+    first_truth: tuple[float, float],
+    args: argparse.Namespace,
+    rng: random.Random,
+) -> tuple[float, dict[str, Any] | None]:
+    """A second emitter 4 km east of the first: the same bearers take bearings for it.
+
+    Returns the true position and the final estimate of that interferer (None if it got none).
+    """
+    truth = offset(*first_truth, 90.0, 4000.0)
+    created = http.post(
+        f"{base}/interferers", json={"id": str(uuid.uuid4()), "name": "Störer B"}, headers=hdr(0)
+    )
+    created.raise_for_status()
+    interferer_id = created.json()["id"]
+    print(f"second interferer {interferer_id} at {truth[0]:.5f}, {truth[1]:.5f}")
+    for i in range(args.bearers):
+        az = (360.0 / args.bearers) * i + rng.uniform(-20, 20)
+        lat, lon = offset(*truth, az, rng.uniform(2000, 8000))
+        true_az, _, _ = GEOD.inv(lon, lat, truth[1], truth[0])
+        payload = {
+            "id": str(uuid.uuid4()),
+            "lat": lat,
+            "lon": lon,
+            "azimuth_true_deg": round((true_az + rng.gauss(0, args.noise_deg)) % 360.0, 2),
+            "sigma_deg": args.sigma_deg,
+            "measured_at": datetime.now(UTC).isoformat(),
+            "interferer_id": interferer_id,
+            "note": "simulated, interferer B",
+        }
+        http.post(f"{base}/bearings", json=payload, headers=hdr(i)).raise_for_status()
+        time.sleep(args.interval_s)
+    deadline = time.monotonic() + 5
+    est = None
+    while time.monotonic() < deadline:
+        e = http.get(f"{base}/estimate?scope=all&interferer={interferer_id}", headers=hdr(0))
+        if e.status_code == 200 and e.json()["n_bearings"] == args.bearers:
+            est = e.json()
+            break
+        time.sleep(0.1)
+    return truth, est
+
+
 def wait_for_rssi_estimate(
     http: httpx.Client, base: str, headers: dict[str, str], n: int
 ) -> dict | None:
@@ -124,6 +172,11 @@ def main() -> int:
         "--homing",
         action="store_true",
         help="after the bearings, a mobile walks a spiral towards the emitter logging RSSI",
+    )
+    ap.add_argument(
+        "--two-interferers",
+        action="store_true",
+        help="a second emitter 4 km east of the first, tracked as its own interferer",
     )
     ap.add_argument("--rssi-samples", type=int, default=40)
     ap.add_argument("--rssi-noise-db", type=float, default=3.0, help="fading scatter (1 sigma)")
@@ -229,6 +282,18 @@ def main() -> int:
                 print(f"bearing {i + 1}/{args.bearers} SIM{i + 1}{tag}: no estimate yet")
             time.sleep(args.interval_s)
 
+        second_ok = True
+        if args.two_interferers:
+            truth_b, est_b = second_interferer(http, base, hdr, truth, args, rng)
+            if est_b is None:
+                print("no estimate for the second interferer", file=sys.stderr)
+                second_ok = False
+            else:
+                err_b = error_m((est_b["lat"], est_b["lon"]), truth_b)
+                second_ok = err_b <= args.max_error_m
+                verdict_b = "OK" if second_ok else "TOO FAR"
+                print(f"second interferer: error {err_b:.0f} m ({verdict_b})")
+
         if args.homing:
             last = homing_walk(http, base, hdr(0), truth, args, rng) or last
 
@@ -239,7 +304,7 @@ def main() -> int:
         final = error_m((last["lat"], last["lon"]), truth)
         verdict = "OK" if final <= args.max_error_m else "TOO FAR"
         print(f"\nfinal error {final:.0f} m (limit {args.max_error_m:.0f} m): {verdict}")
-        if not math.isfinite(final) or final > args.max_error_m:
+        if not math.isfinite(final) or final > args.max_error_m or not second_ok:
             return 1
         return 0
 

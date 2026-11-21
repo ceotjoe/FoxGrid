@@ -60,6 +60,7 @@ returns 200 (idempotent), with different content 409.
 | PATCH | `/missions/{id}/bearings/{bid}` | only `is_outlier`, `is_active`, `note`, `interferer_id` (reassign; cannot be cleared); writes a revision. The owner may always; others need `bearing.flag` for the flags (lead, deputy, analyst), `bearing.edit_any` for the note (lead, deputy) and `interferer.manage` for `interferer_id` (lead, deputy, analyst) |
 | POST | `/missions/{id}/interferers` | `interferer.manage` | create an interferer (client UUID, idempotent; 409 on a duplicate name or when 6 are active). `color_slot` (0–5) is assigned to the lowest free one unless given |
 | GET | `/missions/{id}/interferers` | `view.result` | list, deactivated ones included |
+| POST | `/missions/{id}/interferers/{iid}/merge` | `interferer.manage` | body `{into}`: moves all bearings (one revision each), readings and transmissions to the target and deactivates `iid`; 422 for itself, an unknown or inactive target; repeating it is harmless |
 | PATCH | `/missions/{id}/interferers/{iid}` | `interferer.manage` | only `name`, `note`, `frequency_mhz`, `status` (`active`/`resolved`), `is_active`; the colour slot is fixed. Never deleted |
 
 There is deliberately **no DELETE**.

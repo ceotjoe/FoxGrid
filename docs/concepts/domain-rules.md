@@ -40,6 +40,8 @@ violate them.
   that the clients use for its colour family and letter badge. `status = resolved` marks an interferer as found; it keeps its data.
 - Reassigning a bearing is an append-only revision like any other edit. The owner may do it; for others it needs
   `interferer.manage` (lead, deputy, analyst).
+- Merging two interferers moves every bearing (a revision each), reading and transmission to the target and deactivates the source; the
+  data stays in the log.
 - Plausibility hints compare a bearing only with the estimate of its own interferer.
 
 ## Data retention

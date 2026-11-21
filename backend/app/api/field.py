@@ -138,10 +138,15 @@ async def start_transmission(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    def notify(_: Transmission) -> None:
+    def notify(tx: Transmission) -> None:
         task = asyncio.create_task(
             push.notify_transmission_started(
-                app.state.push, app.state.sessionmaker, mission_id, actor.id, mission.name
+                app.state.push,
+                app.state.sessionmaker,
+                mission_id,
+                actor.id,
+                mission.name,
+                tx.interferer_id,
             )
         )
         app.state.background.add(task)  # keep a reference until done

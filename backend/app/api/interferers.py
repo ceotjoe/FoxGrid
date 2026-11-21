@@ -6,19 +6,27 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
 from app.api.deps import get_redis, get_scheduler, require
 from app.db import get_session
-from app.models import Interferer, Mission, Participant
-from app.schemas.api import InterfererIn, InterfererOut, InterfererPatch
+from app.models import (
+    Bearing,
+    BearingRevision,
+    Interferer,
+    Mission,
+    Participant,
+    RssiSample,
+    Transmission,
+)
+from app.schemas.api import InterfererIn, InterfererMerge, InterfererOut, InterfererPatch
 from app.services import domain
 from app.services.permissions import Permission
 from app.services.recompute import RecomputeScheduler
-from app.services.serialize import event_json, interferer_out
+from app.services.serialize import bearing_out, event_json, interferer_out
 
 router = APIRouter(prefix="/missions/{mission_id}")
 
@@ -154,4 +162,65 @@ async def patch_interferer(
     await events.publish(redis, mission_id, "interferer_updated", event_json(out))
     if "is_active" in changes:
         scheduler.schedule(mission_id)
+    return out
+
+
+@router.post("/interferers/{interferer_id}/merge", response_model=InterfererOut)
+async def merge_interferer(
+    mission_id: uuid.UUID,
+    interferer_id: uuid.UUID,
+    body: InterfererMerge,
+    actor: Participant = Depends(require(Permission.INTERFERER_MANAGE)),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> InterfererOut:
+    """Two interferers turned out to be one: moves every bearing and reading to the target.
+
+    Each moved bearing gets a revision (nothing is deleted), the source is deactivated and its
+    colour slot is free again. Repeating the call is harmless.
+    """
+    source = await session.get(Interferer, interferer_id)
+    target = await session.get(Interferer, body.into)
+    if source is None or source.mission_id != mission_id:
+        raise HTTPException(404, "interferer not found")
+    if target is None or target.mission_id != mission_id or not target.is_active:
+        raise HTTPException(422, "unknown or inactive target interferer")
+    if source.id == target.id:
+        raise HTTPException(422, "cannot merge an interferer into itself")
+    bearings = list(
+        await session.scalars(select(Bearing).where(Bearing.interferer_id == source.id))
+    )
+    change = {"interferer_id": {"from": str(source.id), "to": str(target.id)}}
+    for b in bearings:
+        b.interferer_id = target.id
+        session.add(BearingRevision(bearing_id=b.id, changed_by=actor.id, changes=change))
+    readings = await session.execute(
+        update(RssiSample)
+        .where(RssiSample.interferer_id == source.id)
+        .values(interferer_id=target.id)
+    )
+    await session.execute(
+        update(Transmission)
+        .where(Transmission.interferer_id == source.id)
+        .values(interferer_id=target.id)
+    )
+    source.is_active = False
+    await domain.audit(
+        session,
+        mission_id,
+        actor.id,
+        "merge",
+        "interferer",
+        source.id,
+        into=str(target.id),
+        bearings=len(bearings),
+        rssi=readings.rowcount,  # type: ignore[attr-defined]
+    )
+    await session.commit()
+    for b in bearings:
+        await events.publish(redis, mission_id, "bearing_updated", event_json(bearing_out(b)))
+    out = interferer_out(source)
+    await events.publish(redis, mission_id, "interferer_updated", event_json(out))
+    scheduler.schedule(mission_id)
     return out

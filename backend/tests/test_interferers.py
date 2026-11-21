@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -12,9 +13,10 @@ import asyncpg
 import httpx
 from testcontainers.community.postgres import PostgresContainer
 
-from tests.conftest import BACKEND_DIR
+from tests.conftest import BACKEND_DIR, Server
 from tests.helpers import Mission, auth, bearing_payload, distance, offset, set_authority, wait_for
 from tests.test_field import STATIONS, TARGET
+from tests.test_phase2 import FakeSender
 
 TARGET_B = offset(-2500, 3500)
 
@@ -316,6 +318,8 @@ async def test_exports_carry_the_interferers(client: httpx.AsyncClient) -> None:
     for fmt in ("gpx", "kml", "pdf"):
         r = await client.get(m.url(f"/export.{fmt}"), headers=auth(m.lead_token))
         assert r.status_code == 200, fmt
+        if fmt != "pdf":  # one estimate per interferer, named
+            assert "Brummer (Schätzung)" in r.text and "Störer 1 (Schätzung)" in r.text
 
 
 async def test_migration_assigns_existing_data_to_a_default_interferer(
@@ -383,3 +387,108 @@ async def test_migration_assigns_existing_data_to_a_default_interferer(
         alembic("downgrade", "0012")
     finally:
         await conn.close()
+
+
+async def test_merging_moves_everything_and_frees_the_slot(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    member, _ = await m.join("DL5MEM")
+    b_id = (await add_interferer(client, m, "B")).json()["id"]
+    a_id = (await client.get(m.url("/interferers"), headers=h)).json()[0]["id"]
+    for station in STATIONS[:2]:
+        r = await client.post(
+            m.url("/bearings"), json=bearing_payload(station, TARGET, interferer_id=a_id), headers=h
+        )
+        assert r.status_code == 201
+    third = await client.post(
+        m.url("/bearings"),
+        json=bearing_payload(STATIONS[2], TARGET, interferer_id=b_id),
+        headers=h,
+    )
+    await client.post(
+        m.url("/rssi"),
+        json=[
+            {
+                "id": str(uuid.uuid4()),
+                "lat": STATIONS[0][0],
+                "lon": STATIONS[0][1],
+                "rssi_dbm": -80,
+                "measured_at": third.json()["measured_at"],
+                "interferer_id": b_id,
+            }
+        ],
+        headers=h,
+    )
+    await estimate(client, m, interferer=a_id, n=2)
+
+    assert (
+        await client.post(
+            m.url(f"/interferers/{b_id}/merge"), json={"into": a_id}, headers=auth(member)
+        )
+    ).status_code == 403
+    for bad in (b_id, str(uuid.uuid4())):  # itself, unknown
+        r = await client.post(m.url(f"/interferers/{b_id}/merge"), json={"into": bad}, headers=h)
+        assert r.status_code == 422
+
+    merged = await client.post(m.url(f"/interferers/{b_id}/merge"), json={"into": a_id}, headers=h)
+    assert merged.status_code == 200 and merged.json()["is_active"] is False
+    again = await client.post(m.url(f"/interferers/{b_id}/merge"), json={"into": a_id}, headers=h)
+    assert again.status_code == 200  # harmless
+
+    est = await estimate(client, m, interferer=a_id, n=3)
+    assert distance((est["lat"], est["lon"]), TARGET) < 300
+    moved = await client.get(m.url(f"/bearings/{third.json()['id']}"), headers=h)
+    assert moved.json()["interferer_id"] == a_id
+    revisions = await client.get(m.url(f"/bearings/{third.json()['id']}/revisions"), headers=h)
+    assert [r["changes"]["interferer_id"]["to"] for r in revisions.json()] == [a_id]
+    readings = (await client.get(m.url("/rssi"), headers=h)).json()
+    assert {r["interferer_id"] for r in readings} == {a_id}
+    # an inactive interferer cannot be merged into, and its colour slot is free again
+    nope = await client.post(m.url(f"/interferers/{a_id}/merge"), json={"into": b_id}, headers=h)
+    assert nope.status_code == 422
+    fresh = await add_interferer(client, m, "C")
+    assert fresh.json()["color_slot"] == 1
+
+
+async def test_push_names_the_interferer_when_there_are_several(
+    client: httpx.AsyncClient, server: Server
+) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    listener, _ = await m.join("DL5LST")
+    fake = FakeSender()
+    server.app.state.push = fake  # type: ignore[attr-defined]
+    await client.post(
+        "/push-tokens",
+        json={"platform": "fcm", "token": "fcm-token-listener"},
+        headers=auth(listener),
+    )
+    b_id = (await add_interferer(client, m, "Brummer")).json()["id"]
+    await client.post(m.url("/transmissions/start"), json={"interferer_id": b_id}, headers=h)
+    await wait_for(lambda: asyncio.sleep(0, result=bool(fake.calls)))
+    assert fake.calls[0][2].endswith(": Brummer sendet")
+
+
+async def test_the_simulator_tracks_two_interferers(server: Server) -> None:
+    script = BACKEND_DIR.parent / "tools" / "simulator" / "run.py"
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(script),
+        "--base-url",
+        server.base_url,
+        "--bearers",
+        "5",
+        "--outliers",
+        "0",
+        "--interval-s",
+        "0.05",
+        "--max-error-m",
+        "1500",
+        "--two-interferers",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    out, _ = await asyncio.wait_for(proc.communicate(), timeout=90)
+    text = out.decode()
+    assert proc.returncode == 0, text
+    assert "second interferer: error" in text and "OK" in text

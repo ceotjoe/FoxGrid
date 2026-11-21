@@ -20,4 +20,4 @@ position. Teams need to tell the sources apart, filter the map by source and see
 
 **Consequences.** One transmission still has at most one open slot per mission, so truly simultaneous interferers are told apart
 per bearing, not per transmission. Stations (MQTT) report for the default interferer until a sensor-level setting exists.
-GPX, KML and PDF exports still draw the default interferer's estimate (bearing labels carry the interferer name); JSON has all.
+Two interferers that turn out to be one are merged (`POST …/merge`): all data moves as revisions and the source is deactivated. Exports (JSON, GPX, KML, PDF) carry every active interferer's estimate, named; the transmission push names the interferer when there are several.
