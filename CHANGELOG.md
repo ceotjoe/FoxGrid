@@ -5,6 +5,7 @@ All notable changes. Versions follow the app's `pubspec.yaml`; dates are from th
 
 ## Unreleased
 
+- App: dBm fields (bearing capture, homing, station) have a ± button for keyboards without a minus key, and a level typed without sign is stored as negative (so `90` = −90 dBm; positive levels can no longer be entered there).
 - Several interferers per mission (backend, step 1 of 4): new `interferers` table, `interferer_id` on bearings, RSSI readings and
   estimates (migration 0013; existing missions get "Störer 1" with all their data). Each interferer has its own estimate;
   `/estimate`, `/estimate/query` and `/suggestions` take `interferer=`; bearings can be reassigned (revision); new permission

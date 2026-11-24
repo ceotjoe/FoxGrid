@@ -36,7 +36,7 @@
 ## 4 · Close range – homing (compass icon)
 - Big **arrow** points to the most likely location, with distance. Inside the 1σ region you get a note.
 - Arrow source: GPS course above 1.5 m/s, otherwise compass + declination.
-- **Quick entry** at the bottom: S-buttons **S1 … S9+60** (S9 = −93 dBm, 6 dB per S-unit), a dBm field.
+- **Quick entry** at the bottom: S-buttons **S1 … S9+60** (S9 = −93 dBm, 6 dB per S-unit), a dBm field (no sign = negative, ± button toggles it).
 - **Attenuator** (off / 10 / 20 / 30 / 40 dB): select the value you really use – it is corrected afterwards.
 - Switch **"log the last value every 2 s"** records a series. At least **5 readings** are needed before they count.
 - Track colour: blue = weak, red = strong. Reflections distort levels – **bearings stay more reliable**.

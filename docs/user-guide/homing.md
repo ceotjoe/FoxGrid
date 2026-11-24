@@ -8,7 +8,7 @@ Open the homing screen with the compass icon in the map bar. It combines the est
 - **Level history and track:** the signal history is charted, and your track is coloured by field strength (blue weak, red strong),
   with the map next to it.
 - **Quick entry** (pinned at the bottom): S-meter buttons from S1 to S9+60 (S9 = −93 dBm, 6 dB per S-unit, IARU VHF/UHF), a dBm
-  field, an attenuator selector (off/10/20/30/40 dB) and a switch "log the last value while walking" (checked every 2 s, but only logged once you moved 5 m since the last reading, so standing still adds nothing to the queue).
+  field (a value without sign counts as negative, so `90` is −90 dBm; the ± button toggles the sign for keyboards without a minus key), an attenuator selector (off/10/20/30/40 dB) and a switch "log the last value while walking" (checked every 2 s, but only logged once you moved 5 m since the last reading, so standing still adds nothing to the queue).
 - The readings go through the same offline queue as everything else. They are never deleted, only deactivated.
 
 ## How the signal is used
