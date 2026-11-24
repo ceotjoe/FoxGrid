@@ -4,7 +4,12 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:latlong2/latlong.dart';
+
+import '../core/api.dart';
+import '../core/coords.dart';
 import '../core/geo.dart';
+import 'position_picker_screen.dart';
 import '../core/permissions.dart';
 import '../state/providers.dart';
 import 'interferers_screen.dart';
@@ -21,7 +26,14 @@ const sigmaPresets = <({String label, double sigma})>[
 
 /// Bottom sheet to record one bearing with big, one-handed controls.
 class CaptureSheet extends ConsumerStatefulWidget {
-  const CaptureSheet({super.key, this.compassHeading});
+  const CaptureSheet({
+    super.key,
+    this.compassHeading,
+    this.retroactive = false,
+  });
+
+  /// Enter a bearing afterwards: the participant sets time and position (at most 7 days back).
+  final bool retroactive;
 
   /// Injected in tests; defaults to the device compass.
   final Stream<double?>? compassHeading;
@@ -42,6 +54,14 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
   bool _saving = false;
   String? _error;
   double? _liveHeading;
+
+  // Retroactive mode only.
+  final _lat = TextEditingController();
+  final _lon = TextEditingController();
+  DateTime _measuredAt = DateTime.now();
+  LatLng? _pos;
+  double? _posAccuracyM;
+  String? _trackHint;
 
   @override
   void initState() {
@@ -66,7 +86,15 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
 
   @override
   void dispose() {
-    for (final c in [_azimuth, _declination, _rssi, _attenuation, _note]) {
+    for (final c in [
+      _azimuth,
+      _declination,
+      _rssi,
+      _attenuation,
+      _note,
+      _lat,
+      _lon,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -109,6 +137,131 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
     });
   }
 
+  String _stamp(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(t.day)}.${two(t.month)}.${t.year} ${two(t.hour)}:${two(t.minute)}';
+  }
+
+  Future<void> _pickTime() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _measuredAt,
+      firstDate: now.subtract(const Duration(days: 7)),
+      lastDate: now,
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_measuredAt),
+    );
+    if (time == null || !mounted) return;
+    var at = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (at.isAfter(DateTime.now())) at = DateTime.now();
+    final oldest = DateTime.now().subtract(const Duration(days: 7));
+    if (at.isBefore(oldest)) at = oldest;
+    setState(() {
+      _measuredAt = at;
+      _trackHint = null;
+    });
+  }
+
+  /// Sets the position (map, typed, GPS or track) and refreshes the declination for it.
+  void _setPosition(LatLng p, {double? accuracyM, bool syncFields = true}) {
+    setState(() {
+      _pos = p;
+      _posAccuracyM = accuracyM;
+      if (syncFields) {
+        _lat.text = p.latitude.toStringAsFixed(5);
+        _lon.text = p.longitude.toStringAsFixed(5);
+      }
+    });
+    _declinationFor(p);
+  }
+
+  Future<void> _declinationFor(LatLng p) async {
+    try {
+      final d = await ref
+          .read(apiProvider)
+          .declination(p.latitude, p.longitude);
+      if (!mounted || _declinationTouched || _pos != p) return;
+      setState(() => _declination.text = d.toStringAsFixed(1));
+    } on ApiException {
+      // offline: the cached value stays
+    }
+  }
+
+  void _typedPosition() {
+    final la = parseCoordinate(_lat.text, isLat: true);
+    final lo = parseCoordinate(_lon.text, isLat: false);
+    if (la == null || lo == null) {
+      setState(() => _pos = null);
+      return;
+    }
+    _setPosition(LatLng(la, lo), syncFields: false);
+  }
+
+  Future<void> _pickOnMap() async {
+    final p = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(builder: (_) => PositionPickerScreen(initial: _pos)),
+    );
+    if (p != null && mounted) _setPosition(p);
+  }
+
+  void _useDevicePosition() {
+    final fix = ref.read(ownPositionProvider);
+    if (fix == null) {
+      setState(() => _error = 'Noch kein Standort verfügbar');
+      return;
+    }
+    setState(() => _error = null);
+    _setPosition(fix.point, accuracyM: fix.accuracyM);
+  }
+
+  /// The own position closest to the chosen time (within 15 minutes) from the recorded track.
+  Future<void> _useTrack() async {
+    final me = ref.read(sessionProvider)?.participantId;
+    if (me == null) return;
+    const window = Duration(minutes: 15);
+    setState(() {
+      _error = null;
+      _trackHint = null;
+    });
+    try {
+      final fixes = await ref
+          .read(apiProvider)
+          .positionsSince(me, _measuredAt.subtract(window));
+      if (!mounted) return;
+      final near = [
+        for (final f in fixes)
+          if (f.recordedAt.difference(_measuredAt.toUtc()).abs() <= window) f,
+      ];
+      if (near.isEmpty) {
+        setState(
+          () => _trackHint =
+              'Kein Track-Punkt in ±15 min um ${_stamp(_measuredAt)}',
+        );
+        return;
+      }
+      near.sort(
+        (a, b) => a.recordedAt
+            .difference(_measuredAt.toUtc())
+            .abs()
+            .compareTo(b.recordedAt.difference(_measuredAt.toUtc()).abs()),
+      );
+      final f = near.first;
+      _setPosition(f.point, accuracyM: f.accuracyM);
+      setState(
+        () => _trackHint =
+            'Track-Punkt von ${_stamp(f.recordedAt.toLocal())} übernommen',
+      );
+    } on ApiException {
+      if (mounted) {
+        setState(() => _trackHint = 'Track nicht abrufbar (offline?)');
+      }
+    }
+  }
+
   /// True once the user typed something worth keeping (the declination is pre-filled, so it does not count).
   bool get _dirty => [
     _azimuth,
@@ -146,16 +299,22 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
   }
 
   Future<void> _save() async {
-    final fix = ref.read(ownPositionProvider);
+    final fix = widget.retroactive ? null : ref.read(ownPositionProvider);
     final az = _trueAzimuth;
     if (az == null) {
       setState(() => _error = 'Azimut 0–360° eingeben');
       return;
     }
-    if (fix == null) {
-      setState(() => _error = 'Noch kein Standort verfügbar');
+    final pos = widget.retroactive ? _pos : fix?.point;
+    if (pos == null) {
+      setState(
+        () => _error = widget.retroactive
+            ? 'Standort wählen (Karte, Koordinaten oder Track)'
+            : 'Noch kein Standort verfügbar',
+      );
       return;
     }
+    final accuracyM = widget.retroactive ? _posAccuracyM : fix?.accuracyM;
     final rssi = _rssi.text.trim().isEmpty
         ? null
         : parseLevel(_rssi.text, sMode: ref.read(settingsProvider).levelInS);
@@ -169,9 +328,9 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
     });
     final payload = <String, dynamic>{
       'id': const Uuid().v4(),
-      'lat': fix.point.latitude,
-      'lon': fix.point.longitude,
-      'station_accuracy_m': fix.accuracyM,
+      'lat': pos.latitude,
+      'lon': pos.longitude,
+      'station_accuracy_m': accuracyM,
       'azimuth_true_deg': double.parse(az.toStringAsFixed(2)) % 360,
       'azimuth_input_ref': _ref == AzimuthRef.trueNorth ? 'true' : 'magnetic',
       'declination_deg_applied': _ref == AzimuthRef.magnetic
@@ -179,7 +338,10 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
           : 0.0,
       'sigma_deg': _sigma,
       'polarization': _polarization,
-      'measured_at': DateTime.now().toUtc().toIso8601String(),
+      'measured_at': (widget.retroactive ? _measuredAt : DateTime.now())
+          .toUtc()
+          .toIso8601String(),
+      if (widget.retroactive) 'entry_mode': 'retroactive',
       'rssi_dbm': ?rssi,
       if (_attenuation.text.trim().isNotEmpty)
         'attenuation_db':
@@ -189,6 +351,87 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
     // Always succeeds locally; the sync queue delivers it (also when offline).
     await ref.read(missionProvider.notifier).saveBearing(payload);
     if (mounted) Navigator.of(context).pop(true);
+  }
+
+  /// Time and position inputs of the retroactive mode.
+  Widget _retroactiveBlock(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          key: const Key('retro-time'),
+          onPressed: _pickTime,
+          icon: const Icon(Icons.schedule),
+          label: Text('Gemessen am ${_stamp(_measuredAt)}'),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('retro-lat'),
+                controller: _lat,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Breite',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => _typedPosition(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                key: const Key('retro-lon'),
+                controller: _lon,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Länge',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => _typedPosition(),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            ActionChip(
+              key: const Key('retro-map'),
+              avatar: const Icon(Icons.map, size: 18),
+              label: const Text('Auf Karte'),
+              onPressed: _pickOnMap,
+            ),
+            ActionChip(
+              key: const Key('retro-track'),
+              avatar: const Icon(Icons.timeline, size: 18),
+              label: const Text('Aus meinem Track'),
+              onPressed: _useTrack,
+            ),
+            ActionChip(
+              key: const Key('retro-gps'),
+              avatar: const Icon(Icons.my_location, size: 18),
+              label: const Text('Mein Standort jetzt'),
+              onPressed: _useDevicePosition,
+            ),
+          ],
+        ),
+        if (_trackHint != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(_trackHint!, style: theme.textTheme.bodySmall),
+          ),
+      ],
+    );
   }
 
   @override
@@ -223,7 +466,9 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                       children: [
                         Expanded(
                           child: Text(
-                            'Peilung erfassen',
+                            widget.retroactive
+                                ? 'Peilung nachträglich erfassen'
+                                : 'Peilung erfassen',
                             style: theme.textTheme.titleLarge,
                           ),
                         ),
@@ -237,14 +482,17 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      fix == null
-                          ? 'Warte auf Standort …'
-                          : 'Standort ${fix.point.latitude.toStringAsFixed(5)}, '
-                                '${fix.point.longitude.toStringAsFixed(5)}'
-                                '${fix.accuracyM != null ? ' (±${fix.accuracyM!.round()} m)' : ''}',
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    if (widget.retroactive)
+                      _retroactiveBlock(theme)
+                    else
+                      Text(
+                        fix == null
+                            ? 'Warte auf Standort …'
+                            : 'Standort ${fix.point.latitude.toStringAsFixed(5)}, '
+                                  '${fix.point.longitude.toStringAsFixed(5)}'
+                                  '${fix.accuracyM != null ? ' (±${fix.accuracyM!.round()} m)' : ''}',
+                        style: theme.textTheme.bodySmall,
+                      ),
                     const SizedBox(height: 12),
                     Row(
                       children: [

@@ -223,3 +223,13 @@ async def test_rssi_counts_every_reading_and_messages_are_limited(
             r = await client.post(m.url("/messages"), json=message(i), headers=h)
             codes.append(r.status_code)
         assert codes == [201, 201, 429]
+
+
+def test_retroactive_bearings_are_not_compared_with_the_track() -> None:
+    here = pl.Fix(LAT, LON, T0)
+    chosen = [
+        pl.BearingFact(LAT + 0.1, LON, 10.0, 10.0, T0 + timedelta(minutes=i), retroactive=True)
+        for i in range(3)
+    ]
+    assert pl.off_track(chosen, [here]) is None
+    assert pl.off_track(chosen, []) is None

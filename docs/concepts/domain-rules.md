@@ -18,6 +18,19 @@ violate them.
 - Every new or changed bearing triggers an **estimate recompute** in the background (debounce 500 ms, see
   [Architecture](architecture.md)).
 
+## Retroactive bearings
+
+- Every participant with `bearing.create` can enter a bearing **after the fact** with a chosen measurement time and position
+  (`entry_mode = retroactive`; normal ones are `live`). The position comes from the map, typed coordinates or the participant's
+  own track at that time.
+- All bearing rules above apply unchanged: client UUID, mandatory `sigma_deg`, true-north azimuth, append-only revisions,
+  `trusted_only`. The bearing feeds the estimate like a live one, placed by `measured_at`, and is assigned to the transmission
+  whose window contains that time. `received_at` still records when the server got it.
+- `measured_at` may not lie in the future (5 min clock skew) and, for retroactive bearings, at most **7 days** in the past.
+- Plausibility: a retroactive bearing is not compared with the participant's own position track (`off_track`, `no_track`),
+  because the position was chosen, not measured. It still counts for the disagreement check.
+- Decision record: [ADR 0009](../adr/0009-retroactive-bearings.md).
+
 ## External bearing points
 
 - Whoever holds `point.manage` / `bearing.external` (lead, deputy, analyst) can enter bearings received from outside the group

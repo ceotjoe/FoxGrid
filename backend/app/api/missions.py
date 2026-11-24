@@ -709,7 +709,8 @@ async def get_plausibility(
     ).all():
         if b.participant_id in facts:
             fact = plausibility.BearingFact(
-                b.lat, b.lon, float(b.azimuth_true_deg), float(b.sigma_deg), b.measured_at
+                b.lat, b.lon, float(b.azimuth_true_deg), float(b.sigma_deg), b.measured_at,
+                b.entry_mode == "retroactive",
             )
             facts[b.participant_id].append(fact)
             by_interferer[b.participant_id].setdefault(b.interferer_id, []).append(fact)

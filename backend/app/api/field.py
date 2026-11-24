@@ -6,7 +6,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from foxgrid_engine import Bearing as EngineBearing
@@ -222,6 +222,19 @@ def _same_bearing(existing: Bearing, body: BearingIn, actor: Participant) -> boo
     )
 
 
+MAX_FUTURE_SKEW = timedelta(minutes=5)  # client clocks drift a little
+MAX_RETROACTIVE_AGE = timedelta(days=7)
+
+
+def _check_measured_at(body: BearingIn) -> None:
+    """A bearing cannot lie in the future; a retroactive one at most 7 days in the past."""
+    now = datetime.now(UTC)
+    if body.measured_at > now + MAX_FUTURE_SKEW:
+        raise HTTPException(422, "measured_at lies in the future")
+    if body.entry_mode == "retroactive" and body.measured_at < now - MAX_RETROACTIVE_AGE:
+        raise HTTPException(422, "retroactive bearings may be at most 7 days old")
+
+
 @router.post("/bearings", response_model=BearingOut, status_code=201)
 async def create_bearing(
     mission_id: uuid.UUID,
@@ -249,6 +262,7 @@ async def create_bearing(
             raise HTTPException(422, "unknown or inactive bearing point")
         if abs(point.lat - body.lat) > 1e-9 or abs(point.lon - body.lon) > 1e-9:
             raise HTTPException(422, "bearing position must equal the bearing point")
+    _check_measured_at(body)
     tx_id = body.transmission_id
     if tx_id is not None:
         tx = await session.get(Transmission, tx_id)
@@ -283,6 +297,7 @@ async def create_bearing(
         point_id=body.point_id,
         interferer_id=interferer_id,
         source="external" if body.point_id is not None else "manual",
+        entry_mode=body.entry_mode,
     )
     session.add(bearing)
     try:

@@ -99,6 +99,15 @@ a bearing for a point (true azimuth, sigma preset, measurement time, note; "save
 after a point is created. The map draws each point as a labelled marker in its own colour (`point:<id>` through `MapPalette`), its
 rays dashed when the point is off or inactive; `BearingFilter.showExternal` hides points and rays (display only).
 
+## Retroactive bearings
+
+`CaptureSheet(retroactive: true)` (menu *Peilung nachträglich*, needs `bearing.create`) replaces the GPS fix and `now` with a chosen time
+(date/time picker, 7 days back) and position: map (`ui/position_picker_screen.dart`), typed coordinates (`core/coords.dart`), the own
+track at that time (`FoxGridApi.positionsSince`, nearest sample within ±15 min) or the current fix. The payload carries
+`entry_mode: retroactive` and no `station_accuracy_m` unless the position came from a fix or the track. The declination is fetched for the
+chosen position. Everything else (outbox, `_overlayPending`, sigma, interferer) is the normal bearing path. `Bearing.retroactive`
+drives the "nachträglich" mark in the list.
+
 ## Push
 
 `PushRegistrar` (`state/push.dart`, `core/push.dart`) registers the FCM token. See [Push notifications](../operations/push-notifications.md).

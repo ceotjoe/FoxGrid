@@ -254,6 +254,8 @@ class Bearing(Base):
     is_outlier: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     source: Mapped[str] = mapped_column(String(10), default="manual")
+    # 'retroactive': entered after the fact with a time and position chosen by the participant.
+    entry_mode: Mapped[str] = mapped_column(String(12), default="live", server_default="live")
     sensor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sensors.id"), nullable=True)
     point_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("bearing_points.id"), nullable=True
@@ -268,6 +270,7 @@ class Bearing(Base):
         ),
         CheckConstraint("polarization in ('h','v','unknown')", name="ck_bearing_pol"),
         CheckConstraint("source in ('manual','sensor','external')", name="ck_bearing_source"),
+        CheckConstraint("entry_mode in ('live','retroactive')", name="ck_bearing_entry_mode"),
         Index("ix_bearing_mission_measured", "mission_id", "measured_at"),
     )
 

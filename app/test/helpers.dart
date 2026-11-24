@@ -202,6 +202,15 @@ class FakeApi implements FoxGridApi {
     return sendResult;
   }
 
+  /// Own track returned for retroactive bearings.
+  List<PositionFix> trackFixes = const [];
+
+  @override
+  Future<List<PositionFix>> positionsSince(
+    String participantId,
+    DateTime since,
+  ) async => trackFixes;
+
   @override
   Future<double> declination(double lat, double lon) async {
     if (declinationError != null) throw declinationError!;

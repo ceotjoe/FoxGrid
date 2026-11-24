@@ -34,3 +34,7 @@ The bearing is drawn from the point's position, never from your device. It works
 - Exports (PDF, GPX, KML, JSON) name the point: bearings read "extern: BNetzA Köln", and a point that does not count is marked
   "nicht in Schätzung".
 - Points and their bearings are never deleted, like all bearings.
+
+## Your own bearing, entered later
+
+Missed entering a bearing in the field? Open the menu (⋮) → **Peilung nachträglich**. Set the time it was taken (up to 7 days back) and the position: tap it on the map, type coordinates, take **Aus meinem Track** (your recorded position at that time) or your current position. Then enter azimuth and accuracy as usual. The bearing counts for the estimate like any other, is placed by the time you gave and is marked "nachträglich" in the list.

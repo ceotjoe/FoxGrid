@@ -98,6 +98,7 @@ class BearingsSheet extends ConsumerWidget {
                     '${time.hour.toString().padLeft(2, '0')}:'
                     '${time.minute.toString().padLeft(2, '0')}'
                     '${showInterferer && interferer != null ? ' · ${interferer.name}' : ''}'
+                    '${b.retroactive ? ' · nachträglich' : ''}'
                     '${b.rssiDbm != null ? ' · ${b.rssiDbm!.round()} dBm' : ''}'
                     '${b.note != null ? ' · ${b.note}' : ''}'
                     '${!b.isExternal && state.participants[b.participantId]?.trusted == false ? ' · nicht vertraut' : ''}'

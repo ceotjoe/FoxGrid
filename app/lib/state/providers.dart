@@ -818,6 +818,7 @@ class MissionNotifier extends Notifier<MissionState> {
         note: p['note'] as String?,
         pointId: p['point_id'] as String?,
         interfererId: p['interferer_id'] as String?,
+        retroactive: p['entry_mode'] == 'retroactive',
       );
 
   static RssiSample _rssiFromPayload(Map<String, dynamic> p, Session s) =>

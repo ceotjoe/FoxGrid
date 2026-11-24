@@ -222,11 +222,15 @@ class Bearing {
     this.note,
     this.pointId,
     this.interfererId,
+    this.retroactive = false,
   });
 
   final String id;
   final String participantId;
   final String? transmissionId;
+
+  /// Entered afterwards with a chosen time and position (`entry_mode == retroactive`).
+  final bool retroactive;
 
   /// The interferer this bearing is for; `null` only from a server that predates interferers.
   final String? interfererId;
@@ -256,6 +260,7 @@ class Bearing {
     note: j['note'] as String?,
     pointId: j['point_id'] as String?,
     interfererId: j['interferer_id'] as String?,
+    retroactive: j['entry_mode'] == 'retroactive',
   );
 
   Bearing copyWith({bool? isOutlier, String? interfererId}) => Bearing(
@@ -272,6 +277,7 @@ class Bearing {
     note: note,
     pointId: pointId,
     interfererId: interfererId ?? this.interfererId,
+    retroactive: retroactive,
   );
 
   bool get isExternal => pointId != null;

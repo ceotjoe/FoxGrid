@@ -127,12 +127,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  void _openCapture() {
+  void _openCapture({bool retroactive = false}) {
     showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => const CaptureSheet(),
+      builder: (_) => CaptureSheet(retroactive: retroactive),
     );
   }
 
@@ -669,6 +669,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   _sheet((_) => const FilterSheet());
                 case 'bearings':
                   _sheet((_) => const BearingsSheet());
+                case 'retro':
+                  _openCapture(retroactive: true);
                 case 'interferers':
                   _push(const InterferersScreen());
                 case 'station':
@@ -702,6 +704,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ),
                 ),
               ],
+              if (session.can(Perm.bearingCreate))
+                const PopupMenuItem(
+                  key: Key('open-retro'),
+                  value: 'retro',
+                  child: _MenuRow(Icons.history, 'Peilung nachträglich'),
+                ),
               const PopupMenuItem(
                 value: 'bearings',
                 child: _MenuRow(Icons.list_alt, 'Peilungen (Liste)'),

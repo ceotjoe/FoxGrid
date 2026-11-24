@@ -86,6 +86,13 @@ abstract class FoxGridApi {
   /// Magnetic declination (positive = magnetic north east of true north).
   Future<double> declination(double lat, double lon);
 
+  /// Position samples of one participant since a time (oldest first); used to pick the own
+  /// position at an earlier time for a retroactive bearing.
+  Future<List<PositionFix>> positionsSince(
+    String participantId,
+    DateTime since,
+  );
+
   /// Ad-hoc estimate for a filter; `null` if fewer than two bearings match.
   Future<Estimate?> queryEstimate({
     List<String> transmissions = const [],
@@ -390,6 +397,22 @@ class DioFoxGridApi implements FoxGridApi {
     final r = await _call('GET', '/api/v1/declination?lat=$lat&lon=$lon');
     return ((r.data as Map<String, dynamic>)['declination_deg'] as num)
         .toDouble();
+  }
+
+  @override
+  Future<List<PositionFix>> positionsSince(
+    String participantId,
+    DateTime since,
+  ) async {
+    final r = await _call(
+      'GET',
+      '$_mission/positions?participant=$participantId'
+          '&since=${Uri.encodeQueryComponent(since.toUtc().toIso8601String())}',
+    );
+    return [
+      for (final p in r.data as List)
+        PositionFix.fromJson(p as Map<String, dynamic>),
+    ];
   }
 
   @override

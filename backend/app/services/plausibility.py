@@ -42,6 +42,8 @@ class BearingFact:
     azimuth_deg: float
     sigma_deg: float
     measured_at: datetime
+    # Entered afterwards at a chosen position: not comparable with the own position track.
+    retroactive: bool = False
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,7 @@ def impossible_speed(fixes: Sequence[Fix]) -> Flag | None:
 
 def off_track(bearings: Sequence[BearingFact], fixes: Sequence[Fix]) -> Flag | None:
     """Bearings claim a station far from where the participant's own track was at that time."""
+    bearings = [b for b in bearings if not b.retroactive]
     if len(bearings) >= MIN_OFF_TRACK + 1 and not fixes:
         return Flag("no_track", "Peilungen, aber keine einzige Positionsmeldung")
     far = 0

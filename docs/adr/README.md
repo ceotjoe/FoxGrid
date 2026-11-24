@@ -13,3 +13,4 @@ Each record states context, decision and consequences.
 | [0006](0006-mqtt-ingest-separate-process.md) | MQTT ingest as its own process |
 | [0007](0007-roles-and-permissions.md) | Roles and permissions: authority next to the data source |
 | [0008](0008-multiple-interferers.md) | Several interferers per mission, each with its own estimate |
+| [0009](0009-retroactive-bearings.md) | Retroactive bearings: chosen time and position, `entry_mode` |

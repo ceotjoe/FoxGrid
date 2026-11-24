@@ -18,6 +18,7 @@ Future<WidgetEnv> _open(
   Stream<double?>? compass,
   FakeApi? api,
   bool noFix = false,
+  bool retroactive = false,
 }) async {
   final env = await pumpWith(
     tester,
@@ -26,7 +27,8 @@ Future<WidgetEnv> _open(
         onPressed: () => showModalBottomSheet<bool>(
           context: context,
           isScrollControlled: true,
-          builder: (_) => CaptureSheet(compassHeading: compass),
+          builder: (_) =>
+              CaptureSheet(compassHeading: compass, retroactive: retroactive),
         ),
         child: const Text('open'),
       ),
@@ -326,5 +328,78 @@ void main() {
     expect(find.text('Eingaben verwerfen?'), findsOneWidget);
     expect(find.byKey(const Key('save-bearing')), findsOneWidget);
     await _unmount(tester);
+  });
+
+  group('retroactive bearing', () {
+    testWidgets('sends chosen time, typed position and entry_mode', (
+      tester,
+    ) async {
+      final env = await _open(tester, retroactive: true);
+      expect(find.text('Peilung nachträglich erfassen'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('azimuth')), '200');
+      await tester.enterText(find.byKey(const Key('retro-lat')), '50.5');
+      await tester.enterText(find.byKey(const Key('retro-lon')), '8.25');
+      await tester.tap(find.byKey(const Key('save-bearing')));
+      await tester.pumpAndSettle();
+
+      final p = await _queuedBearing(env);
+      expect(p['entry_mode'], 'retroactive');
+      expect(p['lat'], 50.5);
+      expect(p['lon'], 8.25); // not the GPS fix (48.137, 11.575)
+      expect(p['station_accuracy_m'], isNull);
+      expect(p['sigma_deg'], 15.0);
+      await _unmount(tester);
+    });
+
+    testWidgets('needs a position before saving', (tester) async {
+      final env = await _open(tester, retroactive: true);
+      await tester.enterText(find.byKey(const Key('azimuth')), '200');
+      await tester.tap(find.byKey(const Key('save-bearing')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Standort wählen'), findsOneWidget);
+      expect(env.api.sent, isEmpty);
+      await _unmount(tester);
+    });
+
+    testWidgets('takes the nearest own track point', (tester) async {
+      final api = FakeApi();
+      final env = await _open(tester, retroactive: true, api: api);
+      final now = DateTime.now().toUtc();
+      api.trackFixes = [
+        PositionFix(
+          participantId: 'p1',
+          point: const LatLng(49.0, 9.0),
+          recordedAt: now.subtract(const Duration(minutes: 10)),
+          accuracyM: 8,
+        ),
+        PositionFix(
+          participantId: 'p1',
+          point: const LatLng(49.5, 9.5),
+          recordedAt: now.subtract(const Duration(minutes: 1)),
+          accuracyM: 6,
+        ),
+      ];
+      await tester.enterText(find.byKey(const Key('azimuth')), '10');
+      await tester.tap(find.byKey(const Key('retro-track')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('save-bearing')));
+      await tester.pumpAndSettle();
+
+      final p = await _queuedBearing(env);
+      expect(p['lat'], 49.5);
+      expect(p['station_accuracy_m'], 6.0);
+      await _unmount(tester);
+    });
+
+    testWidgets('says so when the track has nothing near the time', (
+      tester,
+    ) async {
+      final env = await _open(tester, retroactive: true);
+      await tester.tap(find.byKey(const Key('retro-track')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Kein Track-Punkt'), findsOneWidget);
+      expect(env.api.sent, isEmpty);
+      await _unmount(tester);
+    });
   });
 }

@@ -3,6 +3,10 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## Unreleased
+
+- Retroactive bearings: *Menü → Peilung nachträglich* lets a bearer enter a bearing afterwards with a chosen time (up to 7 days back) and position (map, typed coordinates, own track at that time, or the current GPS fix). The bearing counts for the estimate like a live one and is marked "nachträglich" in the list. Backend: `entry_mode` on bearings (migration 0014), `measured_at` may not lie in the future, retroactive bearings skip the own-track plausibility checks. See [ADR 0009](docs/adr/0009-retroactive-bearings.md).
+
 ## 0.6.1 – 2026-11-24
 
 - App: the bearing sheets (own bearing and external point) have a close button and an "Abbrechen" button. Closing with typed input (button, back gesture, tap outside, drag down) asks before discarding it.

@@ -102,6 +102,7 @@ def bearing_out(b: Bearing) -> BearingOut:
         is_outlier=b.is_outlier,
         is_active=b.is_active,
         source=b.source,
+        entry_mode=b.entry_mode,
         point_id=b.point_id,
         interferer_id=b.interferer_id,
     )

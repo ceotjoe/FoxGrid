@@ -351,3 +351,27 @@ async def test_late_bearing_allowed_after_mission_end(client: httpx.AsyncClient)
     await client.post(m.url("/end"), headers=h)
     r = await client.post(m.url("/bearings"), json=bearing_payload(STATIONS[0], TARGET), headers=h)
     assert r.status_code == 201  # offline sync must not lose log entries
+
+
+async def test_retroactive_bearing_window_and_future(client: httpx.AsyncClient) -> None:
+    m = await Mission.create(client)
+    h = auth(m.lead_token)
+    now = datetime.now(UTC)
+
+    def at(delta: timedelta, **extra) -> dict:
+        return bearing_payload(
+            STATIONS[0], TARGET, measured_at=(now - delta).isoformat(), **extra
+        )
+
+    ok = await client.post(
+        m.url("/bearings"), json=at(timedelta(days=6), entry_mode="retroactive"), headers=h
+    )
+    assert ok.status_code == 201 and ok.json()["entry_mode"] == "retroactive"
+    too_old = await client.post(
+        m.url("/bearings"), json=at(timedelta(days=8), entry_mode="retroactive"), headers=h
+    )
+    assert too_old.status_code == 422
+    future = await client.post(m.url("/bearings"), json=at(-timedelta(hours=1)), headers=h)
+    assert future.status_code == 422
+    live = await client.post(m.url("/bearings"), json=at(timedelta(seconds=1)), headers=h)
+    assert live.status_code == 201 and live.json()["entry_mode"] == "live"

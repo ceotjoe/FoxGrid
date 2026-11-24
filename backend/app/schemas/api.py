@@ -265,6 +265,8 @@ class BearingIn(BaseModel):
     measured_at: AwareDatetime
     note: str | None = Field(default=None, max_length=1000)
     transmission_id: uuid.UUID | None = None
+    # 'retroactive': entered afterwards with a chosen time and position (at most 7 days back).
+    entry_mode: Literal["live", "retroactive"] = "live"
     # External bearing (lead only): lat/lon must be the point's position.
     point_id: uuid.UUID | None = None
     # Which interferer this bearing is for. Omitted: the transmission's interferer, else the
@@ -304,6 +306,7 @@ class BearingOut(ORM):
     is_outlier: bool
     is_active: bool
     source: str
+    entry_mode: str = "live"
     point_id: uuid.UUID | None = None
     interferer_id: uuid.UUID
 

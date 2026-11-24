@@ -51,7 +51,7 @@ returns 200 (idempotent), with different content 409.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/missions/{id}/bearings` | create (client UUID, idempotent); assigned to the open transmission or an explicit `transmission_id`, and to an interferer: the explicit `interferer_id`, else the transmission's, else the mission's default (422 for an unknown or inactive one). Needs `bearing.create`. With `point_id` (needs `bearing.external`: lead, deputy, analyst; lat/lon must equal the point) it is an external bearing, `source: external` |
+| POST | `/missions/{id}/bearings` | create (client UUID, idempotent); assigned to the open transmission or an explicit `transmission_id`, and to an interferer: the explicit `interferer_id`, else the transmission's, else the mission's default (422 for an unknown or inactive one). Needs `bearing.create`. With `point_id` (needs `bearing.external`: lead, deputy, analyst; lat/lon must equal the point) it is an external bearing, `source: external`. `entry_mode: retroactive` marks a bearing entered afterwards (`measured_at` at most 7 days back); `measured_at` may never lie more than 5 minutes in the future (422) |
 | GET | `/missions/{id}/bearings?transmission=&since=&include_inactive=` | list |
 | GET | `/missions/{id}/bearings/{bid}` · `/revisions` | one bearing / its revision history |
 | POST | `/missions/{id}/points` | `point.manage` | create an external bearing point (client UUID, idempotent; 409 on a duplicate name) |
