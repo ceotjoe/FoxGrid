@@ -49,9 +49,19 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
     final stream =
         widget.compassHeading ??
         (kIsWeb ? null : FlutterCompass.events?.map((e) => e.heading));
+    for (final c in [_azimuth, _rssi, _attenuation, _note]) {
+      c.addListener(_onTextChanged);
+    }
     stream?.listen((h) {
       if (mounted) setState(() => _liveHeading = h);
     });
+  }
+
+  bool _wasDirty = false;
+
+  /// Rebuilds when the form flips between empty and filled so [PopScope.canPop] never goes stale.
+  void _onTextChanged() {
+    if (_dirty != _wasDirty) setState(() => _wasDirty = _dirty);
   }
 
   @override
@@ -97,6 +107,42 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
       _ref = AzimuthRef.magnetic;
       _fillDeclination();
     });
+  }
+
+  /// True once the user typed something worth keeping (the declination is pre-filled, so it does not count).
+  bool get _dirty => [
+    _azimuth,
+    _rssi,
+    _attenuation,
+    _note,
+  ].any((c) => c.text.trim().isNotEmpty);
+
+  /// Closes without saving; asks first when there is typed input that would be lost.
+  Future<void> _cancel() async {
+    if (_saving) return;
+    if (_dirty) {
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Eingaben verwerfen?'),
+          content: const Text('Die Peilung wurde noch nicht gespeichert.'),
+          actions: [
+            TextButton(
+              key: const Key('keep-editing'),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Weiter bearbeiten'),
+            ),
+            TextButton(
+              key: const Key('discard-bearing'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Verwerfen'),
+            ),
+          ],
+        ),
+      );
+      if (discard != true) return;
+    }
+    if (mounted) Navigator.of(context).pop(false);
   }
 
   Future<void> _save() async {
@@ -150,245 +196,279 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
     final fix = ref.watch(ownPositionProvider);
     final theme = Theme.of(context);
     final az = _trueAzimuth;
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 8,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Flexible(
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Peilung erfassen',
-                          style: theme.textTheme.titleLarge,
+    return PopScope(
+      // Back gesture, barrier tap and drag-down all route through _cancel when input would be lost.
+      canPop: !_dirty || _saving,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _cancel();
+      },
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 8,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Peilung erfassen',
+                            style: theme.textTheme.titleLarge,
+                          ),
                         ),
+                        _InterfererChip(),
+                        IconButton(
+                          key: const Key('close-capture'),
+                          tooltip: 'Abbrechen',
+                          icon: const Icon(Icons.close),
+                          onPressed: _saving ? null : _cancel,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      fix == null
+                          ? 'Warte auf Standort …'
+                          : 'Standort ${fix.point.latitude.toStringAsFixed(5)}, '
+                                '${fix.point.longitude.toStringAsFixed(5)}'
+                                '${fix.accuracyM != null ? ' (±${fix.accuracyM!.round()} m)' : ''}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const Key('azimuth'),
+                            controller: _azimuth,
+                            autofocus: true,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            style: theme.textTheme.headlineMedium,
+                            decoration: const InputDecoration(
+                              labelText: 'Azimut in °',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                        ),
+                        if (!kIsWeb || widget.compassHeading != null) ...[
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 64,
+                            child: FilledButton.tonalIcon(
+                              key: const Key('use-compass'),
+                              onPressed: _liveHeading == null
+                                  ? null
+                                  : _useCompass,
+                              icon: const Icon(Icons.explore),
+                              label: Text(
+                                _liveHeading == null
+                                    ? 'Kompass'
+                                    : '${normalizeAzimuth(_liveHeading!).round()}°',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<AzimuthRef>(
+                      key: const Key('ref'),
+                      segments: const [
+                        ButtonSegment(
+                          value: AzimuthRef.trueNorth,
+                          label: Text('rechtweisend'),
+                        ),
+                        ButtonSegment(
+                          value: AzimuthRef.magnetic,
+                          label: Text('magnetisch'),
+                        ),
+                      ],
+                      selected: {_ref},
+                      onSelectionChanged: (s) => setState(() {
+                        _ref = s.first;
+                        _fillDeclination();
+                      }),
+                    ),
+                    if (_ref == AzimuthRef.magnetic) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        key: const Key('declination'),
+                        controller: _declination,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Missweisung in ° (Ost positiv)',
+                          helperText: 'WMM-Wert vorbelegt, überschreibbar',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (_) =>
+                            setState(() => _declinationTouched = true),
                       ),
-                      _InterfererChip(),
                     ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    fix == null
-                        ? 'Warte auf Standort …'
-                        : 'Standort ${fix.point.latitude.toStringAsFixed(5)}, '
-                              '${fix.point.longitude.toStringAsFixed(5)}'
-                              '${fix.accuracyM != null ? ' (±${fix.accuracyM!.round()} m)' : ''}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          key: const Key('azimuth'),
-                          controller: _azimuth,
-                          autofocus: true,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          style: theme.textTheme.headlineMedium,
-                          decoration: const InputDecoration(
-                            labelText: 'Azimut in °',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
+                    if (az != null && _ref == AzimuthRef.magnetic)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text('→ rechtweisend ${az.toStringAsFixed(1)}°'),
                       ),
-                      if (!kIsWeb || widget.compassHeading != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Genauigkeit (Sigma)',
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final p in sigmaPresets)
+                          ChoiceChip(
+                            key: Key('sigma-${p.sigma.round()}'),
+                            label: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 10,
+                              ),
+                              child: Text(p.label),
+                            ),
+                            selected: _sigma == p.sigma,
+                            onSelected: (_) => setState(() => _sigma = p.sigma),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: DbmField(
+                            key: const Key('rssi'),
+                            controller: _rssi,
+                            label: 'RSSI',
+                          ),
+                        ),
                         const SizedBox(width: 8),
-                        SizedBox(
-                          height: 64,
-                          child: FilledButton.tonalIcon(
-                            key: const Key('use-compass'),
-                            onPressed: _liveHeading == null
-                                ? null
-                                : _useCompass,
-                            icon: const Icon(Icons.explore),
-                            label: Text(
-                              _liveHeading == null
-                                  ? 'Kompass'
-                                  : '${normalizeAzimuth(_liveHeading!).round()}°',
+                        Expanded(
+                          child: TextField(
+                            key: const Key('attenuation'),
+                            controller: _attenuation,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Dämpfung dB',
+                              border: OutlineInputBorder(),
                             ),
                           ),
                         ),
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SegmentedButton<AzimuthRef>(
-                    key: const Key('ref'),
-                    segments: const [
-                      ButtonSegment(
-                        value: AzimuthRef.trueNorth,
-                        label: Text('rechtweisend'),
-                      ),
-                      ButtonSegment(
-                        value: AzimuthRef.magnetic,
-                        label: Text('magnetisch'),
-                      ),
-                    ],
-                    selected: {_ref},
-                    onSelectionChanged: (s) => setState(() {
-                      _ref = s.first;
-                      _fillDeclination();
-                    }),
-                  ),
-                  if (_ref == AzimuthRef.magnetic) ...[
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final q in quickReadings)
+                          ActionChip(
+                            key: Key('capture-${q.label}'),
+                            label: Text(q.label),
+                            onPressed: () {
+                              final sMode = ref.read(settingsProvider).levelInS;
+                              final text = sMode
+                                  ? dbmToSInput(q.dbm)
+                                  : '${q.dbm.round()}';
+                              _rssi.value = TextEditingValue(
+                                text: text,
+                                selection: TextSelection.collapsed(
+                                  offset: text.length,
+                                ),
+                              );
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      key: const Key('polarization'),
+                      segments: const [
+                        ButtonSegment(value: 'h', label: Text('horiz.')),
+                        ButtonSegment(value: 'v', label: Text('vert.')),
+                        ButtonSegment(value: 'unknown', label: Text('?')),
+                      ],
+                      selected: {_polarization},
+                      onSelectionChanged: (s) =>
+                          setState(() => _polarization = s.first),
+                    ),
                     const SizedBox(height: 8),
                     TextField(
-                      key: const Key('declination'),
-                      controller: _declination,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
+                      key: const Key('note'),
+                      controller: _note,
                       decoration: const InputDecoration(
-                        labelText: 'Missweisung in ° (Ost positiv)',
-                        helperText: 'WMM-Wert vorbelegt, überschreibbar',
+                        labelText: 'Notiz',
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (_) =>
-                          setState(() => _declinationTouched = true),
                     ),
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: theme.colorScheme.error),
+                        ),
+                      ),
                   ],
-                  if (az != null && _ref == AzimuthRef.magnetic)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text('→ rechtweisend ${az.toStringAsFixed(1)}°'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Pinned below the scrollable form so it is always one thumb tap away.
+            SizedBox(
+              height: 64,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      key: const Key('cancel-bearing'),
+                      onPressed: _saving ? null : _cancel,
+                      child: const Text(
+                        'Abbrechen',
+                        style: TextStyle(fontSize: 18),
+                      ),
                     ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Genauigkeit (Sigma)',
-                    style: theme.textTheme.labelLarge,
                   ),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final p in sigmaPresets)
-                        ChoiceChip(
-                          key: Key('sigma-${p.sigma.round()}'),
-                          label: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 10,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton(
+                      key: const Key('save-bearing'),
+                      onPressed: _saving ? null : _save,
+                      child: _saving
+                          ? const CircularProgressIndicator()
+                          : const Text(
+                              'Speichern',
+                              style: TextStyle(fontSize: 22),
                             ),
-                            child: Text(p.label),
-                          ),
-                          selected: _sigma == p.sigma,
-                          onSelected: (_) => setState(() => _sigma = p.sigma),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: DbmField(
-                          key: const Key('rssi'),
-                          controller: _rssi,
-                          label: 'RSSI',
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          key: const Key('attenuation'),
-                          controller: _attenuation,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'Dämpfung dB',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final q in quickReadings)
-                        ActionChip(
-                          key: Key('capture-${q.label}'),
-                          label: Text(q.label),
-                          onPressed: () {
-                            final sMode = ref.read(settingsProvider).levelInS;
-                            final text = sMode
-                                ? dbmToSInput(q.dbm)
-                                : '${q.dbm.round()}';
-                            _rssi.value = TextEditingValue(
-                              text: text,
-                              selection: TextSelection.collapsed(
-                                offset: text.length,
-                              ),
-                            );
-                          },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SegmentedButton<String>(
-                    key: const Key('polarization'),
-                    segments: const [
-                      ButtonSegment(value: 'h', label: Text('horiz.')),
-                      ButtonSegment(value: 'v', label: Text('vert.')),
-                      ButtonSegment(value: 'unknown', label: Text('?')),
-                    ],
-                    selected: {_polarization},
-                    onSelectionChanged: (s) =>
-                        setState(() => _polarization = s.first),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    key: const Key('note'),
-                    controller: _note,
-                    decoration: const InputDecoration(
-                      labelText: 'Notiz',
-                      border: OutlineInputBorder(),
                     ),
                   ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                    ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          // Pinned below the scrollable form so it is always one thumb tap away.
-          SizedBox(
-            height: 64,
-            child: FilledButton(
-              key: const Key('save-bearing'),
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const CircularProgressIndicator()
-                  : const Text('Speichern', style: TextStyle(fontSize: 22)),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

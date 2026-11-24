@@ -197,4 +197,43 @@ void main() {
     expect(find.textContaining('DL2XYZ'), findsOneWidget);
     await _unmount(tester);
   });
+
+  testWidgets('X asks before discarding input, cancel closes an empty sheet', (
+    tester,
+  ) async {
+    _tall(tester);
+    final env = await pumpWith(
+      tester,
+      Builder(
+        builder: (context) => TextButton(
+          onPressed: () => showModalBottomSheet<bool>(
+            context: context,
+            isScrollControlled: true,
+            builder: (_) => const ExternalBearingSheet(pointId: 'pt1'),
+          ),
+          child: const Text('open'),
+        ),
+      ),
+      api: FakeApi()..snapshotData = snapshotJson(points: [pointJson('pt1')]),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('ext-note')), 'x');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('close-ext')));
+    await tester.pumpAndSettle();
+    expect(find.text('Eingaben verwerfen?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('keep-editing')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ExternalBearingSheet), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('ext-note')), '');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ext-cancel')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ExternalBearingSheet), findsNothing);
+    expect(_bearings(env), isEmpty);
+    await _unmount(tester);
+  });
 }

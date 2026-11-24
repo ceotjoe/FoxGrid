@@ -271,4 +271,60 @@ void main() {
     expect(p['azimuth_true_deg'], 87.0);
     await _unmount(tester);
   });
+
+  testWidgets('cancel button closes an untouched sheet without saving', (
+    tester,
+  ) async {
+    final env = await _open(tester);
+    await tester.tap(find.byKey(const Key('cancel-bearing')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('save-bearing')), findsNothing);
+    expect(env.api.sent, isEmpty);
+    await _unmount(tester);
+  });
+
+  testWidgets('X button asks before discarding typed input', (tester) async {
+    final env = await _open(tester);
+    await tester.enterText(find.byKey(const Key('azimuth')), '123');
+    await tester.tap(find.byKey(const Key('close-capture')));
+    await tester.pumpAndSettle();
+    expect(find.text('Eingaben verwerfen?'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('keep-editing')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('save-bearing')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('close-capture')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('discard-bearing')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('save-bearing')), findsNothing);
+    expect(env.api.sent, isEmpty);
+    await _unmount(tester);
+  });
+
+  testWidgets('back gesture also guards input typed only in the note', (
+    tester,
+  ) async {
+    await _open(tester);
+    await tester.enterText(find.byKey(const Key('note')), 'Hinweis');
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Eingaben verwerfen?'), findsOneWidget);
+    await _unmount(tester);
+  });
+
+  testWidgets('back gesture with typed input asks instead of closing', (
+    tester,
+  ) async {
+    await _open(tester);
+    await tester.enterText(find.byKey(const Key('azimuth')), '45');
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Eingaben verwerfen?'), findsOneWidget);
+    expect(find.byKey(const Key('save-bearing')), findsOneWidget);
+    await _unmount(tester);
+  });
 }

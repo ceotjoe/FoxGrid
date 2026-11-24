@@ -32,6 +32,20 @@ class _ExternalBearingSheetState extends ConsumerState<ExternalBearingSheet> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    _azimuth.addListener(_onTextChanged);
+    _note.addListener(_onTextChanged);
+  }
+
+  bool _wasDirty = false;
+
+  /// Rebuilds when the form flips between empty and filled so [PopScope.canPop] never goes stale.
+  void _onTextChanged() {
+    if (_dirty != _wasDirty) setState(() => _wasDirty = _dirty);
+  }
+
+  @override
   void dispose() {
     _azimuth.dispose();
     _note.dispose();
@@ -94,6 +108,38 @@ class _ExternalBearingSheetState extends ConsumerState<ExternalBearingSheet> {
     return true;
   }
 
+  /// True while there is typed input that has not been saved yet (cleared after "Speichern + weitere").
+  bool get _dirty =>
+      _azimuth.text.trim().isNotEmpty || _note.text.trim().isNotEmpty;
+
+  /// Closes without saving; asks first when typed input would be lost.
+  Future<void> _cancel() async {
+    if (_saving) return;
+    if (_dirty) {
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Eingaben verwerfen?'),
+          content: const Text('Die Peilung wurde noch nicht gespeichert.'),
+          actions: [
+            TextButton(
+              key: const Key('keep-editing'),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Weiter bearbeiten'),
+            ),
+            TextButton(
+              key: const Key('discard-bearing'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Verwerfen'),
+            ),
+          ],
+        ),
+      );
+      if (discard != true) return;
+    }
+    if (mounted) Navigator.of(context).pop(_saved > 0);
+  }
+
   Future<void> _saveAndClose() async {
     if (await _save() && mounted) Navigator.of(context).pop(true);
   }
@@ -115,144 +161,169 @@ class _ExternalBearingSheetState extends ConsumerState<ExternalBearingSheet> {
       missionProvider.select((s) => s.points[widget.pointId]),
     );
     final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 8,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Flexible(
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Peilung von ${point?.name ?? '?'}',
-                    key: const Key('ext-title'),
-                    style: theme.textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    point == null
-                        ? 'Peilpunkt unbekannt'
-                        : '${formatCoordinate(point.position.latitude, isLat: true)}  '
-                              '${formatCoordinate(point.position.longitude, isLat: false)}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    key: const Key('ext-azimuth'),
-                    controller: _azimuth,
-                    autofocus: true,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    style: theme.textTheme.headlineMedium,
-                    decoration: const InputDecoration(
-                      labelText: 'Azimut in ° (rechtweisend)',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Genauigkeit (Sigma)',
-                    style: theme.textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final p in sigmaPresets)
-                        ChoiceChip(
-                          key: Key('ext-sigma-${p.sigma.round()}'),
-                          label: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 10,
-                            ),
-                            child: Text(p.label),
+    return PopScope(
+      // Back gesture, barrier tap and drag-down all route through _cancel when input would be lost.
+      canPop: !_dirty || _saving,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _cancel();
+      },
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 8,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Peilung von ${point?.name ?? '?'}',
+                            key: const Key('ext-title'),
+                            style: theme.textTheme.titleLarge,
                           ),
-                          selected: _sigma == p.sigma,
-                          onSelected: (_) => setState(() => _sigma = p.sigma),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    key: const Key('ext-time'),
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.schedule),
-                    title: Text('Gemessen um ${_hhmm(_measuredAt)}'),
-                    subtitle: const Text(
-                      'Antippen, um Datum und Uhrzeit zu ändern',
+                        IconButton(
+                          key: const Key('close-ext'),
+                          tooltip: _saved > 0 ? 'Schließen' : 'Abbrechen',
+                          icon: const Icon(Icons.close),
+                          onPressed: _saving ? null : _cancel,
+                        ),
+                      ],
                     ),
-                    onTap: _pickTime,
-                  ),
-                  TextField(
-                    key: const Key('ext-note'),
-                    controller: _note,
-                    decoration: const InputDecoration(
-                      labelText: 'Notiz (Quelle, Bemerkung)',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 4),
+                    Text(
+                      point == null
+                          ? 'Peilpunkt unbekannt'
+                          : '${formatCoordinate(point.position.latitude, isLat: true)}  '
+                                '${formatCoordinate(point.position.longitude, isLat: false)}',
+                      style: theme.textTheme.bodySmall,
                     ),
-                  ),
-                  if (_saved > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        '$_saved gespeichert',
-                        key: const Key('ext-saved'),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('ext-azimuth'),
+                      controller: _azimuth,
+                      autofocus: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      style: theme.textTheme.headlineMedium,
+                      decoration: const InputDecoration(
+                        labelText: 'Azimut in ° (rechtweisend)',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Genauigkeit (Sigma)',
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final p in sigmaPresets)
+                          ChoiceChip(
+                            key: Key('ext-sigma-${p.sigma.round()}'),
+                            label: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 10,
+                              ),
+                              child: Text(p.label),
+                            ),
+                            selected: _sigma == p.sigma,
+                            onSelected: (_) => setState(() => _sigma = p.sigma),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ListTile(
+                      key: const Key('ext-time'),
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.schedule),
+                      title: Text('Gemessen um ${_hhmm(_measuredAt)}'),
+                      subtitle: const Text(
+                        'Antippen, um Datum und Uhrzeit zu ändern',
+                      ),
+                      onTap: _pickTime,
+                    ),
+                    TextField(
+                      key: const Key('ext-note'),
+                      controller: _note,
+                      decoration: const InputDecoration(
+                        labelText: 'Notiz (Quelle, Bemerkung)',
+                        border: OutlineInputBorder(),
                       ),
                     ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(color: theme.colorScheme.error),
+                    if (_saved > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          '$_saved gespeichert',
+                          key: const Key('ext-saved'),
+                        ),
                       ),
-                    ),
-                ],
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: theme.colorScheme.error),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 56,
-                  child: OutlinedButton(
-                    key: const Key('ext-save-more'),
-                    onPressed: _saving ? null : _saveAndMore,
-                    child: const Text('Speichern + weitere'),
-                  ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                TextButton(
+                  key: const Key('ext-cancel'),
+                  onPressed: _saving ? null : _cancel,
+                  child: Text(_saved > 0 ? 'Schließen' : 'Abbrechen'),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 56,
-                  child: FilledButton(
-                    key: const Key('ext-save'),
-                    onPressed: _saving ? null : _saveAndClose,
-                    child: const Text(
-                      'Speichern',
-                      style: TextStyle(fontSize: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: OutlinedButton(
+                      key: const Key('ext-save-more'),
+                      onPressed: _saving ? null : _saveAndMore,
+                      child: const Text('Speichern + weitere'),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: FilledButton(
+                      key: const Key('ext-save'),
+                      onPressed: _saving ? null : _saveAndClose,
+                      child: const Text(
+                        'Speichern',
+                        style: TextStyle(fontSize: 20),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
