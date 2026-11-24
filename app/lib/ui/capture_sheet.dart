@@ -286,6 +286,7 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                   ),
                   const SizedBox(height: 12),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: DbmField(

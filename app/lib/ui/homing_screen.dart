@@ -138,6 +138,7 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
                   RssiChart(levels: levels),
                   const SizedBox(height: 12),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: DbmField(
