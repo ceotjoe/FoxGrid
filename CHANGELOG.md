@@ -3,6 +3,11 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## 0.6.1 – 2026-11-24
+
+- App: the bearing sheets (own bearing and external point) have a close button and an "Abbrechen" button. Closing with typed input (button, back gesture, tap outside, drag down) asks before discarding it.
+- No backend changes and no migrations.
+
 ## 0.6.0 – 2026-11-24
 
 - App: level fields (bearing capture, homing, station) take either dBm or an S value (`7`, `S9+20`); a unit button switches and remembers the choice, and the capture sheet gets the S buttons too.

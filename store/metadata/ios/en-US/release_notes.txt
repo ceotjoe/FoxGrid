@@ -1,1 +1,1 @@
-Several interferers per mission, dBm or S-value level entry, and a sign button for dBm input.
+Bearing sheets now have close and cancel buttons, and ask before discarding typed input.

@@ -1,1 +1,1 @@
-Mehrere Störer pro Einsatz, Pegeleingabe als dBm oder S-Wert und Vorzeichen-Taste für dBm.
+Peilungs-Dialoge lassen sich jetzt mit Schließen- und Abbrechen-Taste verlassen; bei Eingaben kommt eine Rückfrage.
