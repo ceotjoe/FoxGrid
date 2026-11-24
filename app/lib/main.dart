@@ -82,6 +82,9 @@ final _redTheme = withAppStyle(
       surface: Colors.black,
       onSurface: Color(0xFFFF6B60),
       surfaceContainerHighest: Color(0xFF220000),
+      // Borders and dividers: the default is near white, which ruins night vision.
+      outline: Color(0xFF8C2A24),
+      outlineVariant: Color(0xFF4A0000),
       error: Color(0xFFFF8A80),
     ),
     appBarTheme: const AppBarTheme(
