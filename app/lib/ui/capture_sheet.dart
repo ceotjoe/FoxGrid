@@ -8,6 +8,7 @@ import '../core/geo.dart';
 import '../core/permissions.dart';
 import '../state/providers.dart';
 import 'interferers_screen.dart';
+import 'dbm_field.dart';
 
 enum AzimuthRef { trueNorth, magnetic }
 
@@ -125,8 +126,7 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
       'sigma_deg': _sigma,
       'polarization': _polarization,
       'measured_at': DateTime.now().toUtc().toIso8601String(),
-      if (_rssi.text.trim().isNotEmpty)
-        'rssi_dbm': double.tryParse(_rssi.text.trim().replaceAll(',', '.')),
+      if (_rssi.text.trim().isNotEmpty) 'rssi_dbm': parseDbm(_rssi.text),
       if (_attenuation.text.trim().isNotEmpty)
         'attenuation_db':
             double.tryParse(_attenuation.text.trim().replaceAll(',', '.')) ?? 0,
@@ -288,17 +288,10 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
+                        child: DbmField(
                           key: const Key('rssi'),
                           controller: _rssi,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                            signed: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'RSSI dBm',
-                            border: OutlineInputBorder(),
-                          ),
+                          label: 'RSSI dBm',
                         ),
                       ),
                       const SizedBox(width: 8),

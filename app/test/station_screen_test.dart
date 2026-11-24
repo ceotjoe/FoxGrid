@@ -123,14 +123,33 @@ void main() {
 
   testWidgets('a typed dBm value is validated', (tester) async {
     final env = await _open(tester);
-    await tester.enterText(find.byKey(const Key('station-dbm')), '40');
+    await tester.enterText(find.byKey(const Key('station-dbm')), '400');
     await tester.tap(find.byKey(const Key('station-log-dbm')));
     await tester.pump();
-    expect(find.textContaining('zwischen -200 und 20'), findsOneWidget);
+    expect(find.textContaining('zwischen -200 und 0'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('station-dbm')), '-97,5');
     await tester.tap(find.byKey(const Key('station-log-dbm')));
     await tester.pumpAndSettle();
     expect(_body(env, 0).single['rssi_dbm'], -97.5);
+    await _unmount(tester);
+  });
+
+  testWidgets('a level without sign is negative, the sign button toggles', (
+    tester,
+  ) async {
+    final env = await _open(tester);
+    await tester.enterText(find.byKey(const Key('station-dbm')), '90');
+    await tester.tap(find.byKey(const Key('station-log-dbm')));
+    await tester.pumpAndSettle();
+    expect(_body(env, 0).single['rssi_dbm'], -90.0);
+
+    await tester.enterText(find.byKey(const Key('station-dbm')), '85');
+    await tester.tap(find.byKey(const Key('dbm-sign')));
+    await tester.pump();
+    expect(find.text('-85'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('dbm-sign')));
+    await tester.pump();
+    expect(find.text('85'), findsOneWidget);
     await _unmount(tester);
   });
 

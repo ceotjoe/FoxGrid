@@ -198,7 +198,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('rssi-dbm')), '5000');
     await tester.tap(find.byKey(const Key('log-dbm')));
     await tester.pump();
-    expect(find.text('dBm-Wert zwischen -200 und 20 eingeben'), findsOneWidget);
+    expect(find.text('dBm-Wert zwischen -200 und 0 eingeben'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('rssi-dbm')), 'abc');
     await tester.tap(find.byKey(const Key('log-dbm')));
     await tester.pump();

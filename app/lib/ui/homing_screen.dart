@@ -14,6 +14,7 @@ import '../state/providers.dart';
 import 'app_tile_layer.dart';
 import 'map_palette.dart';
 import 'rssi_chart.dart';
+import 'dbm_field.dart';
 
 /// Close-range homing: arrow and distance to the estimated emitter, signal strength history,
 /// quick entry of S-meter values and the own track coloured by field strength.
@@ -139,17 +140,10 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
+                        child: DbmField(
                           key: const Key('rssi-dbm'),
                           controller: _dbm,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                            signed: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'Pegel in dBm',
-                            border: OutlineInputBorder(),
-                          ),
+                          label: 'Pegel in dBm',
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -158,14 +152,12 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
                         child: FilledButton(
                           key: const Key('log-dbm'),
                           onPressed: () {
-                            final v = double.tryParse(
-                              _dbm.text.trim().replaceAll(',', '.'),
-                            );
+                            final v = parseDbm(_dbm.text);
                             if (v == null || v > 20 || v < -200) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
-                                    'dBm-Wert zwischen -200 und 20 eingeben',
+                                    'dBm-Wert zwischen -200 und 0 eingeben',
                                   ),
                                 ),
                               );

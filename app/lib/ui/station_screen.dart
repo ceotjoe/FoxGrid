@@ -6,6 +6,7 @@ import '../core/models.dart';
 import '../core/permissions.dart';
 import '../core/signal.dart';
 import '../state/providers.dart';
+import 'dbm_field.dart';
 
 /// Fixed station with an omnidirectional antenna: reports the S-meter value of the interferer on
 /// the repeater *input* frequency. Without a bearing this still narrows the area down, because
@@ -184,17 +185,10 @@ class _StationScreenState extends ConsumerState<StationScreen> {
             Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: DbmField(
                     key: const Key('station-dbm'),
                     controller: _dbm,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                      signed: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'oder Pegel in dBm',
-                      border: OutlineInputBorder(),
-                    ),
+                    label: 'oder Pegel in dBm',
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -203,14 +197,12 @@ class _StationScreenState extends ConsumerState<StationScreen> {
                   child: FilledButton(
                     key: const Key('station-log-dbm'),
                     onPressed: () {
-                      final v = double.tryParse(
-                        _dbm.text.trim().replaceAll(',', '.'),
-                      );
+                      final v = parseDbm(_dbm.text);
                       if (v == null || v > 20 || v < -200) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
-                              'dBm-Wert zwischen -200 und 20 eingeben',
+                              'dBm-Wert zwischen -200 und 0 eingeben',
                             ),
                           ),
                         );
