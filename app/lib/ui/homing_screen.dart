@@ -158,7 +158,7 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
-                                    'dBm-Wert zwischen -200 und 0 eingeben',
+                                    'dBm-Wert zwischen -200 und 20 eingeben',
                                   ),
                                 ),
                               );

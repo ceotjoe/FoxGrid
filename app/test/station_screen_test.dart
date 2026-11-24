@@ -126,7 +126,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('station-dbm')), '400');
     await tester.tap(find.byKey(const Key('station-log-dbm')));
     await tester.pump();
-    expect(find.textContaining('zwischen -200 und 0'), findsOneWidget);
+    expect(find.textContaining('zwischen -200 und 20'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('station-dbm')), '-97,5');
     await tester.tap(find.byKey(const Key('station-log-dbm')));
     await tester.pumpAndSettle();
@@ -149,7 +149,15 @@ void main() {
     expect(find.text('-85'), findsOneWidget);
     await tester.tap(find.byKey(const Key('dbm-sign')));
     await tester.pump();
+    expect(find.text('+85'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('dbm-sign')));
+    await tester.pump();
     expect(find.text('85'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('station-dbm')), '+5');
+    await tester.tap(find.byKey(const Key('station-log-dbm')));
+    await tester.pumpAndSettle();
+    expect(_body(env, 1).single['rssi_dbm'], 5.0);
     await _unmount(tester);
   });
 
