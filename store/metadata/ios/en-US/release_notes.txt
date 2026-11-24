@@ -1,1 +1,1 @@
-Maintenance update: internal improvements and updated components for better stability.
+Several interferers per mission, dBm or S-value level entry, and a sign button for dBm input.

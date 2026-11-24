@@ -3,7 +3,7 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## Unreleased
+## 0.6.0 – 2026-11-24
 
 - App: level fields (bearing capture, homing, station) take either dBm or an S value (`7`, `S9+20`); a unit button switches and remembers the choice, and the capture sheet gets the S buttons too.
 - App: dBm fields (bearing capture, homing, station) have a ± button (cycles no sign, `-`, `+`) for keyboards without a minus key, and a level typed without sign is stored as negative (so `90` = −90 dBm; type `+5` for a positive level).

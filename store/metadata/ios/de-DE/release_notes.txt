@@ -1,1 +1,1 @@
-Wartungsupdate: interne Verbesserungen und aktualisierte Komponenten für mehr Stabilität.
+Mehrere Störer pro Einsatz, Pegeleingabe als dBm oder S-Wert und Vorzeichen-Taste für dBm.
