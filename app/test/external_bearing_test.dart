@@ -43,6 +43,28 @@ List<Map<String, dynamic>> _bearings(WidgetEnv env) => [
 ];
 
 void main() {
+  testWidgets('sigma chips stay on one line even on a narrow phone', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpWith(
+      tester,
+      const Scaffold(body: ExternalBearingSheet(pointId: 'pt1')),
+      api: FakeApi()..snapshotData = snapshotJson(points: [pointJson('pt1')]),
+    );
+    await tester.pumpAndSettle();
+    final rects = [
+      for (final k in ['ext-sigma-5', 'ext-sigma-15', 'ext-sigma-30'])
+        tester.getRect(find.byKey(Key(k))),
+    ];
+    expect(rects.map((r) => r.top).toSet().length, 1);
+    expect(rects.map((r) => r.width).toSet().length, 1);
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
   testWidgets('action buttons share one size on a narrow phone', (
     tester,
   ) async {

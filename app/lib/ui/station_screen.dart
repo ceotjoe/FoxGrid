@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'app_dialogs.dart';
+import 'quick_readings.dart';
 import '../core/models.dart';
 import '../core/permissions.dart';
 import '../core/signal.dart';
@@ -170,17 +171,10 @@ class _StationScreenState extends ConsumerState<StationScreen> {
               style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final q in quickReadings)
-                  FilledButton.tonal(
-                    key: Key('station-${q.label}'),
-                    onPressed: () => _log(q.dbm),
-                    child: Text(q.label),
-                  ),
-              ],
+            QuickReadingGrid(
+              keyPrefix: 'station',
+              buttons: true,
+              onPick: (q) => _log(q.dbm),
             ),
             const SizedBox(height: 12),
             Row(

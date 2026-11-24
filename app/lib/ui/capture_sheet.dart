@@ -16,6 +16,7 @@ import 'interferers_screen.dart';
 import '../core/signal.dart';
 import 'app_dialogs.dart';
 import 'dbm_field.dart';
+import 'quick_readings.dart';
 
 enum AzimuthRef { trueNorth, magnetic }
 
@@ -24,6 +25,48 @@ const sigmaPresets = <({String label, double sigma})>[
   (label: 'mittel ±15°', sigma: 15),
   (label: 'schlecht ±30°', sigma: 30),
 ];
+
+/// The three accuracy presets in one row of equally wide chips. Labels shrink instead of
+/// wrapping, and the selection shows as fill (no checkmark, which would widen the chip).
+class SigmaChips extends StatelessWidget {
+  const SigmaChips({
+    super.key,
+    required this.keyPrefix,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  /// Chips are keyed `<keyPrefix>-<sigma>`.
+  final String keyPrefix;
+  final double selected;
+  final ValueChanged<double> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      for (var i = 0; i < sigmaPresets.length; i++) ...[
+        if (i > 0) const SizedBox(width: 8),
+        Expanded(
+          child: ChoiceChip(
+            key: Key('$keyPrefix-${sigmaPresets[i].sigma.round()}'),
+            showCheckmark: false,
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+            label: SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(sigmaPresets[i].label, maxLines: 1),
+              ),
+            ),
+            selected: selected == sigmaPresets[i].sigma,
+            onSelected: (_) => onSelected(sigmaPresets[i].sigma),
+          ),
+        ),
+      ],
+    ],
+  );
+}
 
 /// Bottom sheet to record one bearing with big, one-handed controls.
 class CaptureSheet extends ConsumerStatefulWidget {
@@ -534,47 +577,24 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
             const SizedBox(height: 12),
             Text('Genauigkeit (Sigma)', style: theme.textTheme.labelLarge),
             const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final p in sigmaPresets)
-                  ChoiceChip(
-                    key: Key('sigma-${p.sigma.round()}'),
-                    label: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 10,
-                      ),
-                      child: Text(p.label),
-                    ),
-                    selected: _sigma == p.sigma,
-                    onSelected: (_) => setState(() => _sigma = p.sigma),
-                  ),
-              ],
+            SigmaChips(
+              keyPrefix: 'sigma',
+              selected: _sigma,
+              onSelected: (v) => setState(() => _sigma = v),
             ),
             const SizedBox(height: 12),
             DbmField(key: const Key('rssi'), controller: _rssi, label: 'RSSI'),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final q in quickReadings)
-                  ActionChip(
-                    key: Key('capture-${q.label}'),
-                    label: Text(q.label),
-                    onPressed: () {
-                      final sMode = ref.read(settingsProvider).levelInS;
-                      final text = sMode
-                          ? dbmToSInput(q.dbm)
-                          : '${q.dbm.round()}';
-                      _rssi.value = TextEditingValue(
-                        text: text,
-                        selection: TextSelection.collapsed(offset: text.length),
-                      );
-                    },
-                  ),
-              ],
+            QuickReadingGrid(
+              keyPrefix: 'capture',
+              onPick: (q) {
+                final sMode = ref.read(settingsProvider).levelInS;
+                final text = sMode ? dbmToSInput(q.dbm) : '${q.dbm.round()}';
+                _rssi.value = TextEditingValue(
+                  text: text,
+                  selection: TextSelection.collapsed(offset: text.length),
+                );
+              },
             ),
             const SizedBox(height: 8),
             TextField(

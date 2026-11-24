@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:foxgrid/ui/app_dialogs.dart';
 import 'package:foxgrid/ui/app_theme.dart';
+import 'package:foxgrid/ui/quick_readings.dart';
+import 'package:foxgrid/core/signal.dart';
 
 Widget _host(Widget child, {double width = 360, double scale = 1}) =>
     MaterialApp(
@@ -126,4 +128,32 @@ void main() {
       greaterThan(tester.getTopLeft(find.byKey(const Key('a'))).dy),
     );
   });
+
+  for (final buttons in [false, true]) {
+    testWidgets(
+      'QuickReadingGrid is two even rows of five (buttons=$buttons)',
+      (tester) async {
+        QuickReading? picked;
+        await tester.pumpWidget(
+          _host(
+            QuickReadingGrid(
+              keyPrefix: 'q',
+              buttons: buttons,
+              onPick: (q) => picked = q,
+            ),
+            width: 320,
+          ),
+        );
+        final rects = [
+          for (final q in quickReadings)
+            tester.getRect(find.byKey(Key('q-${q.label}'))),
+        ];
+        expect(rects.map((r) => r.top).toSet().length, 2);
+        expect(rects.map((r) => r.width.round()).toSet().length, 1);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byKey(const Key('q-S9+60')));
+        expect(picked?.label, 'S9+60');
+      },
+    );
+  }
 }

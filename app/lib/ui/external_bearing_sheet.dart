@@ -5,7 +5,7 @@ import '../core/coords.dart';
 import '../core/models.dart';
 import '../state/providers.dart';
 import 'app_dialogs.dart';
-import 'capture_sheet.dart' show sigmaPresets;
+import 'capture_sheet.dart' show SigmaChips;
 
 /// Lead only: enters a bearing received from outside the group (e.g. from the BNetzA) for a
 /// [BearingPoint]. Position, compass and GPS play no part: the bearing sits at the point.
@@ -224,23 +224,10 @@ class _ExternalBearingSheetState extends ConsumerState<ExternalBearingSheet> {
             const SizedBox(height: 12),
             Text('Genauigkeit (Sigma)', style: theme.textTheme.labelLarge),
             const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final p in sigmaPresets)
-                  ChoiceChip(
-                    key: Key('ext-sigma-${p.sigma.round()}'),
-                    label: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 10,
-                      ),
-                      child: Text(p.label),
-                    ),
-                    selected: _sigma == p.sigma,
-                    onSelected: (_) => setState(() => _sigma = p.sigma),
-                  ),
-              ],
+            SigmaChips(
+              keyPrefix: 'ext-sigma',
+              selected: _sigma,
+              onSelected: (v) => setState(() => _sigma = v),
             ),
             const SizedBox(height: 8),
             ListTile(
