@@ -1,1 +1,1 @@
-Peilungs-Dialoge lassen sich jetzt mit Schließen- und Abbrechen-Taste verlassen; bei Eingaben kommt eine Rückfrage.
+Peilung nachträglich erfassen (Zeit und Position frei wählbar) und ein einheitlicheres Layout der Dialoge und Eingaben.

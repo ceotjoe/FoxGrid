@@ -1,1 +1,1 @@
-Bearing sheets now have close and cancel buttons, and ask before discarding typed input.
+Enter bearings retroactively (choose time and position) and a more consistent layout for dialogs and inputs.

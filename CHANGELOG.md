@@ -3,9 +3,12 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## Unreleased
+## 0.7.0 – 2026-11-24
 
+- App: unified layout of dialogs, sheets and buttons. One component theme (`ui/app_theme.dart`) and shared building blocks (`ui/app_dialogs.dart`: `AppDialog`, `confirmDialog`, `AppSheet`, `ActionBar`, `FieldRow`, `CoordinateFields`). Buttons in a row are equally sized and never wrap their label; when labels do not fit side by side they stack. The accuracy (sigma) presets are one row, the S-meter quick values a fixed 5×2 grid, and the quarantine dialog has two buttons plus an "also remove" checkbox. See [App internals](docs/development/app.md).
+- App: the red night theme uses dark red borders and dividers instead of the near-white default; the map title has a left margin; the map source selector says "Eigener" instead of "Eigener Server".
 - Retroactive bearings: *Menü → Peilung nachträglich* lets a bearer enter a bearing afterwards with a chosen time (up to 7 days back) and position (map, typed coordinates, own track at that time, or the current GPS fix). The bearing counts for the estimate like a live one and is marked "nachträglich" in the list. Backend: `entry_mode` on bearings (migration 0014), `measured_at` may not lie in the future, retroactive bearings skip the own-track plausibility checks. See [ADR 0009](docs/adr/0009-retroactive-bearings.md).
+- Backend: one new migration (0014); run `alembic upgrade head` when deploying.
 
 ## 0.6.1 – 2026-11-24
 
