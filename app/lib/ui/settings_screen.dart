@@ -78,7 +78,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ButtonSegment(value: BaseMap.topo, label: Text('Topo')),
               ButtonSegment(
                 value: BaseMap.custom,
-                label: Text('Eigener Server'),
+                label: Text('Eigener'),
               ),
             ],
             selected: {settings.baseMap},

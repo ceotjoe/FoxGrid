@@ -359,7 +359,7 @@ void main() {
       );
       await tester.pump();
       expect(c.read(settingsProvider).hasCustomTiles, isTrue);
-      await tester.tap(find.text('Eigener Server'));
+      await tester.tap(find.text('Eigener'));
       await tester.pump();
       expect(
         c.read(settingsProvider).tileUrl,
