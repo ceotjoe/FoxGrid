@@ -557,7 +557,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 0,
+        titleSpacing: 16,
         title: state.mission == null
             ? const Text('FoxGrid')
             : InkWell(
