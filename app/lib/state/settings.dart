@@ -20,6 +20,7 @@ class AppSettings {
     this.baseMap = BaseMap.osm,
     this.radioId,
     this.radioOffsetDb = 0,
+    this.levelInS = false,
   });
 
   /// Red-on-black scheme that keeps night vision in the field.
@@ -38,6 +39,9 @@ class AppSettings {
   /// Calibration offset added to the radio's S-meter level, in dB.
   final double radioOffsetDb;
 
+  /// Level fields take S values (S7, S9+20) instead of dBm; remembers the last choice.
+  final bool levelInS;
+
   bool get hasCustomTiles => customTileUrl.trim().isNotEmpty;
 
   String get tileUrl => switch (baseMap) {
@@ -54,6 +58,7 @@ class AppSettings {
     String? radioId,
     bool clearRadio = false,
     double? radioOffsetDb,
+    bool? levelInS,
   }) => AppSettings(
     nightMode: nightMode ?? this.nightMode,
     themeMode: themeMode ?? this.themeMode,
@@ -61,6 +66,7 @@ class AppSettings {
     baseMap: baseMap ?? this.baseMap,
     radioId: clearRadio ? null : (radioId ?? this.radioId),
     radioOffsetDb: radioOffsetDb ?? this.radioOffsetDb,
+    levelInS: levelInS ?? this.levelInS,
   );
 }
 
@@ -71,6 +77,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const _base = 'foxgrid.baseMap';
   static const _radio = 'foxgrid.radio';
   static const _radioOffset = 'foxgrid.radioOffset';
+  static const _levelInS = 'foxgrid.levelInS';
 
   late SharedPreferences _prefs;
 
@@ -92,6 +99,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       ),
       radioId: _prefs.getString(_radio),
       radioOffsetDb: _prefs.getDouble(_radioOffset) ?? 0,
+      levelInS: _prefs.getBool(_levelInS) ?? false,
     );
   }
 
@@ -124,6 +132,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setRadioOffset(double db) async {
     state = state.copyWith(radioOffsetDb: db);
     await _prefs.setDouble(_radioOffset, db);
+  }
+
+  Future<void> setLevelInS(bool v) async {
+    state = state.copyWith(levelInS: v);
+    await _prefs.setBool(_levelInS, v);
   }
 
   Future<void> setBaseMap(BaseMap b) async {

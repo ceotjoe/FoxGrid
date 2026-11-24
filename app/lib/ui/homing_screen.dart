@@ -144,7 +144,7 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
                         child: DbmField(
                           key: const Key('rssi-dbm'),
                           controller: _dbm,
-                          label: 'Pegel in dBm',
+                          label: 'Pegel',
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -153,18 +153,17 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
                         child: FilledButton(
                           key: const Key('log-dbm'),
                           onPressed: () {
-                            final v = parseDbm(_dbm.text);
-                            if (v == null || v > 20 || v < -200) {
+                            final v = parseLevel(
+                              _dbm.text,
+                              sMode: ref.read(settingsProvider).levelInS,
+                            );
+                            if (!isPlausibleLevel(v)) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'dBm-Wert zwischen -200 und 20 eingeben',
-                                  ),
-                                ),
+                                const SnackBar(content: Text(levelRangeError)),
                               );
                               return;
                             }
-                            _log(v);
+                            _log(v!);
                             _dbm.clear();
                           },
                           child: const Text('Erfassen'),

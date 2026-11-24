@@ -182,6 +182,39 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets('S mode: typed S value and S buttons, choice is remembered', (
+    tester,
+  ) async {
+    final env = await _open(tester);
+    await tester.enterText(find.byKey(const Key('azimuth')), '200');
+    await tester.ensureVisible(find.byKey(const Key('level-unit')));
+    await tester.tap(find.byKey(const Key('level-unit')));
+    await tester.pump();
+    expect(
+      ProviderScope.containerOf(tester.element(find.byType(CaptureSheet)))
+          .read(settingsProvider)
+          .levelInS,
+      isTrue,
+    );
+    await tester.enterText(find.byKey(const Key('rssi')), '9+20');
+    await tester.tap(find.byKey(const Key('save-bearing')));
+    await tester.pumpAndSettle();
+    expect((await _queuedBearing(env))['rssi_dbm'], -73.0);
+    await _unmount(tester);
+  });
+
+  testWidgets('an S button fills the level field', (tester) async {
+    final env = await _open(tester);
+    await tester.enterText(find.byKey(const Key('azimuth')), '200');
+    await tester.ensureVisible(find.byKey(const Key('capture-S7')));
+    await tester.tap(find.byKey(const Key('capture-S7')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('save-bearing')));
+    await tester.pumpAndSettle();
+    expect((await _queuedBearing(env))['rssi_dbm'], -105.0);
+    await _unmount(tester);
+  });
+
   testWidgets('optional fields are sent when filled in', (tester) async {
     final env = await _open(tester);
     await tester.enterText(find.byKey(const Key('azimuth')), '200');

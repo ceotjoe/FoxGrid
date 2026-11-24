@@ -8,6 +8,7 @@ import '../core/geo.dart';
 import '../core/permissions.dart';
 import '../state/providers.dart';
 import 'interferers_screen.dart';
+import '../core/signal.dart';
 import 'dbm_field.dart';
 
 enum AzimuthRef { trueNorth, magnetic }
@@ -109,6 +110,13 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
       setState(() => _error = 'Noch kein Standort verfügbar');
       return;
     }
+    final rssi = _rssi.text.trim().isEmpty
+        ? null
+        : parseLevel(_rssi.text, sMode: ref.read(settingsProvider).levelInS);
+    if (_rssi.text.trim().isNotEmpty && !isPlausibleLevel(rssi)) {
+      setState(() => _error = levelRangeError);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -126,7 +134,7 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
       'sigma_deg': _sigma,
       'polarization': _polarization,
       'measured_at': DateTime.now().toUtc().toIso8601String(),
-      if (_rssi.text.trim().isNotEmpty) 'rssi_dbm': parseDbm(_rssi.text),
+      'rssi_dbm': ?rssi,
       if (_attenuation.text.trim().isNotEmpty)
         'attenuation_db':
             double.tryParse(_attenuation.text.trim().replaceAll(',', '.')) ?? 0,
@@ -292,7 +300,7 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                         child: DbmField(
                           key: const Key('rssi'),
                           controller: _rssi,
-                          label: 'RSSI dBm',
+                          label: 'RSSI',
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -309,6 +317,30 @@ class _CaptureSheetState extends ConsumerState<CaptureSheet> {
                           ),
                         ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final q in quickReadings)
+                        ActionChip(
+                          key: Key('capture-${q.label}'),
+                          label: Text(q.label),
+                          onPressed: () {
+                            final sMode = ref.read(settingsProvider).levelInS;
+                            final text = sMode
+                                ? dbmToSInput(q.dbm)
+                                : '${q.dbm.round()}';
+                            _rssi.value = TextEditingValue(
+                              text: text,
+                              selection: TextSelection.collapsed(
+                                offset: text.length,
+                              ),
+                            );
+                          },
+                        ),
                     ],
                   ),
                   const SizedBox(height: 8),

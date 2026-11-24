@@ -46,7 +46,7 @@ our own. Bulk download is blocked for public OSM servers (tile usage policy). Th
 
 ## Signals and homing
 
-- The S-meter convention (IARU VHF/UHF, S9 = −93 dBm, 6 dB per S-unit) lives in `core/signal.dart`: one place to change.
+- The S-meter convention (IARU VHF/UHF, S9 = −93 dBm, 6 dB per S-unit) lives in `core/signal.dart`: one place to change. `parseSLevel` reads typed S values; `DbmField` (`ui/dbm_field.dart`) has a dBm/S unit button whose state is `AppSettings.levelInS` (persisted), and `parseLevel` is the single entry point for all level fields.
 - The homing screen has scrolling content plus a pinned `_EntryPanel`, so S-meter taps never scroll away.
 - `core/radio/` has protocol codecs (Icom CI-V, ASCII `SM0`), `RawScale` calibration and `RadioSignalSource`. There is no
   `RadioTransport` implementation yet (needs USB/Bluetooth plugins).

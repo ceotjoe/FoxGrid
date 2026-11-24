@@ -161,6 +161,31 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets('the unit button switches to S values and is remembered', (
+    tester,
+  ) async {
+    final env = await _open(tester);
+    await tester.tap(find.byKey(const Key('level-unit')));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('station-dbm')), 'S9+20');
+    await tester.tap(find.byKey(const Key('station-log-dbm')));
+    await tester.pumpAndSettle();
+    expect(_body(env, 0).single['rssi_dbm'], -73.0);
+
+    // S mode: the sign button toggles the "+"
+    await tester.enterText(find.byKey(const Key('station-dbm')), '9');
+    await tester.tap(find.byKey(const Key('dbm-sign')));
+    await tester.pump();
+    expect(find.text('9+'), findsOneWidget);
+
+    // switching back converts the typed value
+    await tester.enterText(find.byKey(const Key('station-dbm')), '7');
+    await tester.tap(find.byKey(const Key('level-unit')));
+    await tester.pump();
+    expect(find.text('-105'), findsOneWidget);
+    await _unmount(tester);
+  });
+
   testWidgets('the lead sets the repeater, queued as a PATCH', (tester) async {
     final env = await _open(tester);
     expect(find.text('Noch nicht gesetzt'), findsOneWidget);

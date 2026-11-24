@@ -20,6 +20,24 @@ String dbmToSLabel(double dbm) {
   return 'S$s';
 }
 
+final _sLevel = RegExp(r'^s?\s*(\d)\s*(?:\+\s*(\d{1,3})?)?$');
+
+/// Parses a typed S value: `7`, `S7`, `s9+20`, `S9 + 20` (leading `S` optional).
+/// "+dB" is only valid on S9. Returns the level in dBm or null when invalid.
+/// A bare trailing `+` (as typed on the way to `S9+20`) counts as S9+0.
+double? parseSLevel(String text) {
+  final t = text.trim().toLowerCase();
+  final m = _sLevel.firstMatch(t);
+  if (m == null) return null;
+  final s = int.parse(m.group(1)!);
+  final over = int.tryParse(m.group(2) ?? '') ?? 0;
+  if (t.contains('+') && s != 9) return null;
+  return sMeterToDbm(s, over: over);
+}
+
+/// The value of [dbm] as typed in S mode, without the `S` prefix: `7`, `9+20`.
+String dbmToSInput(double dbm) => dbmToSLabel(dbm).substring(1);
+
 /// A reading that can be logged with one tap.
 class QuickReading {
   const QuickReading(this.label, this.dbm);

@@ -26,6 +26,20 @@ void main() {
       }
     });
 
+    test('typed S values parse to dBm', () {
+      expect(parseSLevel('7'), -105);
+      expect(parseSLevel('S7'), -105);
+      expect(parseSLevel(' s9 + 20 '), -73);
+      expect(parseSLevel('9+'), -93); // on the way to 9+20
+      expect(parseSLevel('0'), -147);
+      expect(parseSLevel('S7+10'), isNull); // over only on S9
+      expect(parseSLevel('S'), isNull);
+      expect(parseSLevel('12'), isNull);
+      expect(parseSLevel('abc'), isNull);
+      expect(dbmToSInput(-73), '9+20');
+      expect(dbmToSInput(-105), '7');
+    });
+
     test('quick readings are ordered from weak to strong', () {
       final dbm = quickReadings.map((q) => q.dbm).toList();
       expect(dbm, [...dbm]..sort());

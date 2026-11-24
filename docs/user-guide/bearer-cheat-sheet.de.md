@@ -36,7 +36,7 @@
 ## 4 · Nahbereich – Homing (Kompass-Symbol)
 - Großer **Pfeil** zeigt zum wahrscheinlichsten Ort, mit Entfernung. Innerhalb des 1σ-Bereichs erscheint ein Hinweis.
 - Pfeilquelle: GPS-Kurs über 1,5 m/s, sonst Kompass + Missweisung.
-- **Schnelleingabe** unten: S-Tasten **S1 … S9+60** (S9 = −93 dBm, 6 dB je S-Stufe), dBm-Feld (ohne Vorzeichen = negativ, `+5` = positiv, ±-Taste schaltet das Vorzeichen durch).
+- **Schnelleingabe** unten: S-Tasten **S1 … S9+60** (S9 = −93 dBm, 6 dB je S-Stufe), Pegelfeld (dBm: ohne Vorzeichen = negativ, `+5` = positiv, ±-Taste schaltet das Vorzeichen durch; die Einheitentaste wechselt zu S-Werten wie `7` oder `9+20` und merkt sich die Wahl).
 - **Dämpfungsglied** (aus / 10 / 20 / 30 / 40 dB): den wirklich genutzten Wert wählen – wird nachträglich herausgerechnet.
 - Schalter **„letzten Wert alle 2 s protokollieren"** nimmt eine Reihe auf. Erst ab **5 Messwerten** gehen sie ein.
 - Spurfarbe: blau = schwach, rot = stark. Reflexionen verfälschen Pegel – **Peilungen bleiben verlässlicher**.
