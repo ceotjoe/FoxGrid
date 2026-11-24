@@ -215,7 +215,7 @@ void main() {
     await _unmount(tester);
   });
 
-  testWidgets('auto logging repeats the last value every two seconds', (
+  testWidgets('auto logging repeats the last value only after moving', (
     tester,
   ) async {
     final env = await _open(tester, estimate: _estimate());
@@ -228,15 +228,23 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(auto);
     await tester.pump();
+    int count() => env.api.sent.where((e) => e.kind == 'rssi').length;
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 2));
+    expect(count(), 1); // standing still adds nothing
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HomingScreen)),
+    );
+    // ignore: invalid_use_of_protected_member
+    container.read(ownPositionProvider.notifier).state = _fix(48.1001, 11.5);
     await tester.pump(const Duration(seconds: 2));
-    final count = env.api.sent.where((e) => e.kind == 'rssi').length;
-    expect(count, 4); // the tap plus three automatic readings
+    expect(count(), 2); // ~11 m further: one more reading
+    await tester.pump(const Duration(seconds: 2));
+    expect(count(), 2);
     await tester.tap(auto); // switch off
     await tester.pump();
     await tester.pump(const Duration(seconds: 6));
-    expect(env.api.sent.where((e) => e.kind == 'rssi').length, count);
+    expect(count(), 2);
     await _unmount(tester);
   });
 

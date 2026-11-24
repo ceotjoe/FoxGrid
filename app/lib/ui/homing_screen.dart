@@ -6,6 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../core/geo.dart';
 import '../core/homing.dart';
 import '../core/models.dart';
 import '../core/signal.dart';
@@ -29,6 +30,11 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
   Timer? _auto;
   bool _autoLog = false;
   double? _lastDbm; // last value typed or tapped, repeated by auto logging
+  LatLng? _lastLogged; // where the last reading was logged
+
+  /// Auto logging only adds a reading after the receiver moved this far: the same value
+  /// at the same spot adds nothing but queue entries.
+  static const _autoMinMoveM = 5.0;
 
   @override
   void dispose() {
@@ -46,6 +52,7 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
       return;
     }
     _lastDbm = dbm;
+    _lastLogged = fix.point;
     await ref
         .read(missionProvider.notifier)
         .logRssi(
@@ -62,7 +69,13 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
     if (on) {
       _auto = Timer.periodic(const Duration(seconds: 2), (_) {
         final v = _lastDbm;
-        if (v != null) _log(v);
+        final fix = ref.read(ownPositionProvider);
+        final last = _lastLogged;
+        if (v == null || fix == null) return;
+        if (last != null && distanceMeters(last, fix.point) < _autoMinMoveM) {
+          return;
+        }
+        _log(v);
       });
     }
   }
@@ -169,9 +182,9 @@ class _HomingScreenState extends ConsumerState<HomingScreen> {
                   SwitchListTile(
                     key: const Key('auto-log'),
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Letzten Wert alle 2 s mitschreiben'),
+                    title: const Text('Letzten Wert beim Gehen mitschreiben'),
                     subtitle: const Text(
-                      'Praktisch beim Gehen mit konstantem S-Meter',
+                      'Alle 2 s geprüft, geloggt erst nach 5 m Weg',
                     ),
                     value: _autoLog,
                     onChanged: _lastDbm == null && !_autoLog ? null : _setAuto,
