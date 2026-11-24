@@ -370,6 +370,11 @@ class DioFoxGridApi implements FoxGridApi {
       if (code == null || code >= 500 || code == 408 || code == 429) {
         return SendResult(SendOutcome.retry, ex.message);
       }
+      // A missing permission will not fix itself: reject so the entry shows as failed
+      // (with "Verwerfen") instead of blocking the queue forever.
+      if (code == 403 && ex.message.startsWith('permission required')) {
+        return SendResult(SendOutcome.rejected, ex.message);
+      }
       if (code == 401 || code == 403) {
         return SendResult(
           SendOutcome.retry,

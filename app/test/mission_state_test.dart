@@ -201,6 +201,21 @@ void main() {
   });
 
   test(
+    'toggling an unsent outlier flag again replaces the queued entry',
+    () async {
+      final api = FakeApi()
+        ..snapshotData = snapshotJson(bearings: [bearingJson('b1')])
+        ..sendResult = const SendResult(SendOutcome.retry, 'offline');
+      await start(api: api);
+      await env.mission.setOutlier('b1', outlier: true);
+      await env.mission.setOutlier('b1', outlier: false);
+      await env.mission.setOutlier('b1', outlier: true);
+      final entry = (await env.store.all()).single;
+      expect(jsonDecode(entry.bodyJson!), {'is_outlier': true});
+    },
+  );
+
+  test(
     'transmission toggle is local first, then replaced by the server copy',
     () async {
       final api = FakeApi()

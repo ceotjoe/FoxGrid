@@ -87,6 +87,9 @@ class BearingsSheet extends ConsumerWidget {
                     state.activeInterferers.length > 1 &&
                     (b.participantId == session?.participantId ||
                         (session?.can(Perm.interfererManage) ?? false));
+                final mayFlag =
+                    b.participantId == session?.participantId ||
+                    (session?.can(Perm.bearingFlag) ?? false);
                 final tile = SwitchListTile(
                   title: Text(
                     '$who · ${b.azimuthTrueDeg.toStringAsFixed(0)}° ±${b.sigmaDeg.toStringAsFixed(0)}°',
@@ -105,9 +108,11 @@ class BearingsSheet extends ConsumerWidget {
                     color: b.isOutlier ? Colors.orange : Colors.green,
                   ),
                   value: b.isOutlier,
-                  onChanged: (v) => ref
-                      .read(missionProvider.notifier)
-                      .setOutlier(b.id, outlier: v),
+                  onChanged: mayFlag
+                      ? (v) => ref
+                            .read(missionProvider.notifier)
+                            .setOutlier(b.id, outlier: v)
+                      : null,
                 );
                 if (!mayReassign) return tile;
                 return GestureDetector(

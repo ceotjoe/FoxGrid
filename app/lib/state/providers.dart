@@ -1243,6 +1243,14 @@ class MissionNotifier extends Notifier<MissionState> {
     if (b != null) {
       state = _withBearing(state, b.copyWith(isOutlier: outlier));
     }
+    // Toggling again supersedes a flag that has not been sent yet: the last value wins.
+    for (final e in await _store.all()) {
+      if (e.kind == 'outlier' &&
+          !e.isFailed &&
+          e.path == '$_base/bearings/$bearingId') {
+        await _store.remove(e.id);
+      }
+    }
     await _enqueue(
       kind: 'outlier',
       method: 'PATCH',

@@ -6,9 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:foxgrid/core/api.dart';
 import 'package:foxgrid/core/outbox.dart';
 import 'package:foxgrid/core/session.dart';
+import 'package:foxgrid/core/sync.dart';
 
 /// Records what actually goes over the wire.
 class _Capture implements HttpClientAdapter {
+  _Capture({this.status = 200, this.reply = '{}'});
+
+  final int status;
+  final String reply;
   RequestOptions? options;
   String? body;
 
@@ -30,8 +35,8 @@ class _Capture implements HttpClientAdapter {
       body = utf8.decode(bytes);
     }
     return ResponseBody.fromString(
-      '{}',
-      200,
+      reply,
+      status,
       headers: {
         'content-type': ['application/json'],
       },
@@ -61,6 +66,30 @@ void main() {
     callsign: 'DL1ABC',
     role: 'fixed',
   );
+
+  Future<SendResult> outcome(int status, String reply) => DioFoxGridApi(
+    session: session,
+    dio: Dio()..httpClientAdapter = _Capture(status: status, reply: reply),
+  ).sendQueued(_entry('PATCH', {'is_outlier': true}));
+
+  test('403 "permission required" is rejected, not retried forever', () async {
+    final r = await outcome(
+      403,
+      '{"detail":"permission required: bearing.flag"}',
+    );
+    expect(r.outcome, SendOutcome.rejected);
+  });
+
+  test('401 and other 403 stay retryable', () async {
+    expect(
+      (await outcome(401, '{"detail":"expired"}')).outcome,
+      SendOutcome.retry,
+    );
+    expect(
+      (await outcome(403, '{"detail":"awaiting approval"}')).outcome,
+      SendOutcome.retry,
+    );
+  });
 
   Future<_Capture> send(String method, Object? body) async {
     final capture = _Capture();
