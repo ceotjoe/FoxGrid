@@ -43,6 +43,28 @@ List<Map<String, dynamic>> _bearings(WidgetEnv env) => [
 ];
 
 void main() {
+  testWidgets('action buttons share one size on a narrow phone', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpWith(
+      tester,
+      const Scaffold(body: ExternalBearingSheet(pointId: 'pt1')),
+      api: FakeApi()..snapshotData = snapshotJson(points: [pointJson('pt1')]),
+    );
+    await tester.pumpAndSettle();
+    final sizes = [
+      for (final k in ['ext-cancel', 'ext-save-more', 'ext-save'])
+        tester.getSize(find.byKey(Key(k))),
+    ];
+    expect(sizes.map((s) => s.width).toSet().length, 1);
+    expect(sizes.map((s) => s.height).toSet().length, 1);
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
   testWidgets('saves a bearing at the point, not at the device', (
     tester,
   ) async {

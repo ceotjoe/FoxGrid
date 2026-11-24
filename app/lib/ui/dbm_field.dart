@@ -90,12 +90,15 @@ class DbmField extends ConsumerWidget {
         helperText: sMode
             ? 'z. B. 7 oder 9+20'
             : 'ohne Vorzeichen = negativ, + für positiv',
-        border: const OutlineInputBorder(),
         suffixIcon: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextButton(
               key: const Key('level-unit'),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(48, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
               onPressed: () => _switchUnit(ref, sMode),
               child: Text(sMode ? 'S' : 'dBm'),
             ),

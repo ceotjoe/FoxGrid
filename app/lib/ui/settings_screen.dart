@@ -91,7 +91,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             decoration: const InputDecoration(
               labelText: 'Eigener Tile-Server',
               hintText: 'https://tiles.example.org/{z}/{x}/{y}.png',
-              border: OutlineInputBorder(),
             ),
             onChanged: notifier.setCustomTileUrl,
           ),
@@ -108,20 +107,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text('Zusätzliche Zoomstufen:'),
-              Expanded(
-                child: Slider(
-                  value: _extraZoom.toDouble(),
-                  min: 0,
-                  max: 4,
-                  divisions: 4,
-                  label: '$_extraZoom',
-                  onChanged: (v) => setState(() => _extraZoom = v.round()),
-                ),
-              ),
-            ],
+          const Text('Zusätzliche Zoomstufen'),
+          Slider(
+            value: _extraZoom.toDouble(),
+            min: 0,
+            max: 4,
+            divisions: 4,
+            label: '$_extraZoom',
+            onChanged: (v) => setState(() => _extraZoom = v.round()),
           ),
           Text(
             view == null
@@ -160,10 +153,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           DropdownButtonFormField<String?>(
             key: const Key('radio-profile'),
             initialValue: settings.radioId,
-            decoration: const InputDecoration(
-              labelText: 'Funkgerät',
-              border: OutlineInputBorder(),
-            ),
+            decoration: const InputDecoration(labelText: 'Funkgerät'),
             items: [
               const DropdownMenuItem(
                 value: null,
@@ -185,7 +175,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             decoration: const InputDecoration(
               labelText: 'Kalibrierung in dB',
               helperText: 'Wird auf den S-Meter-Pegel des Geräts addiert',
-              border: OutlineInputBorder(),
             ),
             onChanged: (v) {
               final d = double.tryParse(v.replaceAll(',', '.'));

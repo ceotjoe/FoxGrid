@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'app_dialogs.dart';
 import '../core/models.dart';
 import '../core/permissions.dart';
 import '../core/signal.dart';
@@ -368,13 +369,10 @@ class _RepeaterDialogState extends State<_RepeaterDialog> {
           decimal: true,
           signed: true,
         ),
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-        ),
+        decoration: InputDecoration(labelText: label),
       ),
     );
-    return AlertDialog(
+    return AppDialog(
       title: const Text('Relais festlegen'),
       content: SingleChildScrollView(
         child: Column(
@@ -405,14 +403,11 @@ class _RepeaterDialogState extends State<_RepeaterDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Abbrechen'),
-        ),
-        FilledButton(
-          key: const Key('repeater-save'),
+        AppAction.cancel(onPressed: () => Navigator.of(context).pop()),
+        AppAction(
+          label: 'Speichern',
+          buttonKey: const Key('repeater-save'),
           onPressed: _submit,
-          child: const Text('Speichern'),
         ),
       ],
     );
@@ -469,13 +464,10 @@ class _PositionDialogState extends State<_PositionDialog> {
           decimal: true,
           signed: true,
         ),
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-        ),
+        decoration: InputDecoration(labelText: label),
       ),
     );
-    return AlertDialog(
+    return AppDialog(
       title: const Text('Fester Standort'),
       content: SingleChildScrollView(
         child: Column(
@@ -504,14 +496,11 @@ class _PositionDialogState extends State<_PositionDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Abbrechen'),
-        ),
-        FilledButton(
-          key: const Key('position-save'),
+        AppAction.cancel(onPressed: () => Navigator.of(context).pop()),
+        AppAction(
+          label: 'Speichern',
+          buttonKey: const Key('position-save'),
           onPressed: _submit,
-          child: const Text('Speichern'),
         ),
       ],
     );

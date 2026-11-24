@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app_dialogs.dart';
 import '../core/api.dart';
 import '../core/models.dart';
 import '../core/permissions.dart';
@@ -46,33 +47,45 @@ class ParticipantsScreen extends ConsumerWidget {
     WidgetRef ref,
     Participant p,
   ) async {
-    final remove = await showDialog<bool>(
+    var alsoRemove = false;
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Quarantäne für ${p.callsign}?'),
-        content: const Text(
-          'Alle Peilungen und Messwerte dieses Teilnehmers werden aus der '
-          'Schätzung genommen und sein Vertrauen entzogen. Sie bleiben im '
-          'Protokoll. Das Zurücknehmen geht nur einzeln pro Peilung.',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AppDialog(
+          title: Text('Quarantäne für ${p.callsign}?'),
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Alle Peilungen und Messwerte dieses Teilnehmers werden aus '
+                'der Schätzung genommen und sein Vertrauen entzogen. Sie '
+                'bleiben im Protokoll. Das Zurücknehmen geht nur einzeln pro '
+                'Peilung.',
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                key: const Key('quarantine-also-remove'),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Teilnehmer auch aus dem Einsatz entfernen'),
+                value: alsoRemove,
+                onChanged: (v) => setState(() => alsoRemove = v ?? false),
+              ),
+            ],
+          ),
+          actions: [
+            AppAction.cancel(onPressed: () => Navigator.pop(ctx)),
+            AppAction(
+              label: 'Quarantäne',
+              role: AppActionRole.destructive,
+              buttonKey: const Key('quarantine-confirm'),
+              onPressed: () => Navigator.pop(ctx, true),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            key: const Key('quarantine-only'),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Quarantäne'),
-          ),
-          FilledButton(
-            key: const Key('quarantine-remove'),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Quarantäne und entfernen'),
-          ),
-        ],
       ),
     );
+    final remove = confirmed == true ? alsoRemove : null;
     if (remove == null || !context.mounted) return;
     try {
       final r = await ref.read(apiProvider).quarantine(p.id, remove: remove);

@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'app_dialogs.dart';
 import '../core/coords.dart';
 import '../state/providers.dart';
 import 'app_tile_layer.dart';
@@ -196,45 +197,20 @@ class _PointEditorScreenState extends ConsumerState<PointEditorScreen> {
                   decoration: InputDecoration(
                     labelText: 'Name',
                     hintText: 'z. B. BNetzA Köln',
-                    border: const OutlineInputBorder(),
                     // Once saving, the new point itself would count as a duplicate.
                     errorText: _showErrors && !_saving ? _nameError() : null,
                   ),
                 ),
                 const SizedBox(height: 4),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        key: const Key('point-lat'),
-                        controller: _lat,
-                        onChanged: (_) => _typed(),
-                        keyboardType: TextInputType.text,
-                        decoration: InputDecoration(
-                          labelText: 'Breite',
-                          border: const OutlineInputBorder(),
-                          errorText: latError,
-                          errorMaxLines: 2,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        key: const Key('point-lon'),
-                        controller: _lon,
-                        onChanged: (_) => _typed(),
-                        keyboardType: TextInputType.text,
-                        decoration: InputDecoration(
-                          labelText: 'Länge',
-                          border: const OutlineInputBorder(),
-                          errorText: lonError,
-                          errorMaxLines: 2,
-                        ),
-                      ),
-                    ),
-                  ],
+                CoordinateFields(
+                  latitude: _lat,
+                  longitude: _lon,
+                  latKey: const Key('point-lat'),
+                  lonKey: const Key('point-lon'),
+                  onChanged: _typed,
+                  latError: latError,
+                  lonError: lonError,
+                  keyboardType: TextInputType.text,
                 ),
                 const SizedBox(height: 8),
                 Align(
@@ -274,7 +250,6 @@ class _PointEditorScreenState extends ConsumerState<PointEditorScreen> {
                   maxLength: 1000,
                   decoration: const InputDecoration(
                     labelText: 'Notiz (optional)',
-                    border: OutlineInputBorder(),
                   ),
                 ),
                 SwitchListTile(

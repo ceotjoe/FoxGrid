@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app_dialogs.dart';
 import '../core/models.dart';
 import '../state/providers.dart';
 
@@ -106,30 +107,38 @@ class TasksScreen extends ConsumerWidget {
   ) {
     return showDialog<void>(
       context: context,
-      builder: (ctx) => SimpleDialog(
+      builder: (ctx) => AppDialog(
         title: Text('„${task.title}“ zuweisen'),
-        children: [
-          for (final t in state.teams)
-            SimpleDialogOption(
-              onPressed: () {
-                ref.read(missionProvider.notifier).patchTask(task.id, {
-                  'assignee_team_id': t.id,
-                });
-                Navigator.pop(ctx);
-              },
-              child: Text('Team ${t.name}'),
-            ),
-          for (final p in state.participants.values)
-            SimpleDialogOption(
-              onPressed: () {
-                ref.read(missionProvider.notifier).patchTask(task.id, {
-                  'assignee_participant_id': p.id,
-                });
-                Navigator.pop(ctx);
-              },
-              child: Text(p.callsign),
-            ),
-        ],
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final t in state.teams)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.groups_outlined),
+                title: Text('Team ${t.name}'),
+                onTap: () {
+                  ref.read(missionProvider.notifier).patchTask(task.id, {
+                    'assignee_team_id': t.id,
+                  });
+                  Navigator.pop(ctx);
+                },
+              ),
+            for (final p in state.participants.values)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.person_outline),
+                title: Text(p.callsign),
+                onTap: () {
+                  ref.read(missionProvider.notifier).patchTask(task.id, {
+                    'assignee_participant_id': p.id,
+                  });
+                  Navigator.pop(ctx);
+                },
+              ),
+          ],
+        ),
+        actions: [AppAction.cancel(onPressed: () => Navigator.pop(ctx))],
       ),
     );
   }
@@ -164,7 +173,7 @@ class _NewTaskDialogState extends State<_NewTaskDialog> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    return AlertDialog(
+    return AppDialog(
       title: const Text('Neue Aufgabe'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -194,12 +203,10 @@ class _NewTaskDialogState extends State<_NewTaskDialog> {
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Abbrechen'),
-        ),
-        FilledButton(
-          key: const Key('task-save'),
+        AppAction.cancel(onPressed: () => Navigator.pop(context)),
+        AppAction(
+          label: 'Anlegen',
+          buttonKey: const Key('task-save'),
           onPressed: () {
             if (_title.text.trim().isEmpty) return;
             final a = _assignee;
@@ -212,7 +219,6 @@ class _NewTaskDialogState extends State<_NewTaskDialog> {
             );
             Navigator.pop(context);
           },
-          child: const Text('Anlegen'),
         ),
       ],
     );

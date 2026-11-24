@@ -109,10 +109,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       controller: _text,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
-                      decoration: const InputDecoration(
-                        hintText: 'Nachricht',
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: const InputDecoration(hintText: 'Nachricht'),
                     ),
                   ),
                   const SizedBox(width: 8),

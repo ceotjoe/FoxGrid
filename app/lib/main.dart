@@ -6,6 +6,7 @@ import 'core/push.dart';
 import 'state/deep_link.dart';
 import 'state/providers.dart';
 import 'state/push.dart';
+import 'ui/app_theme.dart';
 import 'ui/join_screen.dart';
 import 'ui/map_screen.dart';
 import 'ui/pending_screen.dart';
@@ -50,39 +51,42 @@ class FoxGridApp extends ConsumerWidget {
   }
 }
 
-final _dayTheme = ThemeData(
-  colorSchemeSeed: Colors.deepOrange,
-  useMaterial3: true,
+final _dayTheme = withAppStyle(
+  ThemeData(colorSchemeSeed: Colors.deepOrange, useMaterial3: true),
 );
 
 /// Regular dark scheme (same seed as the day theme).
-final _darkTheme = ThemeData(
-  colorSchemeSeed: Colors.deepOrange,
-  brightness: Brightness.dark,
-  useMaterial3: true,
+final _darkTheme = withAppStyle(
+  ThemeData(
+    colorSchemeSeed: Colors.deepOrange,
+    brightness: Brightness.dark,
+    useMaterial3: true,
+  ),
 );
 
 /// Black background with red accents only: keeps night vision intact in the field.
-final _redTheme = ThemeData(
-  useMaterial3: true,
-  brightness: Brightness.dark,
-  scaffoldBackgroundColor: Colors.black,
-  colorScheme: const ColorScheme.dark(
-    primary: Color(0xFFFF3B30),
-    onPrimary: Colors.black,
-    secondary: Color(0xFFB71C1C),
-    onSecondary: Colors.white,
-    primaryContainer: Color(0xFF4A0000),
-    onPrimaryContainer: Color(0xFFFF8A80),
-    secondaryContainer: Color(0xFF330000),
-    onSecondaryContainer: Color(0xFFFF8A80),
-    surface: Colors.black,
-    onSurface: Color(0xFFFF6B60),
-    surfaceContainerHighest: Color(0xFF220000),
-    error: Color(0xFFFF8A80),
-  ),
-  appBarTheme: const AppBarTheme(
-    backgroundColor: Colors.black,
-    foregroundColor: Color(0xFFFF6B60),
+final _redTheme = withAppStyle(
+  ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.dark,
+    scaffoldBackgroundColor: Colors.black,
+    colorScheme: const ColorScheme.dark(
+      primary: Color(0xFFFF3B30),
+      onPrimary: Colors.black,
+      secondary: Color(0xFFB71C1C),
+      onSecondary: Colors.white,
+      primaryContainer: Color(0xFF4A0000),
+      onPrimaryContainer: Color(0xFFFF8A80),
+      secondaryContainer: Color(0xFF330000),
+      onSecondaryContainer: Color(0xFFFF8A80),
+      surface: Colors.black,
+      onSurface: Color(0xFFFF6B60),
+      surfaceContainerHighest: Color(0xFF220000),
+      error: Color(0xFFFF8A80),
+    ),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Colors.black,
+      foregroundColor: Color(0xFFFF6B60),
+    ),
   ),
 );

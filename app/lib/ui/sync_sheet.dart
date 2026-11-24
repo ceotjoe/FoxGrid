@@ -105,27 +105,36 @@ class SyncSheet extends ConsumerWidget {
                     color: e.isFailed ? Colors.red : Colors.orange,
                   ),
                   title: Text(_kindLabels[e.kind] ?? e.kind),
-                  subtitle: Text(
-                    e.lastError ??
-                        (e.attempts == 0 ? 'wartet' : 'Versuch ${e.attempts}'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        e.lastError ??
+                            (e.attempts == 0
+                                ? 'wartet'
+                                : 'Versuch ${e.attempts}'),
+                      ),
+                      if (e.isFailed)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 8,
+                            children: [
+                              OutlinedButton(
+                                onPressed: () =>
+                                    ref.read(syncProvider.notifier).retry(e),
+                                child: const Text('Erneut'),
+                              ),
+                              OutlinedButton(
+                                onPressed: () =>
+                                    ref.read(syncProvider.notifier).discard(e),
+                                child: const Text('Verwerfen'),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
-                  trailing: e.isFailed
-                      ? Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            TextButton(
-                              onPressed: () =>
-                                  ref.read(syncProvider.notifier).retry(e),
-                              child: const Text('Erneut'),
-                            ),
-                            TextButton(
-                              onPressed: () =>
-                                  ref.read(syncProvider.notifier).discard(e),
-                              child: const Text('Verwerfen'),
-                            ),
-                          ],
-                        )
-                      : null,
                 );
               },
             ),

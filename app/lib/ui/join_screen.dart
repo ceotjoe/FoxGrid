@@ -248,7 +248,6 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
                   decoration: const InputDecoration(
                     labelText: 'Server',
                     hintText: 'https://foxgrid.example.org',
-                    border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -256,10 +255,7 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
                   key: const Key('callsign'),
                   controller: _callsign,
                   textCapitalization: TextCapitalization.characters,
-                  decoration: const InputDecoration(
-                    labelText: 'Rufzeichen',
-                    border: OutlineInputBorder(),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Rufzeichen'),
                 ),
                 const SizedBox(height: 12),
                 Expanded(
@@ -274,7 +270,6 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
                             controller: _invite,
                             decoration: const InputDecoration(
                               labelText: 'Einladung (Token oder Link)',
-                              border: OutlineInputBorder(),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -292,7 +287,6 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
                             controller: _name,
                             decoration: const InputDecoration(
                               labelText: 'Name des Einsatzes',
-                              border: OutlineInputBorder(),
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -310,7 +304,6 @@ class _JoinScreenState extends ConsumerState<JoinScreen>
                                 parseFrequencyMhz(_frequency.text),
                               ),
                               helperMaxLines: 3,
-                              border: const OutlineInputBorder(),
                             ),
                           ),
                           const SizedBox(height: 16),

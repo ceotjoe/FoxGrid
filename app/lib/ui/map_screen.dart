@@ -20,6 +20,7 @@ import '../state/providers.dart';
 import '../state/settings.dart';
 import '../state/tiles.dart';
 import 'app_tile_layer.dart';
+import 'app_dialogs.dart';
 import 'bearings_sheet.dart';
 import 'capture_sheet.dart';
 import 'chat_screen.dart';
@@ -304,33 +305,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Future<void> _confirmEnd() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Einsatz für alle beenden?'),
-        content: const Text(
+    final ok = await confirmDialog(
+      context,
+      title: 'Einsatz für alle beenden?',
+      message:
           'Danach sind keine neuen Peilungen, Aussendungen oder Beitritte '
           'mehr möglich, auch nicht für andere Teilnehmer. Das lässt sich '
           'nicht rückgängig machen. Die Daten bleiben erhalten und '
           'exportierbar.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            key: const Key('confirm-end'),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              'Beenden',
-              style: TextStyle(color: Theme.of(ctx).colorScheme.error),
-            ),
-          ),
-        ],
-      ),
+      confirmLabel: 'Beenden',
+      destructive: true,
+      confirmKey: const Key('confirm-end'),
     );
-    if (!(ok ?? false)) return;
+    if (!ok) return;
     try {
       await ref.read(missionProvider.notifier).endMission();
     } on ApiException catch (e) {
@@ -376,35 +363,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Future<void> _confirmLeave() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Einsatz verlassen?'),
-        content: const Text(
+    final ok = await confirmDialog(
+      context,
+      title: 'Einsatz verlassen?',
+      message:
           'Nicht gesendete Einträge bleiben in der Warteschlange, '
           'aber du musst dich danach neu verbinden.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            key: const Key('confirm-leave'),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Verlassen'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Verlassen',
+      confirmKey: const Key('confirm-leave'),
     );
-    if (ok ?? false) ref.read(sessionProvider.notifier).leave();
+    if (ok) ref.read(sessionProvider.notifier).leave();
   }
 
   void _showMissionInfo(Mission mission) {
     final repeater = mission.repeater;
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppDialog(
         title: SelectableText(mission.name),
         content: SelectableText(
           'Frequenz: ${mission.frequencyMhz.toStringAsFixed(3)} MHz'
@@ -412,10 +387,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           '${repeater?.outputMhz == null ? '' : '\nRelais-Ausgabe: ${repeater!.outputMhz} MHz'}',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Schließen'),
-          ),
+          AppAction(label: 'Schließen', onPressed: () => Navigator.pop(ctx)),
         ],
       ),
     );
@@ -427,22 +399,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final link = inviteLink(session.baseUrl, token);
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AppDialog(
         title: const Text('Einladung'),
-        content: SingleChildScrollView(
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Container(
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
                 key: const Key('invite-qr'),
-                color: Colors.white,
-                padding: const EdgeInsets.all(8),
-                // QrPainter instead of QrImageView: the latter uses a LayoutBuilder, which
-                // AlertDialog's intrinsic sizing cannot handle.
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.all(12),
                 child: CustomPaint(
-                  size: const Size.square(160),
+                  size: const Size.square(180),
                   painter: QrPainter(
                     data: link,
                     version: QrVersions.auto,
@@ -454,35 +425,42 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ),
                 ),
               ),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 260),
-                child: SelectableText(
-                  'Token: $token\n\nLink: $link\n\n'
-                  'Der Link läuft nach 24 Stunden ab. Neue Teilnehmer warten auf deine Freigabe '
-                  '(Menü „Teilnehmer“). Ist er in falsche Hände geraten, ersetze ihn: '
-                  'der alte Link wird ungültig, wer schon drin ist, bleibt drin.',
+            ),
+            const SizedBox(height: 16),
+            SelectableText('Token: $token\n\nLink: $link'),
+            const SizedBox(height: 12),
+            Text(
+              'Der Link läuft nach 24 Stunden ab. Neue Teilnehmer warten auf '
+              'deine Freigabe (Menü „Teilnehmer“). Ist er in falsche Hände '
+              'geraten, ersetze ihn: der alte Link wird ungültig, wer schon '
+              'drin ist, bleibt drin.',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                key: const Key('replace-invite'),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(48, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await _replaceInvite(session);
+                },
+                child: const Text('Link ersetzen'),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(
-            key: const Key('replace-invite'),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _replaceInvite(session);
-            },
-            child: const Text('Link ersetzen'),
-          ),
-          TextButton(
+          AppAction(
+            label: 'Kopieren',
+            role: AppActionRole.secondary,
             onPressed: () => Clipboard.setData(ClipboardData(text: link)),
-            child: const Text('Link kopieren'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Schließen'),
-          ),
+          AppAction(label: 'Schließen', onPressed: () => Navigator.pop(ctx)),
         ],
       ),
     );

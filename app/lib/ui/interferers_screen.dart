@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app_dialogs.dart';
 import '../core/models.dart';
 import '../core/permissions.dart';
 import '../state/providers.dart';
@@ -41,11 +42,13 @@ Future<String?> createInterfererDialog(
   if (state.activeInterferers.length >= maxInterferers) {
     await showDialog<void>(
       context: context,
-      builder: (_) => const AlertDialog(
-        content: Text(
+      builder: (ctx) => AppDialog(
+        title: const Text('Zu viele Störer'),
+        content: const Text(
           'Es sind schon $maxInterferers Störer aktiv. '
           'Deaktiviere zuerst einen anderen.',
         ),
+        actions: [AppAction(label: 'OK', onPressed: () => Navigator.pop(ctx))],
       ),
     );
     return null;
@@ -97,7 +100,7 @@ class _NameDialogState extends State<_NameDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AppDialog(
     title: Text(widget.title),
     content: TextField(
       key: widget.fieldKey,
@@ -108,14 +111,11 @@ class _NameDialogState extends State<_NameDialog> {
       onSubmitted: (v) => Navigator.pop(context, v),
     ),
     actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Abbrechen'),
-      ),
-      FilledButton(
-        key: widget.confirmKey,
+      AppAction.cancel(onPressed: () => Navigator.pop(context)),
+      AppAction(
+        label: widget.confirmLabel,
+        buttonKey: widget.confirmKey,
         onPressed: () => Navigator.pop(context, _controller.text),
-        child: Text(widget.confirmLabel),
       ),
     ],
   );
@@ -173,29 +173,17 @@ class InterferersScreen extends ConsumerWidget {
       ),
     );
     if (target == null || !context.mounted) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Zusammenführen?'),
-        content: Text(
+    final ok = await confirmDialog(
+      context,
+      title: 'Zusammenführen?',
+      message:
           'Alle Peilungen und Messwerte von „${i.name}" gehören danach zu '
           '„${target.name}". „${i.name}" wird deaktiviert. Das lässt sich '
           'nur per Hand zurückordnen.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Abbrechen'),
-          ),
-          FilledButton(
-            key: const Key('merge-confirm'),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Zusammenführen'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Zusammenführen',
+      confirmKey: const Key('merge-confirm'),
     );
-    if (ok == true) {
+    if (ok) {
       await ref.read(missionProvider.notifier).mergeInterferer(i.id, target.id);
     }
   }

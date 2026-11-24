@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app_dialogs.dart';
 import '../core/api.dart';
 import '../core/models.dart';
 import '../state/providers.dart';
@@ -156,10 +157,11 @@ class _NewSensorDialogState extends State<_NewSensorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return AppDialog(
       title: const Text('Neuer Sensor'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TextField(
             key: const Key('sensor-name'),
@@ -189,12 +191,10 @@ class _NewSensorDialogState extends State<_NewSensorDialog> {
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Abbrechen'),
-        ),
-        FilledButton(
-          key: const Key('sensor-save'),
+        AppAction.cancel(onPressed: () => Navigator.pop(context)),
+        AppAction(
+          label: 'Anlegen',
+          buttonKey: const Key('sensor-save'),
           onPressed: () {
             final name = _name.text.trim();
             if (name.length < 2) return;
@@ -209,7 +209,6 @@ class _NewSensorDialogState extends State<_NewSensorDialog> {
               ),
             );
           },
-          child: const Text('Anlegen'),
         ),
       ],
     );
@@ -225,7 +224,7 @@ class KeyDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final key = sensor.apiKey ?? '';
-    return AlertDialog(
+    return AppDialog(
       title: Text('${sensor.name} angelegt'),
       content: SingleChildScrollView(
         child: Column(
@@ -245,14 +244,12 @@ class KeyDialog extends StatelessWidget {
         ),
       ),
       actions: [
-        TextButton(
+        AppAction(
+          label: 'Kopieren',
+          role: AppActionRole.secondary,
           onPressed: () => Clipboard.setData(ClipboardData(text: key)),
-          child: const Text('Schlüssel kopieren'),
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Fertig'),
-        ),
+        AppAction(label: 'Fertig', onPressed: () => Navigator.pop(context)),
       ],
     );
   }

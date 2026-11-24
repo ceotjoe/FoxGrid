@@ -108,6 +108,18 @@ track at that time (`FoxGridApi.positionsSince`, nearest sample within ±15 min)
 chosen position. Everything else (outbox, `_overlayPending`, sigma, interferer) is the normal bearing path. `Bearing.retroactive`
 drives the "nachträglich" mark in the list.
 
+## Dialogs, sheets and buttons
+
+Component styling (button height and shape, input borders, dialog and sheet shape) lives once in `ui/app_theme.dart`
+(`withAppStyle`, applied to all three themes); do not hard-code font sizes, button heights or `OutlineInputBorder` in screens.
+Building blocks are in `ui/app_dialogs.dart`:
+
+- `AppDialog` instead of `AlertDialog`/`SimpleDialog`, `confirmDialog(...)` for cancel/confirm questions (`destructive: true` for
+  irreversible ones), `AppSheet` + `showAppSheet` for bottom sheets (pinned action bar above the keyboard).
+- `ActionBar` with `AppAction`s: all buttons equal width and height, labels never wrap. When the labels do not fit side by side the
+  buttons stack (main action on top). Keep labels short; at most one main action, "Abbrechen" first.
+- `FieldRow` / `CoordinateFields` for paired inputs (equal width, stacked on narrow widths).
+
 ## Push
 
 `PushRegistrar` (`state/push.dart`, `core/push.dart`) registers the FCM token. See [Push notifications](../operations/push-notifications.md).

@@ -245,7 +245,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('quarantine')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('quarantine-remove')));
+      await tester.tap(find.byKey(const Key('quarantine-confirm')));
+      await tester.pumpAndSettle();
+      expect(api.quarantined.single, ('p2', false));
+      api.quarantined.clear();
+
+      await tester.tap(find.byKey(const Key('menu-DL2XYZ')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quarantine')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('quarantine-also-remove')));
+      await tester.tap(find.byKey(const Key('quarantine-confirm')));
       await tester.pumpAndSettle();
       expect(api.quarantined.single, ('p2', true));
       expect(
