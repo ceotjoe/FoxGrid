@@ -42,7 +42,9 @@ link) or Beobachter (read-only). See [Roles and permissions](roles.md).
 
 - The orange marker is the maximum-likelihood location; the ellipses are the 1σ and 2σ error regions.
 - The filter sheet switches contours (50/80/95 % probability mass), selects transmissions or a time window, enables age weighting and
-  toggles the distance rings of fixed stations.
+  toggles the distance rings of fixed stations. Bearings of automatic stations that do not count (outside a transmission) are
+  hidden unless *Nicht gezählte Stationspeilungen zeigen* is on.
+- A bearing station in a car appears as a car with its course, speed and the last hour of its track.
 - The bulb icon shows the three best places for the next bearing and the expected gain. It only displays; nobody is sent anywhere.
 - Parallel bearings give an elongated ellipse: move so the bearing lines cross at a wide angle.
 - *Menü → Peilungen verwalten* (lead, deputy, analyst) handles many bearings of automatic stations at once: a timeline of

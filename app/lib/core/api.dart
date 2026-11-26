@@ -122,6 +122,9 @@ abstract class FoxGridApi {
 
   Future<SensorInfo> setSensorActive(String id, {required bool active});
 
+  /// Changes a sensor's `weight`, `interferer_id` (null: none) or `gated` (lead only).
+  Future<SensorInfo> patchSensor(String id, Map<String, dynamic> changes);
+
   /// Tells the server where to send pushes for this participant (FCM token, any platform).
   Future<void> registerPushToken(String token);
 
@@ -481,6 +484,15 @@ class DioFoxGridApi implements FoxGridApi {
       '$_mission/sensors',
       data: {'name': name, 'kind': kind, 'lat': lat, 'lon': lon},
     );
+    return SensorInfo.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<SensorInfo> patchSensor(
+    String id,
+    Map<String, dynamic> changes,
+  ) async {
+    final r = await _call('PATCH', '$_mission/sensors/$id', data: changes);
     return SensorInfo.fromJson(r.data as Map<String, dynamic>);
   }
 

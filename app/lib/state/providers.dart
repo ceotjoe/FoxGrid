@@ -372,6 +372,11 @@ class MissionState {
 
 const _maxTrail = 60;
 
+/// Vehicles with a bearing station (ADR 0010) keep a longer track: about an hour at one fix
+/// every 10 s.
+const _maxStationTrail = 360;
+const _stationTrackWindow = Duration(hours: 1);
+
 /// Holds the live state of the joined mission: snapshot + WebSocket events.
 ///
 /// Every write goes to the outbox first and is applied to the state optimistically, so the
@@ -431,6 +436,7 @@ class MissionNotifier extends Notifier<MissionState> {
       if (_disposed) return;
       unawaited(_store.putCached(_cacheKey(_session.missionId), jsonEncode(s)));
       await _apply(s, stale: false);
+      unawaited(_loadStationTracks(api));
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
         // Token expired: the device secret gets us back in without an invite.
@@ -450,6 +456,32 @@ class MissionNotifier extends Notifier<MissionState> {
       }
       // Offline: keep the cached state and stay usable.
       if (!state.loaded) state = state.copyWith(error: e.message);
+    }
+  }
+
+  /// The last hour of every moving station's track, so a vehicle shows where it drove before
+  /// the app was opened. Best effort: without `view.positions` or offline nothing happens.
+  Future<void> _loadStationTracks(FoxGridApi api) async {
+    final since = DateTime.now().toUtc().subtract(_stationTrackWindow);
+    for (final id in [
+      for (final p in state.participants.values)
+        if (p.isStation && state.positions.containsKey(p.id)) p.id,
+    ]) {
+      try {
+        final fixes = await api.positionsSince(id, since);
+        if (_disposed || fixes.length < 2) continue;
+        final points = [for (final f in fixes) f.point];
+        state = state.copyWith(
+          trails: {
+            ...state.trails,
+            id: points.length > _maxStationTrail
+                ? points.sublist(points.length - _maxStationTrail)
+                : points,
+          },
+        );
+      } on ApiException {
+        return;
+      }
     }
   }
 
@@ -702,8 +734,11 @@ class MissionNotifier extends Notifier<MissionState> {
           ...(trails[fix.participantId] ?? const <LatLng>[]),
           fix.point,
         ];
-        trails[fix.participantId] = trail.length > _maxTrail
-            ? trail.sublist(trail.length - _maxTrail)
+        final max = state.participants[fix.participantId]?.isStation ?? false
+            ? _maxStationTrail
+            : _maxTrail;
+        trails[fix.participantId] = trail.length > max
+            ? trail.sublist(trail.length - max)
             : trail;
         state = state.copyWith(
           positions: {...state.positions, fix.participantId: fix},

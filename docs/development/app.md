@@ -85,6 +85,15 @@ its bearings (with the server's 5 s slack). Bulk actions open a map preview of t
 `MissionNotifier.bulkUpdateBearings`: optimistic, outbox kind `bearing_bulk` in chunks of 500 (`POST …/bearings/bulk`), re-applied
 by `_overlayPending`. The gate actions only send sensor bearings. `bearings_updated` events update many bearings at once.
 
+**Mobile stations** (ADR 0010). *Sensoren* (`ui/sensors_screen.dart`) opens `SensorSettingsSheet` on a tap: weight (slider
+0–2), default interferer and the gate ("Nur bei „Störer sendet“ zählen"), saved with one `PATCH …/sensors/{id}` (online, like the
+rest of the sensor administration; only changed fields are sent). On the map a participant with authority `station` and a
+position is drawn as a vehicle (`_vehicleMarker`: car, course arrow and km/h while moving, faded after 2 minutes without a fix).
+Station trails keep 360 points instead of 60, and after each snapshot `_loadStationTracks` fetches the last hour of their
+track (`positionsSince`). Sensor rays are thinner and their fans fainter; sensor bearings that do not count (`gateCounts`) are
+hidden unless *Filter → Nicht gezählte Stationspeilungen zeigen* (`BearingFilter.showStoredSensor`) is on, then dimmed and
+dashed.
+
 **Map.** With a single interferer the map looks as before (participant colours, red estimate). With several (`state.interferers.length > 1`)
 it draws one estimate per shown interferer (ellipses, contours, MLE marker with letter badge, station rings from that interferer's
 readings) and colours each bearing with its interferer's family from `MapPalette.interferer(slot)`, shaded by field strength

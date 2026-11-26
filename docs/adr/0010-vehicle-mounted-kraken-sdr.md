@@ -1,7 +1,7 @@
 # 0010 – Vehicle-mounted KrakenSDR as a mobile bearing station
 
-**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer), 3 (engine), 4 (manual gate) and 5
-(bulk management) implemented
+**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer), 3 (engine), 4 (manual gate), 5
+(bulk management) and 6 (app: sensor settings, vehicle, ray display) implemented
 
 **Context.** A KrakenSDR with a circular antenna array (UCA) on a car roof yields an unambiguous 360° bearing several times per
 second, both while driving and while parked. The MQTT interface ([0006](0006-mqtt-ingest-separate-process.md),
@@ -107,7 +107,8 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
   - **Backend:** `GET /bearings` gains filters (`sensor`, `interferer`, `state`, `from`/`to`, `transmission`) and paging.
     A new bulk endpoint applies one change to up to 500 bearings in one transaction, with the same permissions as the
     single-bearing PATCH and one revision per bearing. It publishes one `bearings_updated` event and triggers one recompute.
-  - **Map:** for sensors, only counted rays are shown by default; stored-only ones can be shown dimmed.
+  - **Map:** for sensors, only counted rays are shown by default; stored-only ones can be shown dimmed. Sensor rays are
+    thinner and their fans fainter than hand bearings, because they come in dozens.
 - **Mount calibration.** A tool compares measured and geodesic azimuth to a known transmitter from several vehicle headings
   and stores the median offset in the bridge configuration.
 
@@ -142,6 +143,7 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
    - Backend: filters, paging and the bulk endpoint for bearings.
    - App: *Peilungen verwalten* with timeline, selection, bulk actions and map preview.
 6. App, sensors: weight, default interferer and gate in the sensor settings; vehicle marker with track; reduced ray display.
+   *Done.*
 7. Simulator vehicle with repeater users, calibration tool, user guide.
 
 **Alternatives considered.**

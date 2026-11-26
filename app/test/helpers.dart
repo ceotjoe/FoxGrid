@@ -381,6 +381,17 @@ class FakeApi implements FoxGridApi {
     return s;
   }
 
+  final sensorPatches = <(String, Map<String, dynamic>)>[];
+
+  @override
+  Future<SensorInfo> patchSensor(
+    String id,
+    Map<String, dynamic> changes,
+  ) async {
+    sensorPatches.add((id, changes));
+    return sensorList.firstWhere((s) => s.id == id);
+  }
+
   @override
   Future<SensorInfo> setSensorActive(String id, {required bool active}) async {
     toggled.add((id, active));

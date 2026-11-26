@@ -18,6 +18,14 @@ class SensorsScreen extends ConsumerWidget {
         '${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
   }
 
+  /// Weight, default interferer and gate in one line.
+  String _settingsLine(SensorInfo s, WidgetRef ref) {
+    final interferer = ref.read(missionProvider).interferers[s.interfererId];
+    return '\nGewicht ${s.weight.toStringAsFixed(1)}'
+        '${interferer == null ? '' : ' · ${interferer.letter} ${interferer.name}'}'
+        '${s.gated ? ' · zählt nur bei Aussendung' : ''}';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(sensorsProvider);
@@ -52,32 +60,52 @@ class SensorsScreen extends ConsumerWidget {
             : ListView(
                 children: [
                   for (final s in sensors)
-                    SwitchListTile(
-                      key: Key('sensor-${s.name}'),
-                      secondary: Icon(
-                        s.isRelay ? Icons.cell_tower : Icons.sensors,
+                    ListTile(
+                      key: Key('sensor-tile-${s.name}'),
+                      leading: Icon(
+                        s.isRelay
+                            ? Icons.cell_tower
+                            : s.isMobile
+                            ? Icons.directions_car
+                            : Icons.sensors,
                         color: s.online ? Colors.green : Colors.grey,
                       ),
                       title: Text('${s.name} · ${s.callsign}'),
                       subtitle: Text(
-                        '${s.isRelay ? 'Relais-Hook' : 'Peilstation'} · '
-                        '${s.online ? 'online' : 'offline'} · ${_seen(s)}',
+                        '${s.isRelay
+                            ? 'Relais-Hook'
+                            : s.isMobile
+                            ? 'Mobile Peilstation'
+                            : 'Peilstation'} · '
+                        '${s.online ? 'online' : 'offline'} · ${_seen(s)}'
+                        '${s.isRelay ? '' : _settingsLine(s, ref)}',
                       ),
-                      value: s.isActive,
-                      onChanged: (on) async {
-                        try {
-                          await ref
-                              .read(apiProvider)
-                              .setSensorActive(s.id, active: on);
-                        } on ApiException catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(e.message)));
+                      onTap: s.isRelay
+                          ? null
+                          : () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              showDragHandle: true,
+                              builder: (_) => SensorSettingsSheet(sensor: s),
+                            ),
+                      trailing: Switch(
+                        key: Key('sensor-${s.name}'),
+                        value: s.isActive,
+                        onChanged: (on) async {
+                          try {
+                            await ref
+                                .read(apiProvider)
+                                .setSensorActive(s.id, active: on);
+                          } on ApiException catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(e.message)),
+                              );
+                            }
                           }
-                        }
-                        ref.invalidate(sensorsProvider);
-                      },
+                          ref.invalidate(sensorsProvider);
+                        },
+                      ),
                     ),
                 ],
               ),
@@ -251,6 +279,123 @@ class KeyDialog extends StatelessWidget {
         ),
         AppAction(label: 'Fertig', onPressed: () => Navigator.pop(context)),
       ],
+    );
+  }
+}
+
+/// Settings of one bearing station (ADR 0010): weight in the estimate, default interferer and
+/// whether its bearings count only while the interferer transmits.
+class SensorSettingsSheet extends ConsumerStatefulWidget {
+  const SensorSettingsSheet({super.key, required this.sensor});
+
+  final SensorInfo sensor;
+
+  @override
+  ConsumerState<SensorSettingsSheet> createState() =>
+      _SensorSettingsSheetState();
+}
+
+class _SensorSettingsSheetState extends ConsumerState<SensorSettingsSheet> {
+  late double _weight = widget.sensor.weight;
+  late String? _interferer = widget.sensor.interfererId;
+  late bool _gated = widget.sensor.gated;
+  bool _busy = false;
+
+  Map<String, dynamic> get _changes => {
+    if (_weight != widget.sensor.weight) 'weight': _weight,
+    if (_interferer != widget.sensor.interfererId) 'interferer_id': _interferer,
+    if (_gated != widget.sensor.gated) 'gated': _gated,
+  };
+
+  Future<void> _save() async {
+    final changes = _changes;
+    if (changes.isEmpty) {
+      Navigator.pop(context);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await ref.read(apiProvider).patchSensor(widget.sensor.id, changes);
+      ref.invalidate(sensorsProvider);
+      if (mounted) Navigator.pop(context);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(missionProvider);
+    final theme = Theme.of(context);
+    final interferers = state.activeInterferers;
+    // A deactivated default stays visible until changed.
+    final current = state.interferers[widget.sensor.interfererId];
+    return AppSheet(
+      title: widget.sensor.name,
+      actions: [
+        AppAction.cancel(onPressed: () => Navigator.pop(context)),
+        AppAction(
+          label: 'Speichern',
+          buttonKey: const Key('sensor-settings-save'),
+          busy: _busy,
+          onPressed: _busy ? null : _save,
+        ),
+      ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Gewicht ${_weight.toStringAsFixed(1)}'),
+          Slider(
+            key: const Key('sensor-weight'),
+            value: _weight,
+            max: 2,
+            divisions: 20,
+            label: _weight.toStringAsFixed(1),
+            onChanged: (v) =>
+                setState(() => _weight = (v * 10).roundToDouble() / 10),
+          ),
+          Text(
+            _weight == 0
+                ? 'Die Peilungen fließen nicht in die Schätzung ein.'
+                : 'Wie stark die Peilungen in der Schätzung zählen (1 = normal). '
+                      'In der Stadt mit vielen Reflexionen z. B. 0,5.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String?>(
+            key: const Key('sensor-interferer'),
+            initialValue: _interferer,
+            decoration: const InputDecoration(labelText: 'Standard-Störer'),
+            items: [
+              const DropdownMenuItem<String?>(
+                child: Text('Keiner (Aussendung bzw. Standard)'),
+              ),
+              for (final i in {...interferers, ?current})
+                DropdownMenuItem<String?>(
+                  value: i.id,
+                  child: Text('${i.letter} ${i.name}'),
+                ),
+            ],
+            onChanged: (v) => setState(() => _interferer = v),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            key: const Key('sensor-gated'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Nur bei „Störer sendet“ zählen'),
+            subtitle: const Text(
+              'Peilungen außerhalb einer Aussendung werden gespeichert, '
+              'fließen aber nicht ein. Gegen Relaisnutzer auf der Frequenz.',
+            ),
+            value: _gated,
+            onChanged: (v) => setState(() => _gated = v),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -15,7 +15,12 @@ class BearingFilter {
     this.showExternal = true,
     this.interfererIds = const {},
     this.dimOthers = false,
+    this.showStoredSensor = false,
   });
+
+  /// Also draw sensor bearings that do not count (outside a transmission or excluded by hand),
+  /// dimmed. Off by default: a vehicle bears every user of the frequency (ADR 0010).
+  final bool showStoredSensor;
 
   /// Interferers to show; empty = all. Their bearings, estimates and readings only.
   final Set<String> interfererIds;
@@ -58,6 +63,7 @@ class BearingFilter {
     bool? showExternal,
     Set<String>? interfererIds,
     bool? dimOthers,
+    bool? showStoredSensor,
   }) => BearingFilter(
     transmissionIds: transmissionIds ?? this.transmissionIds,
     window: clearWindow ? null : (window ?? this.window),
@@ -68,12 +74,14 @@ class BearingFilter {
     showExternal: showExternal ?? this.showExternal,
     interfererIds: interfererIds ?? this.interfererIds,
     dimOthers: dimOthers ?? this.dimOthers,
+    showStoredSensor: showStoredSensor ?? this.showStoredSensor,
   );
 
   /// Client-side check used for drawing rays.
   bool allows(Bearing b, DateTime now) {
     if (hideOutliers && b.isOutlier) return false;
     if (!showExternal && b.isExternal) return false;
+    if (!showStoredSensor && b.sensorId != null && !b.gateCounts) return false;
     if (!dimOthers && !selects(b.interfererId)) return false;
     if (transmissionIds.isNotEmpty &&
         !transmissionIds.contains(b.transmissionId)) {

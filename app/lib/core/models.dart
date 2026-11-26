@@ -99,6 +99,9 @@ class Participant {
   /// or `observer`. [role] is the data source (mobile or fixed).
   final String authority;
 
+  /// The virtual participant of an automatic station (its bearings, its vehicle track).
+  bool get isStation => authority == 'station';
+
   /// What the server lets this participant do.
   final Set<String> permissions;
   final String? team;
@@ -204,6 +207,7 @@ class PositionFix {
     recordedAt: _time(j['recorded_at']),
     accuracyM: _d(j['accuracy_m']),
     headingDeg: _d(j['heading_deg']),
+    speedMps: _d(j['speed_mps']),
   );
 }
 
@@ -792,10 +796,22 @@ class SensorInfo {
     this.lastSeenAt,
     this.point,
     this.apiKey,
+    this.weight = 1.0,
+    this.interfererId,
+    this.gated = false,
   });
 
   final String id;
   final String name;
+
+  /// Scales the sensor's bearings in the estimate (0–2, ADR 0010).
+  final double weight;
+
+  /// Default interferer for the sensor's data; `null`: transmission's, else the mission's.
+  final String? interfererId;
+
+  /// Bearings count only while the interferer transmits (manual gate).
+  final bool gated;
 
   /// `station` or `relay`.
   final String kind;
@@ -824,5 +840,11 @@ class SensorInfo {
         ? null
         : LatLng(_d(j['lat'])!, _d(j['lon'])!),
     apiKey: j['api_key'] as String?,
+    weight: _d(j['weight']) ?? 1.0,
+    interfererId: j['interferer_id'] as String?,
+    gated: j['gated'] as bool? ?? false,
   );
+
+  /// A station without a fixed position: a vehicle (or anything else that moves).
+  bool get isMobile => !isRelay && point == null;
 }

@@ -169,6 +169,23 @@ class FilterSheet extends ConsumerWidget {
                 value: f.showExternal,
                 onChanged: (v) => notifier.set(f.copyWith(showExternal: v)),
               ),
+              if (ref
+                  .watch(missionProvider)
+                  .bearings
+                  .values
+                  .any((b) => b.sensorId != null))
+                SwitchListTile(
+                  key: const Key('filter-stored-sensor'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Nicht gezählte Stationspeilungen zeigen'),
+                  subtitle: const Text(
+                    'Außerhalb einer Aussendung, z. B. Relaisnutzer; '
+                    'gedimmt und gestrichelt',
+                  ),
+                  value: f.showStoredSensor,
+                  onChanged: (v) =>
+                      notifier.set(f.copyWith(showStoredSensor: v)),
+                ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Ausreißer ausblenden'),

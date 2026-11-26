@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:material_ui/material_ui.dart';
@@ -914,11 +915,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   for (final s in shown) _estimateMarker(s),
                   for (final e in state.positions.entries)
                     if (e.key != session.participantId)
-                      _participantMarker(
-                        e.value.point,
-                        state.participants[e.key]?.callsign ?? '?',
-                        _pal.participant(e.key),
-                      ),
+                      state.participants[e.key]?.isStation ?? false
+                          ? _vehicleMarker(
+                              e.value,
+                              state.participants[e.key]!.callsign,
+                              _pal.participant(e.key),
+                              now,
+                            )
+                          : _participantMarker(
+                              e.value.point,
+                              state.participants[e.key]?.callsign ?? '?',
+                              _pal.participant(e.key),
+                            ),
                   if (own != null)
                     _participantMarker(
                       own.point,
@@ -1132,6 +1140,64 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ],
     ),
   );
+
+  /// A bearing station in a vehicle (ADR 0010): a car with an arrow for the course while it
+  /// moves; greyed when its last fix is older than two minutes.
+  Marker _vehicleMarker(
+    PositionFix fix,
+    String callsign,
+    Color color,
+    DateTime now,
+  ) {
+    final stale = now.difference(fix.recordedAt) > const Duration(minutes: 2);
+    final c = stale ? color.withValues(alpha: 0.4) : color;
+    final moving = (fix.speedMps ?? 0) >= 0.5 && fix.headingDeg != null;
+    return Marker(
+      point: fix.point,
+      width: 120,
+      height: 68,
+      child: Column(
+        key: Key('vehicle-marker-${fix.participantId}'),
+        children: [
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (moving)
+                  Transform.rotate(
+                    angle: fix.headingDeg! * math.pi / 180,
+                    child: Icon(Icons.navigation, color: c, size: 32),
+                  ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: _pal.labelBackground,
+                    shape: BoxShape.circle,
+                  ),
+                  padding: const EdgeInsets.all(2),
+                  child: Icon(Icons.directions_car, color: c, size: 16),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: _pal.labelBackground,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              moving
+                  ? '$callsign ${(fix.speedMps! * 3.6).round()} km/h'
+                  : callsign,
+              style: TextStyle(fontSize: 11, color: _pal.labelText),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Older bearings fade out over two hours but never disappear completely.
   double _alpha(Bearing b, DateTime now) {
@@ -1431,6 +1497,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   0.10 *
                   _alpha(b, now) *
                   (_counts(state, b) ? 1 : 0.5) *
+                  (b.sensorId != null ? 0.4 : 1) *
                   _dim(filter, b),
             ),
           ),
@@ -1529,9 +1596,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           b.station,
           destination(b.station, b.azimuthTrueDeg, _rayLengthM),
         ],
-        strokeWidth: 2.5,
+        // Station bearings come in dozens: thinner, and faint when they do not count.
+        strokeWidth: b.sensorId != null ? 1.5 : 2.5,
         color: _bearingColor(state, b).withValues(
-          alpha: (b.isOutlier ? 0.7 : 1) * _alpha(b, now) * _dim(filter, b),
+          alpha:
+              (b.isOutlier ? 0.7 : 1) *
+              (b.sensorId != null && !b.gateCounts ? 0.4 : 1) *
+              _alpha(b, now) *
+              _dim(filter, b),
         ),
         // Dashed: flagged as outlier, or an external point that does not count in the estimate.
         // In the red night mode each interferer also gets its own dash pattern.
