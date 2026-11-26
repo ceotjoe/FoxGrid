@@ -584,6 +584,8 @@ class MissionNotifier extends Notifier<MissionState> {
               e.path.split('/').reversed.elementAt(1),
               body['into'] as String,
             );
+          case 'bearing_bulk':
+            s = _bulkApplied(s, body);
           case 'bearing_interferer':
             final id = e.path.split('/').last;
             final b = s.bearings[id];
@@ -1092,6 +1094,54 @@ class MissionNotifier extends Notifier<MissionState> {
 
   /// Moves a bearing to another interferer (a revision on the server). Allowed for its owner and
   /// for whoever holds `interferer.manage`.
+  /// Server limit of the bulk endpoint.
+  static const bulkChunk = 500;
+
+  /// Assigns an interferer and/or sets the gate decision of many bearings (*Peilungen
+  /// verwalten*). [gate]: `true` counts, `false` does not, `null` back to automatic; only
+  /// applied when [setGate] is true. Optimistic, queued in chunks of [bulkChunk].
+  Future<void> bulkUpdateBearings(
+    List<String> ids, {
+    String? interfererId,
+    bool setGate = false,
+    bool? gate,
+  }) async {
+    if (ids.isEmpty || (interfererId == null && !setGate)) return;
+    for (var i = 0; i < ids.length; i += bulkChunk) {
+      final body = <String, dynamic>{
+        'ids': ids.sublist(
+          i,
+          i + bulkChunk > ids.length ? ids.length : i + bulkChunk,
+        ),
+        'interferer_id': ?interfererId,
+        if (setGate) 'gate_override': gate,
+      };
+      state = _bulkApplied(state, body);
+      await _enqueue(
+        kind: 'bearing_bulk',
+        method: 'POST',
+        path: '$_base/bearings/bulk',
+        body: body,
+      );
+    }
+  }
+
+  static MissionState _bulkApplied(MissionState s, Map<String, dynamic> body) {
+    final setGate = body.containsKey('gate_override');
+    final interfererId = body['interferer_id'] as String?;
+    final bearings = {...s.bearings};
+    for (final id in body['ids'] as List<dynamic>) {
+      final b = bearings[id];
+      if (b == null) continue;
+      bearings[id as String] = b.copyWith(
+        interfererId: interfererId,
+        setGate: setGate,
+        gateOverride: body['gate_override'] as bool?,
+      );
+    }
+    return s.copyWith(bearings: bearings);
+  }
+
   Future<void> reassignBearing(String bearingId, String interfererId) async {
     final b = state.bearings[bearingId];
     if (b != null) {

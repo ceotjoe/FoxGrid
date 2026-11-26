@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from foxgrid_engine import Bearing as EngineBearing
@@ -14,7 +16,7 @@ from foxgrid_engine import EngineError
 from foxgrid_engine import estimate as run_engine
 from foxgrid_engine.rssi import usable_samples
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,9 +36,12 @@ from app.models import (
     Transmission,
 )
 from app.schemas.api import (
+    BearingBulk,
     BearingIn,
     BearingOut,
     BearingPatch,
+    BulkGate,
+    BulkOut,
     EstimateOut,
     PositionIn,
     PositionOut,
@@ -328,15 +333,60 @@ def _duplicate(
     return bearing_out(existing)
 
 
+MAX_PAGE = 1000
+
+
+def _gate_filter(states: list[BulkGate]) -> ColumnElement[bool]:
+    """Bearings in any of the given gate states (the gate only, not trust or flags)."""
+    parts: list[ColumnElement[bool]] = []
+    for state in states:
+        if state == "counted":
+            parts.append(domain.gate_counts())
+        elif state == "stored":  # outside a transmission, nobody decided
+            parts.append(and_(Bearing.gate_state == "outside", Bearing.gate_override.is_(None)))
+        elif state == "included":
+            parts.append(Bearing.gate_override.is_(True))
+        else:
+            parts.append(Bearing.gate_override.is_(False))
+    return or_(*parts)
+
+
+def _cursor(b: Bearing) -> str:
+    return f"{b.measured_at.isoformat()}_{b.id}"
+
+
+def _parse_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        at, _, bid = cursor.rpartition("_")
+        return datetime.fromisoformat(at), uuid.UUID(bid)
+    except ValueError as exc:
+        raise HTTPException(422, "invalid cursor") from exc
+
+
 @router.get("/bearings", response_model=list[BearingOut])
 async def list_bearings(
     mission_id: uuid.UUID,
+    response: Response,
     transmission: uuid.UUID | None = None,
     since: datetime | None = None,
     include_inactive: bool = True,
+    sensor: list[uuid.UUID] = Query(default=[]),
+    interferer: list[uuid.UUID] = Query(default=[]),
+    state: list[BulkGate] = Query(default=[]),
+    sensors_only: bool = False,
+    from_: datetime | None = Query(default=None, alias="from"),
+    to: datetime | None = None,
+    limit: int | None = Query(default=None, ge=1, le=MAX_PAGE),
+    cursor: str | None = None,
     _: Participant = Depends(require(Permission.VIEW_RESULT)),
     session: AsyncSession = Depends(get_session),
 ) -> list[BearingOut]:
+    """Bearings by measurement time, filtered; with ``limit`` paged.
+
+    ``since`` filters on ``received_at`` (catch-up), ``from``/``to`` on ``measured_at``. With
+    ``limit`` the header ``X-Total-Count`` gives all matches and ``X-Next-Cursor`` the cursor for
+    the next page (absent on the last one).
+    """
     stmt = select(Bearing).where(Bearing.mission_id == mission_id)
     if transmission:
         stmt = stmt.where(Bearing.transmission_id == transmission)
@@ -344,7 +394,35 @@ async def list_bearings(
         stmt = stmt.where(Bearing.received_at >= since)
     if not include_inactive:
         stmt = stmt.where(Bearing.is_active.is_(True))
-    rows = (await session.scalars(stmt.order_by(Bearing.measured_at))).all()
+    if sensor:
+        stmt = stmt.where(Bearing.sensor_id.in_(sensor))
+    if sensors_only:
+        stmt = stmt.where(Bearing.sensor_id.is_not(None))
+    if interferer:
+        stmt = stmt.where(Bearing.interferer_id.in_(interferer))
+    if state:
+        stmt = stmt.where(_gate_filter(state))
+    if from_:
+        stmt = stmt.where(Bearing.measured_at >= from_)
+    if to:
+        stmt = stmt.where(Bearing.measured_at <= to)
+    if limit is None:
+        rows = (await session.scalars(stmt.order_by(Bearing.measured_at, Bearing.id))).all()
+        return [bearing_out(b) for b in rows]
+
+    total = await session.scalar(select(func.count()).select_from(stmt.subquery()))
+    response.headers["X-Total-Count"] = str(total or 0)
+    if cursor:
+        at, bid = _parse_cursor(cursor)
+        stmt = stmt.where(
+            or_(Bearing.measured_at > at, and_(Bearing.measured_at == at, Bearing.id > bid))
+        )
+    rows = (
+        await session.scalars(stmt.order_by(Bearing.measured_at, Bearing.id).limit(limit + 1))
+    ).all()
+    if len(rows) > limit:
+        rows = rows[:limit]
+        response.headers["X-Next-Cursor"] = _cursor(rows[-1])
     return [bearing_out(b) for b in rows]
 
 
@@ -391,6 +469,60 @@ async def bearing_revisions(
     return [RevisionOut.model_validate(r) for r in rows]
 
 
+def _check_edit_permissions(actor: Participant, bearings: list[Bearing], edits: set[str]) -> None:
+    """403 unless the actor may make these edits on every bearing.
+
+    The owner may always. Others: flags (and the gate decision) need `bearing.flag`, any other
+    edit `bearing.edit_any`; reassigning to another interferer needs `interferer.manage`.
+    """
+    can_create = has_permission(actor, Permission.BEARING_CREATE)
+    if all(b.participant_id == actor.id and can_create for b in bearings):
+        return
+    needed: set[Permission] = set()
+    if edits - _FLAGS - {"interferer_id"}:
+        needed.add(Permission.BEARING_EDIT_ANY)
+    if "interferer_id" in edits:
+        needed.add(Permission.INTERFERER_MANAGE)
+    if edits & _FLAGS or not needed:
+        needed.add(Permission.BEARING_FLAG)
+    for permission in sorted(needed):
+        if not has_permission(actor, permission):
+            raise HTTPException(403, f"permission required: {permission.value}")
+
+
+async def _check_patch_values(
+    session: AsyncSession, mission_id: uuid.UUID, bearings: list[Bearing], values: dict[str, Any]
+) -> None:
+    if "gate_override" in values and any(b.sensor_id is None for b in bearings):
+        raise HTTPException(422, "only sensor bearings have a gate decision")
+    if values.get("interferer_id") is not None:
+        try:
+            await domain.resolve_interferer(session, mission_id, values["interferer_id"])
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+
+def _apply_patch(
+    session: AsyncSession, actor: Participant, bearing: Bearing, values: dict[str, Any]
+) -> dict[str, dict[str, object]]:
+    """Set the values that differ and add one revision; returns the changes."""
+    changes: dict[str, dict[str, object]] = {}
+    for field, value in values.items():
+        if field == "interferer_id" and value is None:
+            continue  # every bearing keeps an interferer
+        old = getattr(bearing, field)
+        if old != value:
+            changes[field] = {"from": _jsonable(old), "to": _jsonable(value)}
+            setattr(bearing, field, value)
+    if changes:
+        session.add(BearingRevision(bearing_id=bearing.id, changed_by=actor.id, changes=changes))
+    return changes
+
+
+def _moves_estimate(fields: Iterable[str]) -> bool:
+    return bool(set(fields) & (_FLAGS | {"interferer_id"}))
+
+
 @router.patch("/bearings/{bearing_id}", response_model=BearingOut)
 async def patch_bearing(
     mission_id: uuid.UUID,
@@ -406,48 +538,69 @@ async def patch_bearing(
     Bearings can never be deleted.
     """
     bearing = await _bearing_or_404(session, mission_id, bearing_id)
-    edits = set(body.model_dump(exclude_unset=True))
-    if "gate_override" in edits and bearing.sensor_id is None:
-        raise HTTPException(422, "only sensor bearings have a gate decision")
-    own = bearing.participant_id == actor.id and has_permission(actor, Permission.BEARING_CREATE)
-    if not own:
-        # Others: flags (and the gate decision) need `bearing.flag`, any other edit
-        # `bearing.edit_any`. Reassigning to another interferer needs `interferer.manage`.
-        needed: set[Permission] = set()
-        if edits - _FLAGS - {"interferer_id"}:
-            needed.add(Permission.BEARING_EDIT_ANY)
-        if "interferer_id" in edits:
-            needed.add(Permission.INTERFERER_MANAGE)
-        if edits & _FLAGS or not needed:
-            needed.add(Permission.BEARING_FLAG)
-        for permission in sorted(needed):
-            if not has_permission(actor, permission):
-                raise HTTPException(403, f"permission required: {permission.value}")
-    changes: dict[str, dict[str, object]] = {}
-    for field, value in body.model_dump(exclude_unset=True).items():
-        if field == "interferer_id":
-            if value is None:
-                continue  # every bearing keeps an interferer
-            try:
-                await domain.resolve_interferer(session, mission_id, value)
-            except ValueError as exc:
-                raise HTTPException(422, str(exc)) from exc
-        old = getattr(bearing, field)
-        if old != value:
-            changes[field] = {"from": _jsonable(old), "to": _jsonable(value)}
-            setattr(bearing, field, value)
+    values = body.model_dump(exclude_unset=True)
+    await _check_patch_values(session, mission_id, [bearing], values)
+    _check_edit_permissions(actor, [bearing], set(values))
+    changes = _apply_patch(session, actor, bearing, values)
     if changes:
-        session.add(BearingRevision(bearing_id=bearing_id, changed_by=actor.id, changes=changes))
         await domain.audit(
             session, mission_id, actor.id, "update", "bearing", bearing_id, **changes
         )
         await session.commit()
         out = bearing_out(bearing)
         await events.publish(redis, mission_id, "bearing_updated", event_json(out))
-        if changes.keys() & (_FLAGS | {"interferer_id"}):
+        if _moves_estimate(changes):
             scheduler.schedule(mission_id)
         return out
     return bearing_out(bearing)
+
+
+@router.post("/bearings/bulk", response_model=BulkOut)
+async def bulk_update_bearings(
+    mission_id: uuid.UUID,
+    body: BearingBulk,
+    actor: Participant = Depends(require(Permission.VIEW_RESULT)),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
+) -> BulkOut:
+    """Assign an interferer and/or set the gate decision of up to 500 bearings at once.
+
+    All or nothing, with the permissions of the single PATCH, one revision per changed bearing,
+    one ``bearings_updated`` event and one recompute.
+    """
+    values = body.model_dump(include={"interferer_id", "gate_override"}, exclude_unset=True)
+    bearings = list(
+        (
+            await session.scalars(
+                select(Bearing)
+                .where(Bearing.mission_id == mission_id, Bearing.id.in_(body.ids))
+                .with_for_update()
+            )
+        ).all()
+    )
+    if len(bearings) != len(body.ids):
+        raise HTTPException(404, f"{len(body.ids) - len(bearings)} bearing(s) not found")
+    await _check_patch_values(session, mission_id, bearings, values)
+    _check_edit_permissions(actor, bearings, set(values))
+    changed = [b.id for b in bearings if _apply_patch(session, actor, b, values)]
+    if not changed:
+        return BulkOut(updated=0, unchanged=len(bearings))
+    await domain.audit(
+        session,
+        mission_id,
+        actor.id,
+        "bulk_update",
+        "bearing",
+        None,
+        count=len(changed),
+        **{k: _jsonable(v) for k, v in values.items()},
+    )
+    await session.commit()
+    await domain.publish_bearings(session, redis, mission_id, changed)
+    if _moves_estimate(values):
+        scheduler.schedule(mission_id)
+    return BulkOut(updated=len(changed), unchanged=len(bearings) - len(changed))
 
 
 # --- estimates ---------------------------------------------------------------------------

@@ -45,6 +45,9 @@ link) or Beobachter (read-only). See [Roles and permissions](roles.md).
   toggles the distance rings of fixed stations.
 - The bulb icon shows the three best places for the next bearing and the expected gain. It only displays; nobody is sent anywhere.
 - Parallel bearings give an elongated ellipse: move so the bearing lines cross at a wide angle.
+- *Menü → Peilungen verwalten* (lead, deputy, analyst) handles many bearings of automatic stations at once: a timeline of
+  azimuth over time shows a repeater user as a trace of its own; drag over a time range or pick a transmission, then assign an
+  interferer or decide "Zählen", "Nicht zählen" or "Automatisch". A map shows the selected rays before anything is applied.
 
 ## More
 

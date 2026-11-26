@@ -260,6 +260,34 @@ void main() {
     expect(env.state.bearings['b2']!.gateCounts, isTrue);
   });
 
+  test(
+    'bulk updates go out in chunks of 500 and replay after a reload',
+    () async {
+      final ids = [for (var i = 0; i < 600; i++) 'b$i'];
+      final store = MemoryOutboxStore();
+      final api = FakeApi()
+        ..snapshotData = snapshotJson(
+          bearings: [for (final id in ids) bearingJson(id)],
+        )
+        ..sendResult = const SendResult(SendOutcome.retry, 'offline');
+      await start(api: api, store: store);
+      await env.mission.bulkUpdateBearings(ids, setGate: true, gate: false);
+      final entries = await env.store.all();
+      expect(entries.map((e) => e.kind), ['bearing_bulk', 'bearing_bulk']);
+      expect(
+        entries.map((e) => (jsonDecode(e.bodyJson!)['ids'] as List).length),
+        [500, 100],
+      );
+      expect(env.state.bearings['b599']!.gateOverride, isFalse);
+      expect(env.state.bearings['b599']!.gateCounts, isFalse);
+      env.container.dispose();
+
+      // restart while still offline: the queued change is shown again
+      await start(api: api, store: store);
+      expect(env.state.bearings['b0']!.gateOverride, isFalse);
+    },
+  );
+
   test('a mission_ended event ends the mission for members', () async {
     await start();
     expect(env.state.mission!.isActive, isTrue);

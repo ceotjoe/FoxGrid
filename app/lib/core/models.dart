@@ -225,7 +225,15 @@ class Bearing {
     this.retroactive = false,
     this.gateState,
     this.gateOverride,
+    this.sensorId,
+    this.source = 'manual',
   });
+
+  /// The automatic station that sent this bearing, if any.
+  final String? sensorId;
+
+  /// `manual`, `sensor` or `external`.
+  final String source;
 
   final String id;
   final String participantId;
@@ -275,9 +283,17 @@ class Bearing {
     retroactive: j['entry_mode'] == 'retroactive',
     gateState: j['gate_state'] as String?,
     gateOverride: j['gate_override'] as bool?,
+    sensorId: j['sensor_id'] as String?,
+    source: j['source'] as String? ?? 'manual',
   );
 
-  Bearing copyWith({bool? isOutlier, String? interfererId}) => Bearing(
+  /// [gateOverride] is tri-state, so it is only replaced when [setGate] is true.
+  Bearing copyWith({
+    bool? isOutlier,
+    String? interfererId,
+    bool setGate = false,
+    bool? gateOverride,
+  }) => Bearing(
     id: id,
     participantId: participantId,
     station: station,
@@ -293,7 +309,9 @@ class Bearing {
     interfererId: interfererId ?? this.interfererId,
     retroactive: retroactive,
     gateState: gateState,
-    gateOverride: gateOverride,
+    gateOverride: setGate ? gateOverride : this.gateOverride,
+    sensorId: sensorId,
+    source: source,
   );
 
   bool get isExternal => pointId != null;

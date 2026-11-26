@@ -290,6 +290,38 @@ class BearingPatch(BaseModel):
     gate_override: bool | None = None
 
 
+BulkGate = Literal["counted", "stored", "included", "excluded"]
+MAX_BULK = 500
+
+
+class BearingBulk(BaseModel):
+    """One change for many bearings (ADR 0010, *Peilungen verwalten*).
+
+    ``gate_override``: true counts, false does not, explicit null back to automatic.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_BULK)
+    interferer_id: uuid.UUID | None = None
+    gate_override: bool | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> BearingBulk:
+        if len(set(self.ids)) != len(self.ids):
+            raise ValueError("ids must be unique")
+        if not self.model_fields_set & {"interferer_id", "gate_override"}:
+            raise ValueError("nothing to change")
+        if "interferer_id" in self.model_fields_set and self.interferer_id is None:
+            raise ValueError("interferer_id cannot be cleared")
+        return self
+
+
+class BulkOut(BaseModel):
+    updated: int  # bearings that changed (each got a revision)
+    unchanged: int
+
+
 class BearingOut(ORM):
     id: uuid.UUID
     mission_id: uuid.UUID
@@ -315,6 +347,7 @@ class BearingOut(ORM):
     entry_mode: str = "live"
     point_id: uuid.UUID | None = None
     interferer_id: uuid.UUID
+    sensor_id: uuid.UUID | None = None
     window_start: datetime | None = None  # sensors: span of the averaged readings
     window_end: datetime | None = None
     gate_state: Literal["inside", "outside"] | None = None  # gated sensors only

@@ -77,6 +77,14 @@ server, then no `interferer_id` is sent). `MissionNotifier` computes it itself i
 switches the active interferer; *Menü → Störer* (`ui/interferers_screen.dart`) adds, renames, marks as found and deactivates; a long
 press on a bearing in the list reassigns it (owner, or `interferer.manage`). 
 
+**Peilungen verwalten** (`ui/manage_bearings_screen.dart`, ADR 0010; menu entry for `bearing.flag` or `interferer.manage`) works on
+the bearings the app already holds (snapshot plus live events), so it needs no extra loading and works offline. Filters: stations
+only, sensor, interferer, gate state (`GateFilter`, the same definitions as the server's `state`). The timeline (`_Timeline`,
+a `CustomPaint`) draws azimuth over time with transmissions as bands; dragging selects a time range, a transmission chip selects
+its bearings (with the server's 5 s slack). Bulk actions open a map preview of the selected rays and then call
+`MissionNotifier.bulkUpdateBearings`: optimistic, outbox kind `bearing_bulk` in chunks of 500 (`POST …/bearings/bulk`), re-applied
+by `_overlayPending`. The gate actions only send sensor bearings. `bearings_updated` events update many bearings at once.
+
 **Map.** With a single interferer the map looks as before (participant colours, red estimate). With several (`state.interferers.length > 1`)
 it draws one estimate per shown interferer (ellipses, contours, MLE marker with letter badge, station rings from that interferer's
 readings) and colours each bearing with its interferer's family from `MapPalette.interferer(slot)`, shaded by field strength

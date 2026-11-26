@@ -1,7 +1,7 @@
 # 0010 – Vehicle-mounted KrakenSDR as a mobile bearing station
 
-**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer), 3 (engine) and 4 (manual gate)
-implemented
+**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer), 3 (engine), 4 (manual gate) and 5
+(bulk management) implemented
 
 **Context.** A KrakenSDR with a circular antenna array (UCA) on a car roof yields an unambiguous 360° bearing several times per
 second, both while driving and while parked. The MQTT interface ([0006](0006-mqtt-ingest-separate-process.md),
@@ -98,7 +98,8 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
     - Drag a time range on the timeline.
     - Select everything in a transmission.
     - Filter by sensor, interferer, state (counts / stored only / manually excluded) and time window.
-    - The list below is virtualised and paged from the server.
+    - The list below is virtualised. The app works on the bearings it already holds (snapshot plus live events), so the
+      screen also works offline; the server's paging serves other clients such as the web control room.
   - **Bulk actions** on the selection:
     - assign an interferer,
     - "zählen", "nicht zählen", "automatisch" (drop the manual decision).
@@ -137,7 +138,7 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
    - Backend: gate setting per sensor, automatic state with re-evaluation on transmission changes, manual override,
      `trusted_only` extension.
    - App: backdated start of *Störer sendet*.
-5. Bulk management:
+5. Bulk management. *Done.*
    - Backend: filters, paging and the bulk endpoint for bearings.
    - App: *Peilungen verwalten* with timeline, selection, bulk actions and map preview.
 6. App, sensors: weight, default interferer and gate in the sensor settings; vehicle marker with track; reduced ray display.

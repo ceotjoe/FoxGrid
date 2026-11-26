@@ -28,6 +28,7 @@ import 'filter_sheet.dart';
 import 'homing_screen.dart';
 import 'audit_screen.dart';
 import 'participants_screen.dart';
+import 'manage_bearings_screen.dart';
 import 'interferers_screen.dart';
 import 'points_screen.dart';
 import 'station_screen.dart';
@@ -679,6 +680,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   _sheet((_) => const FilterSheet());
                 case 'bearings':
                   _sheet((_) => const BearingsSheet());
+                case 'manage_bearings':
+                  _push(const ManageBearingsScreen());
                 case 'retro':
                   _openCapture(retroactive: true);
                 case 'interferers':
@@ -724,6 +727,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 value: 'bearings',
                 child: _MenuRow(Icons.list_alt, 'Peilungen (Liste)'),
               ),
+              if (session.can(Perm.bearingFlag) ||
+                  session.can(Perm.interfererManage))
+                const PopupMenuItem(
+                  key: Key('open-manage-bearings'),
+                  value: 'manage_bearings',
+                  child: _MenuRow(Icons.timeline, 'Peilungen verwalten'),
+                ),
               if (state.interferers.isNotEmpty)
                 PopupMenuItem(
                   key: const Key('open-interferers'),
