@@ -37,6 +37,10 @@ class EngineParamsIn(BaseModel):
 
     resolution_m: float | None = Field(default=None, ge=5, le=1000)
     outlier_fraction: float | None = Field(default=None, gt=0, lt=1)
+    # automatic stations (ADR 0010): their own outlier fraction and the radius within which the
+    # bearings of one station share their weight
+    sensor_outlier_fraction: float | None = Field(default=None, gt=0, lt=1)
+    cluster_radius_m: float | None = Field(default=None, ge=0, le=1000)
     half_life_s: float | None = Field(default=None, gt=0)
     margin_m: float | None = Field(default=None, ge=1000, le=100_000)
     use_rssi: bool | None = None  # include the homing RSSI track in the estimate (default on)

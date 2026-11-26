@@ -14,4 +14,4 @@ Each record states context, decision and consequences.
 | [0007](0007-roles-and-permissions.md) | Roles and permissions: authority next to the data source |
 | [0008](0008-multiple-interferers.md) | Several interferers per mission, each with its own estimate |
 | [0009](0009-retroactive-bearings.md) | Retroactive bearings: chosen time and position, `entry_mode` |
-| [0010](0010-vehicle-mounted-kraken-sdr.md) | Vehicle-mounted KrakenSDR: bridge, heading, σ model, weighting of correlated series (proposed) |
+| [0010](0010-vehicle-mounted-kraken-sdr.md) | Vehicle-mounted KrakenSDR: bridge, heading, σ model, weighting, manual gate and bulk management (proposed) |

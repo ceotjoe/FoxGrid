@@ -15,8 +15,24 @@ estimate(bearings, params, rssi=[...])  # -> Estimate
   `sigma_deg` (κ ≈ 1/σ², σ in radians).
 - **Outlier mixture:** each bearing is a mixture of the von Mises term and a uniform term with weight ε (default 0.1,
   `outlier_fraction`). Cells behind the station (more than 90° off) get only ε.
-- **Fusion** = sum of the log-likelihoods of the active, trusted bearings. Optional **age decay** (half-life, `half_life_s`) and
-  **per-transmission scoping** (estimate scopes `current` and `all`).
+- **Fusion** = weighted sum of the log-likelihoods of the active, trusted bearings. Optional **age decay** (half-life,
+  `half_life_s`) and **per-transmission scoping** (estimate scopes `current` and `all`).
+- **Per-bearing terms** ([ADR 0010](../adr/0010-vehicle-mounted-kraken-sdr.md)). A `Bearing` may carry
+  - a `weight` (default 1, ≥ 0), multiplied into the age weight;
+  - its own `outlier_fraction` (ε), which replaces the global one for that bearing;
+  - a `group`.
+- **Correlated series.** Bearings of one `group` (the backend uses the sensor id) share multipath and heading errors. Each is
+  divided by the number of same-group bearings within `cluster_radius_m` (default 75 m), itself included. A long stop counts
+  about as much as one bearing. Because neighbourhoods are counted per bearing rather than chained into clusters, a drive with
+  bearings every 100 m keeps full weight. Bearings without a group are not affected. If all bearings have weight 0 and there is
+  no usable RSSI, the engine raises `EngineError`.
+- **Backend mapping** (`recompute.SensorTuning`). For sensor bearings:
+  - `group` = sensor id,
+  - `weight` = the sensor's `weight`,
+  - ε = `sensor_outlier_fraction` (default 0.2).
+
+  Hand-held bearings keep weight 1 and the global ε. Changing a sensor's weight triggers a recompute, and weight, ε and
+  group are part of the estimate's input hash.
 - The maximum is refined (`refine_steps`, default 2).
 
 Output (`Estimate`): MLE point, covariance, 1σ and 2σ error ellipses, probability-mass **contours** (50/80/95 %, GeoJSON polygons
@@ -72,6 +88,8 @@ User-tunable per mission (`engine_params`, validated by `EngineParamsIn`):
 |---|---|---|
 | `resolution_m` | 50 (5–1000) | grid cell size |
 | `outlier_fraction` | 0.1 | ε of the uniform outlier mixture |
+| `sensor_outlier_fraction` | 0.2 | ε for bearings of automatic stations (applied per bearing by the backend) |
+| `cluster_radius_m` | 75 (0–1000) | bearings of one station within this distance share their weight; 0 disables it |
 | `half_life_s` | off | age weighting |
 | `margin_m` | 5000 (1000–100000) | margin around stations and intersections |
 | `use_rssi` | on | include the homing RSSI track |

@@ -47,6 +47,7 @@ class _Stations:
     grid_azimuth: FloatArray  # radians, clockwise from grid north
     kappa: FloatArray
     weight: FloatArray
+    eps: FloatArray  # outlier fraction per bearing
 
 
 @lru_cache(maxsize=64)
@@ -66,7 +67,7 @@ def utm_epsg_for(lat: float, lon: float) -> int:
 def _prepare(bearings: list[Bearing], fwd: Transformer, params: EngineParams) -> _Stations:
     if not bearings:
         empty = np.zeros(0)
-        return _Stations(empty, empty, empty, empty, empty)
+        return _Stations(empty, empty, empty, empty, empty, empty)
     lats = np.array([b.lat for b in bearings])
     lons = np.array([b.lon for b in bearings])
     east, north = fwd.transform(lons, lats)
@@ -82,13 +83,53 @@ def _prepare(bearings: list[Bearing], fwd: Transformer, params: EngineParams) ->
         if params.now is not None and all(t is not None for t in times):
             age = np.maximum(params.now - np.array(times, dtype=np.float64), 0.0)
             weight = np.power(0.5, age / params.half_life_s)
+    east = np.asarray(east, dtype=np.float64)
+    north = np.asarray(north, dtype=np.float64)
+    weight = weight * np.array([b.weight for b in bearings], dtype=np.float64)
+    weight = weight * _cluster_weights(bearings, east, north, params.cluster_radius_m)
+    eps = np.array(
+        [
+            params.outlier_fraction if b.outlier_fraction is None else b.outlier_fraction
+            for b in bearings
+        ],
+        dtype=np.float64,
+    )
     return _Stations(
-        east=np.asarray(east, dtype=np.float64),
-        north=np.asarray(north, dtype=np.float64),
+        east=east,
+        north=north,
         grid_azimuth=np.asarray(az_true + north_in_grid, dtype=np.float64),
         kappa=sigma_to_kappa(sigma),
         weight=weight,
+        eps=eps,
     )
+
+
+def _cluster_weights(
+    bearings: list[Bearing], east: FloatArray, north: FloatArray, radius_m: float
+) -> FloatArray:
+    """1/n per bearing, n = bearings of its group within ``radius_m`` (itself included).
+
+    Bearings of one automatic station taken at nearly the same place share multipath and heading
+    errors, so a long stop counts about as much as one bearing. Neighbourhoods are counted per
+    bearing instead of forming clusters, so a drive with bearings every 100 m does not chain into
+    a single cluster. Bearings without a group keep weight 1.
+    """
+    out = np.ones(len(bearings), dtype=np.float64)
+    if radius_m <= 0:
+        return out
+    groups: dict[str, list[int]] = {}
+    for i, b in enumerate(bearings):
+        if b.group is not None:
+            groups.setdefault(b.group, []).append(i)
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        idx = np.array(members)
+        de = east[idx, None] - east[None, idx]
+        dn = north[idx, None] - north[None, idx]
+        neighbours = np.sum(np.hypot(de, dn) <= radius_m, axis=1)
+        out[idx] = 1.0 / neighbours
+    return out
 
 
 def _log_posterior(
@@ -105,7 +146,7 @@ def _log_posterior(
         dy = north[..., None] - st.north
         cell_azimuth = np.arctan2(dx, dy)
         delta = wrap_pi(cell_azimuth - st.grid_azimuth)
-        ll = bearing_log_likelihood(delta, st.kappa, params.outlier_fraction)
+        ll = bearing_log_likelihood(delta, st.kappa, st.eps)
         total += np.sum(ll * st.weight, axis=-1)
     if rssi is not None:
         total += params.rssi_weight * rssi_log_likelihood(east, north, rssi, params)
@@ -167,6 +208,8 @@ def _validate(bearings: list[Bearing], rssi: list[RssiSample], params: EnginePar
             raise EngineError("RSSI position out of range")
     if not 0.0 < params.outlier_fraction < 1.0:
         raise EngineError("outlier_fraction must be in (0, 1)")
+    if not (params.cluster_radius_m >= 0.0 and math.isfinite(params.cluster_radius_m)):
+        raise EngineError("cluster_radius_m must be >= 0")
     if params.resolution_m <= 0 or params.max_cells < 2:
         raise EngineError("invalid grid configuration")
     for b in bearings:
@@ -176,6 +219,12 @@ def _validate(bearings: list[Bearing], rssi: list[RssiSample], params: EnginePar
             raise EngineError("bearing position out of range")
         if not math.isfinite(b.azimuth_deg):
             raise EngineError("azimuth must be finite")
+        if not (b.weight >= 0.0 and math.isfinite(b.weight)):
+            raise EngineError("bearing weight must be >= 0")
+        if b.outlier_fraction is not None and not 0.0 < b.outlier_fraction < 1.0:
+            raise EngineError("bearing outlier_fraction must be in (0, 1)")
+    if bearings and not usable_samples(rssi, params) and not any(b.weight > 0 for b in bearings):
+        raise EngineError("all bearings have weight 0")
 
 
 def _ellipse(cov: FloatArray, scale: float) -> tuple[EllipseGeometry, FloatArray]:

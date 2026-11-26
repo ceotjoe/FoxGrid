@@ -57,6 +57,7 @@ from app.services.recompute import (
     build_estimate,
     engine_params_for,
     load_calibration,
+    load_sensor_tuning,
     uses_rssi,
 )
 from app.services.serialize import (
@@ -562,7 +563,8 @@ async def query_estimate(
         raise HTTPException(404, "too few bearings or RSSI samples match the filter")
     if half_life_s is not None:
         params = replace(params, half_life_s=half_life_s)
-    engine_bearings: list[EngineBearing] = [_to_engine(b) for b in bearings]
+    tuning = await load_sensor_tuning(session, mission)
+    engine_bearings: list[EngineBearing] = [_to_engine(b, tuning) for b in bearings]
     try:
         result = await asyncio.to_thread(run_engine, engine_bearings, params, engine_rssi)
     except EngineError as exc:
@@ -572,7 +574,7 @@ async def query_estimate(
         interferer_id,
         "all",
         None,
-        _input_hash(bearings, params, rssi_rows, offsets),
+        _input_hash(bearings, params, rssi_rows, offsets, tuning),
         result,
         params,
     )

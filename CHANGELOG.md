@@ -5,9 +5,10 @@ All notable changes. Versions follow the app's `pubspec.yaml`; dates are from th
 
 ## Unreleased
 
-- KrakenSDR in a vehicle (step 1 of 5, [ADR 0010](docs/adr/0010-vehicle-mounted-kraken-sdr.md)): `tools/kraken_bridge` runs on the Kraken's Raspberry Pi, reads the DSP software's "Kraken App" output and gpsd, and sends averaged, thinned true bearings with their own sigma to the MQTT ingest through a persistent outbox. The heading comes from the GNSS course and is frozen while parked. `--simulate` drives a simulated car past a hidden emitter. No backend changes yet.
-- Mobile stations (step 2 of 5): the MQTT heartbeat (`status`) may carry `lat`, `lon`, `speed`, `heading` and `at`, which become the station's track on the map. Sensors get a `weight` (0–2, used by the engine from step 3) and an optional default interferer; bearing and RSSI messages may name an `interferer`. Merging interferers moves sensor defaults. The Kraken bridge sends its heartbeat with position every 10 s and takes `--interferer`.
+- KrakenSDR in a vehicle (step 1 of 7, [ADR 0010](docs/adr/0010-vehicle-mounted-kraken-sdr.md)): `tools/kraken_bridge` runs on the Kraken's Raspberry Pi, reads the DSP software's "Kraken App" output and gpsd, and sends averaged, thinned true bearings with their own sigma to the MQTT ingest through a persistent outbox. The heading comes from the GNSS course and is frozen while parked. `--simulate` drives a simulated car past a hidden emitter. No backend changes in this step.
+- Mobile stations (step 2 of 7): the MQTT heartbeat (`status`) may carry `lat`, `lon`, `speed`, `heading` and `at`, which become the station's track on the map. Sensors get a `weight` (0–2, used by the engine since step 3) and an optional default interferer; bearing and RSSI messages may name an `interferer`. Merging interferers moves sensor defaults. The Kraken bridge sends its heartbeat with position every 10 s and takes `--interferer`.
 - Backend: one new migration (0015); run `alembic upgrade head` when deploying.
+- Engine (step 3 of 7): bearings may carry a `weight`, their own `outlier_fraction` and a `group`. Same-group bearings share their weight within `cluster_radius_m` (default 75 m), so a long stop of a station counts like one bearing while a drive keeps its value. The backend passes the sensor id as group, the sensor's weight, and `sensor_outlier_fraction` (default 0.2) for sensor bearings. Both new parameters are tunable per mission. Changing a sensor's weight triggers a recompute.
 
 ## 0.7.0 – 2026-11-24
 

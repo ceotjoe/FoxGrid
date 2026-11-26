@@ -19,6 +19,11 @@ class Bearing:
     sigma_deg: float  # 1 sigma angular uncertainty, > 0
     measured_at: float | None = None  # POSIX seconds (UTC), used for age weighting
     id: str | None = None
+    # Bearings of one ``group`` (e.g. one automatic station) have correlated errors: each is
+    # divided by the number of same-group bearings within ``EngineParams.cluster_radius_m``.
+    group: str | None = None
+    weight: float = 1.0  # scales the log-likelihood (e.g. a station's weight), >= 0
+    outlier_fraction: float | None = None  # epsilon for this bearing; None = the global one
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +62,8 @@ class EngineParams:
     max_range_m: float = 100_000.0  # farthest emitter distance considered for grid extent
     max_cells: int = 250  # per axis; resolution is coarsened to respect this
     outlier_fraction: float = 0.1  # epsilon of the uniform outlier mixture
+    # Same-group bearings closer than this share their weight (1/n each); 0 disables it.
+    cluster_radius_m: float = 75.0
     half_life_s: float | None = None  # age weighting; None disables it
     now: float | None = None  # POSIX seconds used as "now" for age weighting
     refine_steps: int = 2

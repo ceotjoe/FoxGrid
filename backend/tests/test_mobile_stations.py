@@ -9,9 +9,20 @@ from typing import Any
 
 import httpx
 import pytest
+from foxgrid_engine import EngineParams
 
+from app.models import Bearing
+from app.models import Mission as MissionModel
 from app.services.ingest import IngestContext, handle_message
-from tests.helpers import Mission, auth
+from app.services.recompute import (
+    SENSOR_OUTLIER_FRACTION,
+    SensorTuning,
+    _input_hash,
+    _to_engine,
+    engine_params_for,
+)
+from tests.helpers import Mission, auth, azimuth, bearing_payload, distance, offset, wait_for
+from tests.test_field import STATIONS, TARGET
 from tests.test_ingest import bearing_msg, bearings, now, topic
 from tests.test_interferers import add_interferer
 from tests.test_sensors import make_sensor
@@ -172,3 +183,76 @@ async def test_merging_interferers_moves_the_sensor_default(client: httpx.AsyncC
     assert merged.status_code == 200, merged.text
     [listed] = (await client.get(m.url("/sensors"), headers=h)).json()
     assert listed["id"] == s["id"] and listed["interferer_id"] == a["id"]
+
+
+async def test_sensor_weight_and_grouping_reach_the_engine(
+    client: httpx.AsyncClient, ingest_ctx: IngestContext
+) -> None:
+    m = await Mission.create(
+        client, engine_params={"sensor_outlier_fraction": 0.25, "cluster_radius_m": 60}
+    )
+    h = auth(m.lead_token)
+    for station in STATIONS:
+        r = await client.post(m.url("/bearings"), json=bearing_payload(station, TARGET), headers=h)
+        assert r.status_code == 201
+    s = await make_sensor(client, m, "Kraken Auto")
+    spot = offset(-2000, 6000)
+    biased = (azimuth(spot, TARGET) + 25.0) % 360.0
+    for i in range(20):  # a long stop with a consistent multipath error
+        msg = bearing_msg(
+            s, lat=spot[0], lon=spot[1] + i * 1e-6, azimuth_true_deg=round(biased, 2), sigma_deg=6.0
+        )
+        assert await handle_message(ingest_ctx, topic(m, s, "bearing"), msg) == "ok"
+
+    async def estimate_with(pred: Any) -> Any:
+        async def poll() -> Any:
+            r = await client.get(m.url("/estimate?scope=all"), headers=h)
+            if r.status_code != 200:
+                return None
+            e = r.json()
+            return e if pred(e) and e["n_bearings"] == 23 else None
+
+        return await wait_for(poll)
+
+    pulled = await estimate_with(lambda e: distance((e["lat"], e["lon"]), TARGET) > 100)
+    # weight 0 removes the station from the estimate; the change triggers a recompute
+    r = await client.patch(m.url(f"/sensors/{s['id']}"), json={"weight": 0}, headers=h)
+    assert r.status_code == 200
+    clean = await estimate_with(lambda e: distance((e["lat"], e["lon"]), TARGET) < 30)
+    assert distance((clean["lat"], clean["lon"]), TARGET) < distance(
+        (pulled["lat"], pulled["lon"]), TARGET
+    )
+
+
+def test_sensor_bearings_carry_group_weight_and_epsilon() -> None:
+    sensor_id = uuid.uuid4()
+    common = {
+        "lat": 48.1,
+        "lon": 11.5,
+        "azimuth_true_deg": 90.0,
+        "sigma_deg": 8.0,
+        "measured_at": datetime.now(UTC),
+    }
+    hand = Bearing(id=uuid.uuid4(), **common)
+    auto = Bearing(id=uuid.uuid4(), sensor_id=sensor_id, **common)
+    tuning = SensorTuning(weights={sensor_id: 0.5}, outlier_fraction=0.3)
+
+    e_hand, e_auto = _to_engine(hand, tuning), _to_engine(auto, tuning)
+    assert (e_hand.group, e_hand.weight, e_hand.outlier_fraction) == (None, 1.0, None)
+    assert (e_auto.group, e_auto.weight, e_auto.outlier_fraction) == (str(sensor_id), 0.5, 0.3)
+    assert _to_engine(auto).outlier_fraction == SENSOR_OUTLIER_FRACTION
+
+    params = EngineParams()
+    base = _input_hash([hand, auto], params, tuning=tuning)
+    assert base == _input_hash([hand, auto], params, tuning=tuning)
+    assert base != _input_hash(
+        [hand, auto], params, tuning=SensorTuning({sensor_id: 1.0}, 0.3)
+    )  # a new weight must trigger a new estimate
+    assert base != _input_hash([hand, auto], EngineParams(cluster_radius_m=10), tuning=tuning)
+
+
+def test_engine_params_keep_sensor_settings_apart() -> None:
+    mission = MissionModel(engine_params={"sensor_outlier_fraction": 0.3, "cluster_radius_m": 40})
+    params = engine_params_for(mission, 0.0)
+    assert params.cluster_radius_m == 40
+    assert not hasattr(params, "sensor_outlier_fraction")

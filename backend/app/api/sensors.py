@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require
+from app.api.deps import get_scheduler, require
 from app.db import get_session
 from app.models import Bearing, Mission, Participant, PositionSample, Sensor, Transmission
 from app.schemas.api import (
@@ -30,7 +30,12 @@ from app.schemas.api import (
 from app.security import hash_token
 from app.services import domain
 from app.services.permissions import Permission
-from app.services.recompute import _to_engine, engine_params_for
+from app.services.recompute import (
+    RecomputeScheduler,
+    _to_engine,
+    engine_params_for,
+    load_sensor_tuning,
+)
 
 router = APIRouter(prefix="/missions/{mission_id}")
 
@@ -161,6 +166,7 @@ async def patch_sensor(
     body: SensorPatch,
     actor: Participant = Depends(require(Permission.SENSOR_MANAGE)),
     session: AsyncSession = Depends(get_session),
+    scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> SensorOut:
     """Deactivate a sensor (its data stays in the log), move a fixed station, or change its
     weight or default interferer."""
@@ -179,6 +185,8 @@ async def patch_sensor(
         detail = body.model_dump(mode="json", exclude_unset=True)
         await domain.audit(session, mission_id, actor.id, "update", "sensor", sensor_id, **detail)
         await session.commit()
+        if "weight" in changes:
+            scheduler.schedule(mission_id)  # the estimate weighs this sensor's bearings anew
     callsign = await session.scalar(
         select(Participant.callsign).where(Participant.id == sensor.participant_id)
     )
@@ -227,7 +235,8 @@ async def get_suggestions(
         raise HTTPException(404, "no bearings yet")
     ring = await domain.search_area_ring(session, mission_id)
     params = engine_params_for(mission, datetime.now(UTC).timestamp())
-    engine_bearings: list[EngineBearing] = [_to_engine(b) for b in bearings]
+    tuning = await load_sensor_tuning(session, mission)
+    engine_bearings: list[EngineBearing] = [_to_engine(b, tuning) for b in bearings]
     # RSSI samples are not passed on: the suggestion is about bearing geometry.
     try:
         result = await asyncio.to_thread(

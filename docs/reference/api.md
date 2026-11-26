@@ -90,8 +90,8 @@ There is deliberately **no DELETE**.
 | GET | `/missions/{id}/sensors` | list |
 | PATCH | `/missions/{id}/sensors/{sensor_id}` | update / deactivate |
 
-Besides name, kind and fixed position a sensor has a `weight` (0–2, default 1) that scales its bearings in the estimate (used by
-the engine from step 3 of [ADR 0010](../adr/0010-vehicle-mounted-kraken-sdr.md)) and an optional default `interferer_id` for its
+Besides name, kind and fixed position a sensor has a `weight` (0–2, default 1) that scales its bearings in the estimate (see
+[Engine](../concepts/engine.md); changing it triggers a recompute) and an optional default `interferer_id` for its
 data (an active interferer of the mission; `null` in a PATCH removes it). Merging interferers moves the default along.
 
 The MQTT side is documented in [MQTT interface](mqtt.md).

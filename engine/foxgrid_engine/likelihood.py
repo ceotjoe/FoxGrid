@@ -38,14 +38,15 @@ def log_bessel_i0(kappa: FloatArray) -> FloatArray:
 def bearing_log_likelihood(
     delta: FloatArray,
     kappa: FloatArray,
-    outlier_fraction: float,
+    outlier_fraction: float | FloatArray,
 ) -> FloatArray:
     """Log-likelihood of angular deviations ``delta`` (radians, wrapped to [-pi, pi)).
 
-    ``delta`` has the bearing axis last and ``kappa`` has shape ``(B,)``. Deviations beyond
-    90 degrees (cell behind the station) only get the outlier component.
+    ``delta`` has the bearing axis last; ``kappa`` and an array ``outlier_fraction`` have shape
+    ``(B,)``. Deviations beyond 90 degrees (cell behind the station) only get the outlier
+    component.
     """
-    eps = outlier_fraction
+    eps = np.asarray(outlier_fraction, dtype=np.float64)
     log_uniform = np.log(eps / _TWO_PI)
     log_norm = np.log(_TWO_PI) + log_bessel_i0(kappa)
     log_vm = kappa * np.cos(delta) - log_norm

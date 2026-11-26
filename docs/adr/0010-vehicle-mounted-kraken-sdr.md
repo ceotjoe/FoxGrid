@@ -1,6 +1,6 @@
 # 0010 – Vehicle-mounted KrakenSDR as a mobile bearing station
 
-**Status:** proposed (not implemented)
+**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer) and 3 (engine) implemented
 
 **Context.** A KrakenSDR with a circular antenna array (UCA) on a car roof yields an unambiguous 360° bearing several times per
 second, both while driving and while parked. The MQTT interface ([0006](0006-mqtt-ingest-separate-process.md),
@@ -13,6 +13,11 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
    strongly correlated.
 3. The vehicle is not visible on the map between bearings, and a station always reports for the mission's default interferer
    ([0008](0008-multiple-interferers.md)).
+4. The Kraken bears everything on the frequency, including legitimate repeater users who transmit during the drive. Their
+   bearings point elsewhere and are consistent, so the outlier mixture does not catch them. Telling the interferer apart
+   automatically (CTCSS, signal features) is not reliable enough, so a person has to decide.
+5. A drive yields hundreds of bearings. Assigning them to interferers and deciding which count must be practical in the app,
+   which so far edits bearings one at a time.
 
 **Decision.**
 
@@ -30,9 +35,9 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
   `az_true = (heading + doa + mount_offset) mod 360`. The heading is valid after ≥ 5 s at ≥ 2 m/s with < 10° course change
   (the same speed threshold the Kraken software uses). On stopping it is frozen. If the car was turning, or spent more than
   10 s manoeuvring at low speed since the last valid heading, the frozen heading counts as uncertain; ordinary braking stays
-  well below that. Between 0.5 and 2 m/s (manoeuvring) and while turning no bearing is sent. GNSS course is true north, so no declination is applied
-  (`azimuth_input_ref` true, declination 0). The Pi's clock follows GNSS time (chrony + gpsd), because the Kraken timestamp
-  comes from the system clock.
+  well below that. Between 0.5 and 2 m/s (manoeuvring) and while turning no bearing is sent. GNSS course is true north, so
+  no declination is applied (`azimuth_input_ref` true, declination 0). The Pi's clock follows GNSS time (chrony + gpsd),
+  because the Kraken timestamp comes from the system clock.
 - **Signal gate.** A bearing is sent only when confidence and power are above thresholds. Initial values are taken from a
   recording with and without signal.
 - **Aggregation in the bridge.** The bridge takes the circular mean over a window.
@@ -49,24 +54,61 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
   - σ_env, an environment preset chosen by the operator: open 3°, mixed 5°, urban 8°.
 
   The best Kraken bearing therefore counts as much as a "sharp" (±5°) hand bearing.
-- **Correlated series in the engine.** Per sensor, bearings within 150 m of each other form a cluster. Each bearing of a cluster
-  with n members gets weight 1/n, multiplied into the existing per-bearing weight (age decay). A long stop thus counts as one
-  bearing, while a drive past many positions keeps its value. Hand-held bearings are not clustered.
-- **Outlier fraction per source.** Sensor bearings use ε = 0.2 instead of the mission's `outlier_fraction` (default 0.1),
-  because reflections are more frequent for mobile DF.
+- **Correlated series in the engine.** Each bearing of a sensor gets weight 1/n, where n is the number of the same sensor's
+  bearings within 75 m (`cluster_radius_m`), itself included. This is multiplied into the existing per-bearing weight (age
+  decay). A long stop thus counts as one bearing, while a drive past many positions keeps its value. Hand-held bearings are not
+  affected.
+  - Neighbourhoods are counted per bearing instead of forming fixed clusters. Clusters would chain a drive with bearings every
+    100 m into one cluster.
+  - The radius (first planned as 150 m) is below the bridge's 100 m spacing while driving, so a drive keeps full weight.
+  - The engine stays generic: it knows `group`, `weight` and a per-bearing `outlier_fraction`, not sensors.
+- **Outlier fraction per source.** Sensor bearings use ε = 0.2 (`sensor_outlier_fraction`, tunable per mission) instead of
+  the mission's `outlier_fraction` (default 0.1), because reflections are more frequent for mobile DF.
 - **Sensor weight.** A per-sensor factor (default 1.0, range 0–2, `sensor.manage`) scales the log-likelihood of that sensor's
   bearings, so the lead can lower a Kraken in town without deactivating it.
 - **MQTT extensions.**
   - `status` may carry `lat`/`lon`/`heading`/`speed`. This feeds the virtual participant's position track, which shows the
     car on the map and is purged with all tracks.
   - Each sensor gets a default interferer, and a bearing may name one (`interferer`).
+- **Counting only while the interferer transmits (manual gate).** A person switches *Störer sendet* on and off in the app.
+  This uses the existing manual transmissions; an optional relay hook may still start them.
+  - Every sensor gets the setting "nur bei Störer sendet zählen". It is on by default for stations without a fixed position.
+  - A sensor bearing counts only if its whole averaging window lies inside a transmission. All other bearings are stored but
+    get the automatic state "außerhalb Aussendung" and do not feed the estimate. They are never deleted.
+  - The bridge sends the window as `window_start`/`window_end` next to `measured_at`. It also closes a window at a gap in the
+    readings (default > 1.5 s, the squelch closing between two overs), so one window does not mix a user and the interferer.
+  - People press the button late. Therefore the start can be backdated in the app ("seit 5/10/30 s"; the API already takes
+    `at`), and the existing assignment slack (5 s) applies at both ends.
+  - The state is re-evaluated whenever a transmission starts, stops or its times change, because bearings may arrive before
+    the start (outbox, mobile network) or the start may be entered late.
+  - A manual decision ("zählen" / "nicht zählen") overrides the automatic state and is kept on re-evaluation. Like every edit
+    it is an append-only revision. The estimate query (`domain.trusted_only`) excludes bearings that are automatically out and
+    not manually included.
+- **Managing sensor bearings in the app (*Peilungen verwalten*).** This is a screen for leads, deputies and analysts, built for
+  hundreds of bearings.
+  - **Timeline:** azimuth over time, one point per bearing, coloured by interferer. Counted bearings are filled; stored-only and
+    excluded ones are hollow. Transmissions show as bands. A second direction, such as a repeater user, stands out as its own
+    trace.
+  - **Selection:**
+    - Drag a time range on the timeline.
+    - Select everything in a transmission.
+    - Filter by sensor, interferer, state (counts / stored only / manually excluded) and time window.
+    - The list below is virtualised and paged from the server.
+  - **Bulk actions** on the selection:
+    - assign an interferer,
+    - "zählen", "nicht zählen", "automatisch" (drop the manual decision).
+    - A preview on the map shows the selected rays before applying.
+  - **Backend:** `GET /bearings` gains filters (`sensor`, `interferer`, `state`, `from`/`to`, `transmission`) and paging.
+    A new bulk endpoint applies one change to up to 500 bearings in one transaction, with the same permissions as the
+    single-bearing PATCH and one revision per bearing. It publishes one `bearings_updated` event and triggers one recompute.
+  - **Map:** for sensors, only counted rays are shown by default; stored-only ones can be shown dimmed.
 - **Mount calibration.** A tool compares measured and geodesic azimuth to a known transmitter from several vehicle headings
   and stores the median offset in the bridge configuration.
 
 **Consequences.**
 
 - The engine changes slightly: it gains cluster weights, per-bearing ε and a sensor weight. The grid model stays the same.
-- Initial values (150 m, ε 0.2, σ presets, signal gate) are guesses. The simulator gets a Kraken vehicle, and the values are
+- Initial values (75 m, ε 0.2, σ presets, signal gate) are guesses. The simulator gets a Kraken vehicle, and the values are
   checked against real drives.
 - Parked bearings need a straight approach to the parking spot. This goes into the user guide.
 - One more device to run (Pi + bridge), with its own outbox. Bearing IDs come from the bridge and stay stable across retries,
@@ -74,6 +116,27 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
 - The key travels in every message over the mobile network, so TLS at the broker is required.
 - The Kraken's power is uncalibrated (not dBm), so it goes into the bearing's `note` together with the confidence, not into
   `rssi_dbm` and not into homing readings.
+- With the gate on, a Kraken contributes nothing until someone switches *Störer sendet* on. That is intended: a forgotten
+  button loses no data, because stored bearings can be counted afterwards by backdating the transmission or by selecting them
+  in *Peilungen verwalten*.
+- If a user and the interferer transmit at the same time (doubling), the bearings mix. The gap split and the outlier rejection
+  in the bridge only partly help; such stretches are excluded by hand.
+
+**Steps.**
+
+1. Bridge (`tools/kraken_bridge`). *Done.*
+2. Backend: heartbeat position as track, sensor weight, default interferer, `interferer` in messages. *Done.*
+3. Engine: cluster weighting per sensor, ε per source, sensor weight. *Done.*
+4. Manual gate:
+   - Bridge: `window_start`/`window_end`, window split at reading gaps.
+   - Backend: gate setting per sensor, automatic state with re-evaluation on transmission changes, manual override,
+     `trusted_only` extension.
+   - App: backdated start of *Störer sendet*.
+5. Bulk management:
+   - Backend: filters, paging and the bulk endpoint for bearings.
+   - App: *Peilungen verwalten* with timeline, selection, bulk actions and map preview.
+6. App, sensors: weight, default interferer and gate in the sensor settings; vehicle marker with track; reduced ray display.
+7. Simulator vehicle with repeater users, calibration tool, user guide.
 
 **Alternatives considered.**
 
@@ -83,3 +146,8 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
 - *JSON output ("Kraken Pro"):* needs the Node middleware and carries the raw counter-clockwise θ.
 - *Hard cap of bearings per sensor:* simpler, but throws away the real geometric gain of a drive.
 - *Magnetometer:* unusable in a car without extensive compensation.
+- *Automatic interferer detection* (relay hook only, CTCSS decoder in the car, signal features): not reliable enough and not
+  always available (no repeater access, interferer sending the right tone). The relay hook stays an optional source of
+  transmissions; the decision stays with a person.
+- *Deactivating bearings outside transmissions* (`is_active = false`): mixes an automatic rule with the manual flag that
+  quarantine also uses, and could not be undone by re-evaluation. Hence a separate automatic state plus a manual override.

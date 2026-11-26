@@ -10,6 +10,7 @@ import math
 import time
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -30,6 +31,7 @@ from app.models import (
     Interferer,
     Mission,
     RssiSample,
+    Sensor,
     Transmission,
     utcnow,
 )
@@ -41,11 +43,33 @@ log = logging.getLogger(__name__)
 MIN_BEARINGS = 2
 CALIBRATION_EXPONENT = 3.0  # path loss exponent assumed towards the repeater
 CALIBRATION_MIN_STATIONS = 3  # offsets are relative, so a mean needs a few stations
+# Automatic stations see reflections more often than a person with a hand-held antenna (ADR 0010).
+SENSOR_OUTLIER_FRACTION = 0.2
+
+
+@dataclass(frozen=True)
+class SensorTuning:
+    """How sensor bearings enter the engine: per-sensor weight and their outlier fraction."""
+
+    weights: dict[uuid.UUID, float] = field(default_factory=dict)
+    outlier_fraction: float = SENSOR_OUTLIER_FRACTION
+
+
+async def load_sensor_tuning(session: AsyncSession, mission: Mission) -> SensorTuning:
+    rows = await session.execute(
+        select(Sensor.id, Sensor.weight).where(Sensor.mission_id == mission.id)
+    )
+    eps = (mission.engine_params or {}).get("sensor_outlier_fraction")
+    return SensorTuning(
+        weights={sid: float(w) for sid, w in rows.all()},
+        outlier_fraction=float(eps) if eps is not None else SENSOR_OUTLIER_FRACTION,
+    )
 
 
 def engine_params_for(mission: Mission, now: float) -> EngineParams:
     cfg = {k: v for k, v in (mission.engine_params or {}).items() if v is not None}
     cfg.pop("use_rssi", None)  # not an engine parameter: decides whether samples are passed
+    cfg.pop("sensor_outlier_fraction", None)  # applied per bearing, see SensorTuning
     return EngineParams(now=now, **cfg)
 
 
@@ -113,9 +137,18 @@ def _input_hash(
     params: EngineParams,
     rssi: list[RssiSample] | None = None,
     offsets: dict[uuid.UUID, float] | None = None,
+    tuning: SensorTuning | None = None,
 ) -> str:
     rows = sorted(
-        [str(b.id), float(b.azimuth_true_deg), float(b.sigma_deg), b.lat, b.lon] for b in bearings
+        [
+            str(b.id),
+            float(b.azimuth_true_deg),
+            float(b.sigma_deg),
+            b.lat,
+            b.lon,
+            *_sensor_terms(b, tuning),
+        ]
+        for b in bearings
     )
     offsets = offsets or {}
     rssi_rows = sorted(
@@ -137,6 +170,7 @@ def _input_hash(
             params.margin_m,
             params.outlier_fraction,
             params.half_life_s,
+            params.cluster_radius_m,
             now_bucket,
             rssi_rows,
             params.rssi_sigma_db,
@@ -148,7 +182,19 @@ def _input_hash(
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-def _to_engine(b: Bearing) -> EngineBearing:
+def _sensor_terms(
+    b: Bearing, tuning: SensorTuning | None
+) -> tuple[str | None, float, float | None]:
+    """(group, weight, outlier fraction) of a bearing; only sensor bearings are special."""
+    if b.sensor_id is None:
+        return None, 1.0, None
+    tuning = tuning or SensorTuning()
+    weight = tuning.weights.get(b.sensor_id, 1.0)
+    return str(b.sensor_id), weight, tuning.outlier_fraction
+
+
+def _to_engine(b: Bearing, tuning: SensorTuning | None = None) -> EngineBearing:
+    group, weight, eps = _sensor_terms(b, tuning)
     return EngineBearing(
         lat=b.lat,
         lon=b.lon,
@@ -156,6 +202,9 @@ def _to_engine(b: Bearing) -> EngineBearing:
         sigma_deg=float(b.sigma_deg),
         measured_at=b.measured_at.timestamp(),
         id=str(b.id),
+        group=group,
+        weight=weight,
+        outlier_fraction=eps,
     )
 
 
@@ -264,6 +313,7 @@ async def compute_mission(
     if mission is None:
         return []
     params = engine_params_for(mission, now)
+    tuning = await load_sensor_tuning(session, mission)
 
     interferer_ids = list(
         await session.scalars(
@@ -327,9 +377,10 @@ async def compute_mission(
         }
         for scope, (subset, rssi_subset) in scopes.items():
             engine_rssi = [_to_engine_rssi(r, offsets) for r in rssi_subset]
-            if len(subset) < MIN_BEARINGS and not usable_samples(engine_rssi, params):
-                continue
-            digest = _input_hash(subset, params, rssi_subset, offsets)
+            weighted = [b for b in subset if _sensor_terms(b, tuning)[1] > 0]
+            if len(weighted) < MIN_BEARINGS and not usable_samples(engine_rssi, params):
+                continue  # too little to fuse (a sensor with weight 0 adds nothing)
+            digest = _input_hash(subset, params, rssi_subset, offsets, tuning)
             last = await session.scalar(
                 select(Estimate)
                 .where(
@@ -346,7 +397,7 @@ async def compute_mission(
             try:
                 result = await asyncio.to_thread(
                     run_engine,
-                    [_to_engine(b) for b in subset],
+                    [_to_engine(b, tuning) for b in subset],
                     params,
                     engine_rssi,
                 )
