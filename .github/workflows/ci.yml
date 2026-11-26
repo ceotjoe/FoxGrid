@@ -48,6 +48,7 @@ jobs:
       - run: uv python install 3.12
       - run: uv run --python 3.12 --with pytest --with aiomqtt pytest tools/relay_hook
       - run: uv run --python 3.12 --with pytest --with aiomqtt --with pyproj pytest tools/sensor_client
+      - run: uv run --python 3.12 --with pytest --with aiomqtt pytest tools/kraken_bridge
 
   app:
     runs-on: ubuntu-latest

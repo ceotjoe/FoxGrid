@@ -3,6 +3,10 @@
 All notable changes. Versions follow the app's `pubspec.yaml`; dates are from the Git tags. The project uses
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## Unreleased
+
+- KrakenSDR in a vehicle (step 1 of 5, [ADR 0010](docs/adr/0010-vehicle-mounted-kraken-sdr.md)): `tools/kraken_bridge` runs on the Kraken's Raspberry Pi, reads the DSP software's "Kraken App" output and gpsd, and sends averaged, thinned true bearings with their own sigma to the MQTT ingest through a persistent outbox. The heading comes from the GNSS course and is frozen while parked. `--simulate` drives a simulated car past a hidden emitter. No backend changes yet.
+
 ## 0.7.0 – 2026-11-24
 
 - App: unified layout of dialogs, sheets and buttons. One component theme (`ui/app_theme.dart`) and shared building blocks (`ui/app_dialogs.dart`: `AppDialog`, `confirmDialog`, `AppSheet`, `ActionBar`, `FieldRow`, `CoordinateFields`). Buttons in a row are equally sized and never wrap their label; when labels do not fit side by side they stack. The accuracy (sigma) presets are one row, the S-meter quick values a fixed 5×2 grid, and the quarantine dialog has two buttons plus an "also remove" checkbox. See [App internals](docs/development/app.md).

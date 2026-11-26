@@ -91,6 +91,47 @@ There is no reply to the device. The service logs `ok`, `duplicate` or `rejected
 (`auth`, `topic`, `payload`, `invalid`, `too_large`, `rate_limited`, `no_position`,
 `id_conflict`, `not_relay`, `mission`, `kind`).
 
+## KrakenSDR in a vehicle
+
+`tools/kraken_bridge/bridge.py` makes a KrakenSDR with a circular array (UCA) on a car roof a mobile station
+([ADR 0010](../adr/0010-vehicle-mounted-kraken-sdr.md)). It runs on the Kraken's Raspberry Pi and needs:
+
+* the KrakenSDR DSP software with the data format **"Kraken App"** and the heading set to **fixed 0°**. The bridge reads
+  `http://127.0.0.1:8081/DOA_value.html` and applies the heading itself,
+* gpsd with a GNSS receiver (`127.0.0.1:2947`), and the Pi's clock synchronised to GNSS (for example chrony with gpsd as
+  source), because the Kraken stamps its results with the system clock,
+* a sensor of kind `station` **without** a fixed position, and TLS to the broker when it is reached over the mobile network.
+
+```bash
+uv run tools/kraken_bridge/bridge.py --broker foxgrid.example.org --port 8883 --tls --user foxgrid --password … \
+  --mission <mission-id> --sensor <sensor-id> --key fgs_… --freq-mhz 145.500 --mount-offset 0 --environment mixed
+```
+
+What it does with the Kraken results:
+
+* **True bearing:** GNSS course + Kraken DoA + `--mount-offset`. The course counts once the car has driven straight
+  (< 10° change) at ≥ 2 m/s for 5 s. When the car stops, the last course is frozen. If the car turned or manoeuvred for more
+  than 10 s before the stop, the frozen course is "uncertain" (much larger sigma). No bearings while manoeuvring
+  (0.5–2 m/s) or turning, so for bearings at a stop drive the last metres straight into the parking spot.
+* **Signal gate:** readings below `--min-confidence` (dB, default 2) or `--min-power` (off by default) are dropped. Set
+  both from a recording with and without the signal. Each Kraken result is used once, because the output file keeps its last
+  value while the squelch is closed.
+* **Thinning:**
+  * driving: circular mean over 3 s, at most one bearing every 5 s and every 100 m,
+  * parked: the first bearing after 10 s, then one per minute.
+
+  Readings more than 25° off the window's mean are dropped as multipath.
+* **Sigma:** root-sum-square of the spread in the window (≥ 2°), the heading part (2–4° driving, 3° parked, 12° uncertain),
+  2° mount residual and the `--environment` preset (`open` 3°, `mixed` 5°, `urban` 8°), clamped to 5°–30°.
+* **Note:** each bearing says "KrakenSDR fahrend/stehend" with the number of readings, spread, confidence and the
+  uncalibrated power. The power is not sent as `rssi_dbm`.
+* **Outbox:** messages are stored in `--outbox` (SQLite) and removed only after the broker acknowledged them, so they
+  survive a lost connection or a reboot.
+* **Heartbeat:** `status` also carries `lat`, `lon`, `speed` and `heading`. The server ignores these fields for now.
+
+Without hardware: `--simulate` drives a simulated car past a hidden emitter, and `--dry-run` prints the messages instead of
+sending them. Tests: `uv run --with pytest --with aiomqtt pytest tools/kraken_bridge`.
+
 ## Relay hook
 
 `tools/relay_hook/hook.py` reports "squelch open without CTCSS" as a transmission. A repeater only opens for

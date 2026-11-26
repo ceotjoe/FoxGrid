@@ -31,6 +31,7 @@ Optional MQTT (stations and relay hook):
 docker compose --profile mqtt up -d
 uv run tools/sensor_client/station.py --help
 uv run tools/relay_hook/hook.py --help
+uv run tools/kraken_bridge/bridge.py --simulate --dry-run --mission m --sensor s --key fgs_x   # KrakenSDR bridge without hardware
 ```
 
 ## Tests and linters
@@ -39,7 +40,7 @@ uv run tools/relay_hook/hook.py --help
 cd engine  && uv run ruff check . && uv run mypy --strict foxgrid_engine && uv run pytest
 cd backend && uv run ruff check . && uv run mypy app && uv run pytest     # PostGIS + Redis via testcontainers
 cd app     && flutter analyze && flutter test
-uv run --with pytest --with aiomqtt pytest tools/relay_hook                 # likewise tools/sensor_client
+uv run --with pytest --with aiomqtt pytest tools/relay_hook                 # likewise tools/sensor_client, tools/kraken_bridge
 ```
 
 Quality bars: `ruff` for backend and engine, `mypy --strict` for the engine, `flutter analyze` with zero warnings, engine
