@@ -45,19 +45,24 @@ async def start_transmission(
     interferer_id: uuid.UUID | None = None,
     after_commit: Callable[[Transmission], None] | None = None,
 ) -> TransmissionOut:
-    seq = (
-        await session.scalar(
-            select(Transmission.seq)
-            .where(Transmission.mission_id == mission.id)
-            .order_by(Transmission.seq.desc())
-            .limit(1)
-        )
-        or 0
-    ) + 1
+    """Start a transmission, possibly backdated (``at``) because the button was pressed late.
+
+    A backdated start never reaches back before the end of the previous transmission.
+    """
+    previous = await session.scalar(
+        select(Transmission)
+        .where(Transmission.mission_id == mission.id)
+        .order_by(Transmission.seq.desc())
+        .limit(1)
+    )
+    seq = (previous.seq if previous is not None else 0) + 1
+    started_at = at or datetime.now(UTC)
+    if previous is not None and previous.ended_at is not None:
+        started_at = max(started_at, previous.ended_at)
     tx = Transmission(
         mission_id=mission.id,
         seq=seq,
-        started_at=at or datetime.now(UTC),
+        started_at=started_at,
         started_by=actor.id,
         note=note,
         source=source,
@@ -70,9 +75,11 @@ async def start_transmission(
         await session.rollback()
         raise AlreadyRunningError from exc
     await domain.audit(session, mission.id, actor.id, "start", "transmission", tx.id, seq=seq)
+    gated = await domain.evaluate_gate(session, mission.id)
     await session.commit()
     out = transmission_out(tx)
     await events.publish(redis, mission.id, "transmission_started", event_json(out))
+    await domain.publish_bearings(session, redis, mission.id, gated)
     scheduler.schedule(mission.id)
     if after_commit is not None:
         after_commit(tx)
@@ -102,8 +109,10 @@ async def stop_transmission(
     tx.ended_at = max(at or datetime.now(UTC), tx.started_at)
     tx.ended_by = actor.id
     await domain.audit(session, mission_id, actor.id, "stop", "transmission", tx.id)
+    gated = await domain.evaluate_gate(session, mission_id)
     await session.commit()
     out = transmission_out(tx)
     await events.publish(redis, mission_id, "transmission_ended", event_json(out))
+    await domain.publish_bearings(session, redis, mission_id, gated)
     scheduler.schedule(mission_id)
     return out

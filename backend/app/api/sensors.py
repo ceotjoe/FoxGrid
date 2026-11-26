@@ -11,11 +11,12 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from foxgrid_engine import Bearing as EngineBearing
 from foxgrid_engine import EngineError, suggest_positions
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_scheduler, require
+from app.api.deps import get_redis, get_scheduler, require
 from app.db import get_session
 from app.models import Bearing, Mission, Participant, PositionSample, Sensor, Transmission
 from app.schemas.api import (
@@ -63,6 +64,7 @@ def sensor_out(sensor: Sensor, callsign: str, now: datetime | None = None) -> Se
         topic_prefix=topic_prefix(sensor.mission_id, sensor.id),
         weight=sensor.weight,
         interferer_id=sensor.interferer_id,
+        gated=sensor.gated,
     )
 
 
@@ -118,6 +120,9 @@ async def create_sensor(
         lon=body.lon,
         weight=body.weight,
         interferer_id=body.interferer_id,
+        # A vehicle bears every user of the frequency, so by default it counts only while the
+        # interferer transmits (ADR 0010).
+        gated=body.gated if body.gated is not None else body.kind == "station" and body.lat is None,
         api_key_hash=hash_token(key),
     )
     session.add(sensor)
@@ -166,15 +171,16 @@ async def patch_sensor(
     body: SensorPatch,
     actor: Participant = Depends(require(Permission.SENSOR_MANAGE)),
     session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> SensorOut:
     """Deactivate a sensor (its data stays in the log), move a fixed station, or change its
-    weight or default interferer."""
+    weight, default interferer or gate setting."""
     sensor = await session.get(Sensor, sensor_id)
     if sensor is None or sensor.mission_id != mission_id:
         raise HTTPException(404, "sensor not found")
     changes = body.model_dump(exclude_unset=True)
-    for field in ("is_active", "weight"):
+    for field in ("is_active", "weight", "gated"):
         if field in changes and changes[field] is None:
             raise HTTPException(422, f"{field} must not be null")
     if "interferer_id" in changes:
@@ -184,8 +190,10 @@ async def patch_sensor(
     if changes:
         detail = body.model_dump(mode="json", exclude_unset=True)
         await domain.audit(session, mission_id, actor.id, "update", "sensor", sensor_id, **detail)
+        gated = await domain.evaluate_gate(session, mission_id) if "gated" in changes else []
         await session.commit()
-        if "weight" in changes:
+        await domain.publish_bearings(session, redis, mission_id, gated)
+        if changes.keys() & {"weight", "gated"}:
             scheduler.schedule(mission_id)  # the estimate weighs this sensor's bearings anew
     callsign = await session.scalar(
         select(Participant.callsign).where(Participant.id == sensor.participant_id)

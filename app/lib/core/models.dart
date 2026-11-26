@@ -223,6 +223,8 @@ class Bearing {
     this.pointId,
     this.interfererId,
     this.retroactive = false,
+    this.gateState,
+    this.gateOverride,
   });
 
   final String id;
@@ -246,6 +248,16 @@ class Bearing {
   final double? rssiDbm;
   final String? note;
 
+  /// Manual gate of a sensor (ADR 0010): `inside`/`outside` a transmission, `null` if the
+  /// sensor is not gated.
+  final String? gateState;
+
+  /// A person's decision: `true` counts, `false` does not, `null` follows [gateState].
+  final bool? gateOverride;
+
+  /// Whether the gate lets this bearing into the estimate.
+  bool get gateCounts => gateOverride ?? gateState != 'outside';
+
   factory Bearing.fromJson(Map<String, dynamic> j) => Bearing(
     id: j['id'] as String,
     participantId: j['participant_id'] as String,
@@ -261,6 +273,8 @@ class Bearing {
     pointId: j['point_id'] as String?,
     interfererId: j['interferer_id'] as String?,
     retroactive: j['entry_mode'] == 'retroactive',
+    gateState: j['gate_state'] as String?,
+    gateOverride: j['gate_override'] as bool?,
   );
 
   Bearing copyWith({bool? isOutlier, String? interfererId}) => Bearing(
@@ -278,6 +292,8 @@ class Bearing {
     pointId: pointId,
     interfererId: interfererId ?? this.interfererId,
     retroactive: retroactive,
+    gateState: gateState,
+    gateOverride: gateOverride,
   );
 
   bool get isExternal => pointId != null;

@@ -719,6 +719,13 @@ class MissionNotifier extends Notifier<MissionState> {
         _applyParticipant(Participant.fromJson(data));
       case 'bearing_created' || 'bearing_updated':
         state = _withBearing(state, Bearing.fromJson(data));
+      case 'bearings_updated':
+        // Several at once, e.g. the gate re-evaluated after a transmission changed.
+        var s = state;
+        for (final b in data['bearings'] as List<dynamic>) {
+          s = _withBearing(s, Bearing.fromJson(b as Map<String, dynamic>));
+        }
+        state = s;
       case 'point_created' || 'point_updated':
         final pt = BearingPoint.fromJson(data);
         state = state.copyWith(points: {...state.points, pt.id: pt});
@@ -1260,8 +1267,11 @@ class MissionNotifier extends Notifier<MissionState> {
     );
   }
 
-  Future<void> toggleTransmission() async {
-    final at = DateTime.now().toUtc();
+  /// Starts or stops the transmission. A start may be backdated by [since] because the button
+  /// is often pressed late; the server never lets it reach back before the previous end.
+  Future<void> toggleTransmission({Duration since = Duration.zero}) async {
+    final now = DateTime.now().toUtc();
+    final at = state.running == null ? now.subtract(since) : now;
     final interferer = _activeInterfererId;
     final body = {'at': at.toIso8601String(), 'interferer_id': ?interferer};
     if (state.running != null &&

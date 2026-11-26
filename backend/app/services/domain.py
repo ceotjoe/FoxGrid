@@ -8,7 +8,20 @@ from typing import Any
 
 from geoalchemy2 import WKTElement
 from redis.asyncio import Redis
-from sqlalchemy import ColumnElement, Select, delete, false, func, or_, select, text
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    case,
+    delete,
+    exists,
+    false,
+    func,
+    null,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import events
@@ -22,22 +35,25 @@ from app.models import (
     Mission,
     Participant,
     PositionSample,
+    Sensor,
     Team,
     Transmission,
 )
 from app.schemas.api import MAX_INTERFERERS, PositionIn
 from app.services.permissions import Permission, has_permission
-from app.services.serialize import event_json, position_out
+from app.services.serialize import bearing_out, event_json, position_out
 
 ASSIGN_SLACK = timedelta(seconds=5)
 DEFAULT_INTERFERER_NAME = "Störer 1"
+EVENT_CHUNK = 500  # bearings per `bearings_updated` event
 
 
 def trusted_only[S: Select[Any]](stmt: S, model: type) -> S:
     """Restrict a Bearing/RssiSample query to data that may move the estimate.
 
     Participants must be trusted and not observers. External bearings (``point_id`` set) also
-    need their point to be active and switched on for the estimate.
+    need their point to be active and switched on for the estimate. Bearings of gated sensors
+    count only inside a transmission, unless a person decided otherwise (`gate_counts`).
     """
     # Observers never count, whatever their trust flag says.
     trusted = select(Participant.id).where(
@@ -49,7 +65,78 @@ def trusted_only[S: Select[Any]](stmt: S, model: type) -> S:
             BearingPoint.use_in_estimate.is_(True), BearingPoint.is_active.is_(True)
         )
         stmt = stmt.where(or_(Bearing.point_id.is_(None), Bearing.point_id.in_(counted)))
+        stmt = stmt.where(gate_counts())
     return stmt
+
+
+def gate_counts() -> ColumnElement[bool]:
+    """SQL: the manual decision if there is one, else everything not outside a transmission."""
+    return func.coalesce(  # type: ignore[no-any-return]
+        Bearing.gate_override, Bearing.gate_state.is_distinct_from("outside")
+    ).is_(True)
+
+
+def bearing_gate_counts(b: Bearing) -> bool:
+    """Python twin of `gate_counts` for a loaded bearing."""
+    return b.gate_override if b.gate_override is not None else b.gate_state != "outside"
+
+
+async def evaluate_gate(
+    session: AsyncSession,
+    mission_id: uuid.UUID,
+    bearing_ids: list[uuid.UUID] | None = None,
+) -> list[uuid.UUID]:
+    """Recompute ``gate_state`` of sensor bearings; returns the ids that changed (not committed).
+
+    A bearing of a gated sensor is 'inside' if its whole averaging window (or its measurement
+    time) lies within one transmission, with `ASSIGN_SLACK` at both ends; else 'outside'.
+    Bearings of other sensors get NULL. Manual decisions (``gate_override``) are left alone.
+    Called when a bearing arrives, when transmissions start or stop and when a sensor's gate
+    setting changes, so late bearings and late (backdated) starts both end up right.
+    """
+    window_start = func.coalesce(Bearing.window_start, Bearing.measured_at)
+    window_end = func.coalesce(Bearing.window_end, Bearing.measured_at)
+    inside = exists().where(
+        Transmission.mission_id == Bearing.mission_id,
+        Transmission.started_at - ASSIGN_SLACK <= window_start,
+        or_(Transmission.ended_at.is_(None), Transmission.ended_at + ASSIGN_SLACK >= window_end),
+    )
+    gated = select(Sensor.id).where(Sensor.mission_id == mission_id, Sensor.gated.is_(True))
+    state = case(
+        (Bearing.sensor_id.in_(gated), case((inside, "inside"), else_="outside")),
+        else_=null(),
+    )
+    stmt = (
+        update(Bearing)
+        .where(
+            Bearing.mission_id == mission_id,
+            Bearing.sensor_id.is_not(None),
+            Bearing.gate_state.is_distinct_from(state),
+        )
+        .values(gate_state=state)
+        .returning(Bearing.id)
+        .execution_options(synchronize_session=False)
+    )
+    if bearing_ids is not None:
+        stmt = stmt.where(Bearing.id.in_(bearing_ids))
+    return list((await session.scalars(stmt)).all())
+
+
+async def publish_bearings(
+    session: AsyncSession, redis: Redis, mission_id: uuid.UUID, bearing_ids: list[uuid.UUID]
+) -> None:
+    """Send changed bearings as ``bearings_updated`` events (after the commit)."""
+    for i in range(0, len(bearing_ids), EVENT_CHUNK):
+        rows = (
+            await session.scalars(
+                select(Bearing)
+                .where(Bearing.id.in_(bearing_ids[i : i + EVENT_CHUNK]))
+                .order_by(Bearing.measured_at)
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+        data = {"bearings": [event_json(bearing_out(b)) for b in rows]}
+        await events.publish(redis, mission_id, "bearings_updated", data)
 
 
 async def audit(

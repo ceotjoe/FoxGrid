@@ -44,7 +44,7 @@ returns 200 (idempotent), with different content 409.
 |---|---|---|
 | POST | `/missions/{id}/positions` | batch of position samples (throttled; 202); needs `position.share` |
 | GET | `/missions/{id}/positions?participant=&since=&limit=` | tracks; needs `view.positions` (not for observers) |
-| POST | `/missions/{id}/transmissions/start` · `/stop` | start/stop a transmission (start takes an optional `interferer_id`, the default for the bearings taken during it; 409 on a repeated start/stop is treated as success by the app); needs `bearing.create`; only the starter and holders of `transmission.manage` (lead, deputy, analyst) may stop |
+| POST | `/missions/{id}/transmissions/start` · `/stop` | start/stop a transmission (start takes an optional `interferer_id`, the default for the bearings taken during it, and `at` to backdate it, never before the previous transmission's end; stop takes `at` too, never before the start; 409 on a repeated start/stop is treated as success by the app); needs `bearing.create`; only the starter and holders of `transmission.manage` (lead, deputy, analyst) may stop |
 | GET | `/missions/{id}/transmissions` | list |
 
 ## Bearings
@@ -57,7 +57,7 @@ returns 200 (idempotent), with different content 409.
 | POST | `/missions/{id}/points` | `point.manage` | create an external bearing point (client UUID, idempotent; 409 on a duplicate name) |
 | GET | `/missions/{id}/points` | `view.result` | list points |
 | PATCH | `/missions/{id}/points/{pid}` | `point.manage` | only `name`, `note`, `use_in_estimate`, `is_active`; position is immutable |
-| PATCH | `/missions/{id}/bearings/{bid}` | only `is_outlier`, `is_active`, `note`, `interferer_id` (reassign; cannot be cleared); writes a revision. The owner may always; others need `bearing.flag` for the flags (lead, deputy, analyst), `bearing.edit_any` for the note (lead, deputy) and `interferer.manage` for `interferer_id` (lead, deputy, analyst) |
+| PATCH | `/missions/{id}/bearings/{bid}` | only `is_outlier`, `is_active`, `note`, `interferer_id` (reassign; cannot be cleared) and, for sensor bearings, `gate_override` (`true` counts, `false` does not, `null` back to automatic); writes a revision. The owner may always; others need `bearing.flag` for the flags and `gate_override` (lead, deputy, analyst), `bearing.edit_any` for the note (lead, deputy) and `interferer.manage` for `interferer_id` (lead, deputy, analyst) |
 | POST | `/missions/{id}/interferers` | `interferer.manage` | create an interferer (client UUID, idempotent; 409 on a duplicate name or when 6 are active). `color_slot` (0–5) is assigned to the lowest free one unless given |
 | GET | `/missions/{id}/interferers` | `view.result` | list, deactivated ones included |
 | POST | `/missions/{id}/interferers/{iid}/merge` | `interferer.manage` | body `{into}`: moves all bearings (one revision each), readings and transmissions to the target and deactivates `iid`; 422 for itself, an unknown or inactive target; repeating it is harmless |
@@ -93,6 +93,12 @@ There is deliberately **no DELETE**.
 Besides name, kind and fixed position a sensor has a `weight` (0–2, default 1) that scales its bearings in the estimate (see
 [Engine](../concepts/engine.md); changing it triggers a recompute) and an optional default `interferer_id` for its
 data (an active interferer of the mission; `null` in a PATCH removes it). Merging interferers moves the default along.
+
+`gated` (manual gate, [ADR 0010](../adr/0010-vehicle-mounted-kraken-sdr.md)): the sensor's bearings count only while a
+transmission runs. Omitted on create it is on for a station without a fixed position (a vehicle) and off otherwise. Each
+sensor bearing then carries `gate_state` (`inside`/`outside`, `null` when the sensor is not gated), re-evaluated whenever a
+transmission starts or stops, a bearing arrives or `gated` changes; changed bearings go out as one `bearings_updated` event.
+A person's `gate_override` on the bearing wins over `gate_state` and survives re-evaluation.
 
 The MQTT side is documented in [MQTT interface](mqtt.md).
 
@@ -130,6 +136,7 @@ Events are **filtered per permission**: `participant_position` needs `view.posit
 | `participant_updated` | a participant record changed (role, status, trust) |
 | `participant_removed` | a participant was removed (closes their socket) |
 | `bearing_created`, `bearing_updated` | bearing changes |
+| `bearings_updated` | `{"bearings": [...]}`, up to 500 bearings changed at once (gate re-evaluation) |
 | `point_created`, `point_updated` | external bearing point changes |
 | `interferer_created`, `interferer_updated` | interferer changes |
 | `transmission_started`, `transmission_ended` | transmission changes |

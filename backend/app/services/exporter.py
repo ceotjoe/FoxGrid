@@ -215,9 +215,13 @@ def _source(data: MissionData, b: Bearing) -> str:
 
 
 def _excluded(data: MissionData, b: Bearing) -> bool:
-    """A bearing of an external point that is switched off or deactivated does not count."""
+    """Does not count: a bearing of an external point that is switched off or deactivated, or a
+    sensor bearing outside a transmission (or excluded by hand), see `domain.gate_counts`."""
     point = data.points.get(b.point_id) if b.point_id is not None else None
-    return point is not None and not (point.use_in_estimate and point.is_active)
+    if point is not None and not (point.use_in_estimate and point.is_active):
+        return True
+    gate = b.gate_override if b.gate_override is not None else b.gate_state != "outside"
+    return not gate
 
 
 # Colour family per interferer slot, as in the app (day scheme).

@@ -1,6 +1,7 @@
 # 0010 – Vehicle-mounted KrakenSDR as a mobile bearing station
 
-**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer) and 3 (engine) implemented
+**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer), 3 (engine) and 4 (manual gate)
+implemented
 
 **Context.** A KrakenSDR with a circular antenna array (UCA) on a car roof yields an unambiguous 360° bearing several times per
 second, both while driving and while parked. The MQTT interface ([0006](0006-mqtt-ingest-separate-process.md),
@@ -77,10 +78,14 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
     get the automatic state "außerhalb Aussendung" and do not feed the estimate. They are never deleted.
   - The bridge sends the window as `window_start`/`window_end` next to `measured_at`. It also closes a window at a gap in the
     readings (default > 1.5 s, the squelch closing between two overs), so one window does not mix a user and the interferer.
+    After such a gap the interval and distance limits start afresh, so the interferer's over right after a user's gets its
+    own bearing; the density weighting in the engine still keeps a stop from counting twice.
   - People press the button late. Therefore the start can be backdated in the app ("seit 5/10/30 s"; the API already takes
-    `at`), and the existing assignment slack (5 s) applies at both ends.
+    `at`), and the existing assignment slack (5 s) applies at both ends. A backdated start never reaches back before the
+    previous transmission's end.
   - The state is re-evaluated whenever a transmission starts, stops or its times change, because bearings may arrive before
-    the start (outbox, mobile network) or the start may be entered late.
+    the start (outbox, mobile network) or the start may be entered late. Changed bearings go out as one
+    `bearings_updated` event. The gate applies to bearings only, not to RSSI readings (the Kraken sends none).
   - A manual decision ("zählen" / "nicht zählen") overrides the automatic state and is kept on re-evaluation. Like every edit
     it is an append-only revision. The estimate query (`domain.trusted_only`) excludes bearings that are automatically out and
     not manually included.
@@ -127,7 +132,7 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
 1. Bridge (`tools/kraken_bridge`). *Done.*
 2. Backend: heartbeat position as track, sensor weight, default interferer, `interferer` in messages. *Done.*
 3. Engine: cluster weighting per sensor, ε per source, sensor weight. *Done.*
-4. Manual gate:
+4. Manual gate. *Done.*
    - Bridge: `window_start`/`window_end`, window split at reading gaps.
    - Backend: gate setting per sensor, automatic state with re-evaluation on transmission changes, manual override,
      `trusted_only` extension.

@@ -261,9 +261,18 @@ class Bearing(Base):
         ForeignKey("bearing_points.id"), nullable=True
     )
     interferer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("interferers.id"), index=True)
+    # Time span of the readings a sensor averaged into this bearing (ADR 0010).
+    window_start: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+    window_end: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
+    # Manual gate: 'inside'/'outside' a transmission for bearings of gated sensors, else NULL.
+    # Derived and re-evaluated whenever transmissions change (`domain.evaluate_gate`).
+    gate_state: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # A person's decision: True counts, False does not, NULL follows `gate_state`.
+    gate_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     __table_args__ = (
         CheckConstraint("azimuth_true_deg >= 0 AND azimuth_true_deg < 360", name="ck_bearing_az"),
+        CheckConstraint("gate_state in ('inside','outside')", name="ck_bearing_gate_state"),
         CheckConstraint("sigma_deg > 0 AND sigma_deg <= 90", name="ck_bearing_sigma"),
         CheckConstraint(
             "azimuth_input_ref in ('true','magnetic','compass')", name="ck_bearing_ref"
@@ -462,6 +471,8 @@ class Sensor(Base):
     interferer_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("interferers.id"), nullable=True
     )
+    # Count bearings only while the interferer transmits (manual gate, ADR 0010).
+    gated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     __table_args__ = (
         CheckConstraint("kind in ('station','relay')", name="ck_sensor_kind"),

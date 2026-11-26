@@ -9,6 +9,12 @@ few, averaged ones:
 * parked: the first one after ``park_window_s`` of averaging, then at most every
   ``park_interval_s``.
 
+A gap in the readings (``gap_s``, the squelch closing between two overs) ends the window: it
+starts afresh and the interval and distance limits restart, so one bearing never mixes a repeater
+user with the interferer and the next over gets its own bearing. Every bearing carries the time span
+of its readings (``window_start``/``window_end``), which the backend compares with the
+transmissions (ADR 0010, manual gate).
+
 Sigma is the root-sum-square of the spread in the window, the heading part, the mount calibration
 residual and an environment preset, clamped to ``sigma_min``..``sigma_max``.
 """
@@ -49,6 +55,8 @@ class Emission:
     power_db: float  # mean
     spread_deg: float  # circular std of the window (inliers)
     rejected: int = 0  # readings dropped as outliers
+    window_start: float = 0.0  # time of the first and last reading in the window
+    window_end: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -60,6 +68,7 @@ class AggregationParams:
     park_window_s: float = 10.0
     park_interval_s: float = 60.0
     park_min_samples: int = 10
+    gap_s: float = 1.5  # a longer pause between readings starts a new window (new over)
     reject_deg: float = 25.0  # readings this far from the window mean are dropped as outliers
     sigma_doa_min: float = 2.0
     sigma_mount: float = 2.0
@@ -81,6 +90,8 @@ class Aggregator:
         self._samples: list[Sample] = []
         self._mode: str | None = None
         self._mode_since = 0.0
+        self._over = 0  # counts gaps; the limits only apply within the same over
+        self._last_over = 0
 
     def reset(self) -> None:
         """Forget the current window, e.g. when the heading became invalid."""
@@ -89,6 +100,10 @@ class Aggregator:
 
     def add(self, sample: Sample) -> Emission | None:
         p = self.p
+        if self._samples and sample.t - self._samples[-1].t > p.gap_s:
+            self._samples.clear()
+            self._over += 1
+            self._mode_since = sample.t  # averaging starts again, like after a mode change
         if sample.mode != self._mode:
             self._samples.clear()
             self._mode = sample.mode
@@ -102,7 +117,7 @@ class Aggregator:
 
         lat = sum(s.lat for s in self._samples) / len(self._samples)
         lon = sum(s.lon for s in self._samples) / len(self._samples)
-        last = self.last
+        last = self.last if self._last_over == self._over else None
         since_last = sample.t - self._last_at
         moved = last is None or distance_m(last.lat, last.lon, lat, lon) >= p.drive_min_distance_m
         if parked:
@@ -122,6 +137,7 @@ class Aggregator:
         emission = self._emit(lat, lon)
         self.last = emission
         self._last_at = sample.t
+        self._last_over = self._over
         self._samples.clear()  # the next bearing is built from new readings only
         return emission
 
@@ -143,6 +159,8 @@ class Aggregator:
             power_db=sum(s.power_db for s in samples) / n,
             spread_deg=spread,
             rejected=len(self._samples) - n,
+            window_start=self._samples[0].t,
+            window_end=self._samples[-1].t,
         )
 
     def _inliers(self) -> list[Sample]:

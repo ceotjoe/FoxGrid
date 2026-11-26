@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -201,6 +203,31 @@ void main() {
       await _openMenu(tester);
       expect(find.byKey(const Key('open-manage')), findsNothing);
       expect(find.byKey(const Key('open-export')), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a late press starts the transmission backdated', (
+      tester,
+    ) async {
+      final env = await _open(tester, 'member');
+      await tester.tap(find.byKey(const Key('backdate-transmission')));
+      await tester.pumpAndSettle();
+      final before = DateTime.now().toUtc();
+      await tester.tap(find.byKey(const Key('backdate-10')));
+      // a running transmission shows a ticking timer, so the screen never settles
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final entry = [
+        ...env.api.sent,
+        ...await env.store.all(),
+      ].singleWhere((e) => e.kind == 'tx_start');
+      final at = DateTime.parse(
+        (jsonDecode(entry.bodyJson!) as Map<String, dynamic>)['at'] as String,
+      );
+      expect(before.difference(at).inSeconds, inInclusiveRange(9, 11));
+      // running: the button for a backdated start is gone
+      expect(find.byKey(const Key('backdate-transmission')), findsNothing);
       await tester.pumpWidget(const SizedBox());
     });
 

@@ -51,6 +51,7 @@ is recognised and ignored.
   "azimuth_true_deg": 123.4,
   "sigma_deg": 8.0,
   "measured_at": "2026-10-16T21:15:00Z",
+  "window_start": "2026-10-16T21:14:58.5Z", "window_end": "2026-10-16T21:15:01.5Z",
   "lat": 48.10, "lon": 11.50,
   "rssi_dbm": -82.0, "attenuation_db": 0, "polarization": "v", "note": "…"
 }
@@ -63,6 +64,13 @@ rejected. `rssi_dbm`, `attenuation_db`, `polarization` (`h`, `v`, `unknown`) and
 `interferer` (optional) names the interferer the bearing belongs to. Without it the sensor's default interferer applies
 (set by the lead), then the running transmission's, then the mission's default. An unknown or deactivated interferer in the
 message rejects it; a sensor default that was deactivated meanwhile is skipped.
+
+`window_start`/`window_end` (optional, together) give the time span of the readings the station averaged into the bearing.
+The window must contain `measured_at` (±1 s) and span at most 10 minutes. For a sensor with the gate on
+(`gated`, see [API](api.md)) the bearing counts only if this whole window lies within a transmission, with 5 s slack at both
+ends; without a window `measured_at` is used. Bearings outside are stored with `gate_state = outside` and do not feed the
+estimate until a transmission covers them (also a later, backdated one) or someone counts them by hand. RSSI readings are not
+gated.
 
 ### `foxgrid/<mission>/<sensor>/rssi`
 
@@ -133,7 +141,10 @@ What it does with the Kraken results:
   * driving: circular mean over 3 s, at most one bearing every 5 s and every 100 m,
   * parked: the first bearing after 10 s, then one per minute.
 
-  Readings more than 25° off the window's mean are dropped as multipath.
+  Readings more than 25° off the window's mean are dropped as multipath. A pause in the readings longer than `--gap`
+  (default 1.5 s, the squelch closing between two overs) ends the window: the next over starts a new one, with the interval
+  and distance limits reset, so one bearing never mixes a repeater user with the interferer. Each bearing carries the span
+  of its readings as `window_start`/`window_end`.
 * **Sigma:** root-sum-square of the spread in the window (≥ 2°), the heading part (2–4° driving, 3° parked, 12° uncertain),
   2° mount residual and the `--environment` preset (`open` 3°, `mixed` 5°, `urban` 8°), clamped to 5°–30°.
 * **Note:** each bearing says "KrakenSDR fahrend/stehend" with the number of readings, spread, confidence and the

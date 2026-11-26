@@ -94,3 +94,35 @@ def test_reset_forgets_the_window() -> None:
     agg.add(sample(0.25, 30.0))
     agg.reset()
     assert agg.add(sample(0.5, 30.0)) is None
+
+
+def test_bearing_carries_its_window() -> None:
+    agg = Aggregator()
+    out = [agg.add(sample(10.0 + i * 0.25, 30.0)) for i in range(3)]
+    e = out[-1]
+    assert e is not None
+    assert (e.window_start, e.window_end) == (10.0, 10.5)
+    assert e.window_start <= e.t <= e.window_end
+
+
+def test_a_gap_splits_the_window_between_two_overs() -> None:
+    """A repeater user and then the interferer: the bearings never mix the two directions."""
+    agg = Aggregator()
+    user = [agg.add(sample(i * 0.25, 200.0, mode=PARKED, sh=3.0)) for i in range(60)]  # 15 s
+    # squelch closed for 3 s, then the interferer from 30 degrees
+    fox = [agg.add(sample(18.0 + i * 0.25, 30.0, mode=PARKED, sh=3.0)) for i in range(60)]
+    first = [e for e in user if e is not None]
+    second = [e for e in fox if e is not None]
+    assert [round(e.azimuth_true_deg) for e in first] == [200]
+    # the new over gets its own bearing after a fresh averaging window, despite the 60 s interval
+    assert [round(e.azimuth_true_deg) for e in second] == [30]
+    assert second[0].window_start == 18.0
+    assert second[0].window_end - second[0].window_start >= 10.0 - 0.25
+
+
+def test_short_pauses_keep_the_window() -> None:
+    agg = Aggregator(AggregationParams(gap_s=1.5))
+    times = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0]
+    out = [agg.add(sample(t, 100.0, mode=PARKED, sh=3.0)) for t in times]
+    e = next(e for e in out if e is not None)
+    assert e.window_start == 0.0

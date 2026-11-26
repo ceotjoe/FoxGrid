@@ -241,6 +241,25 @@ void main() {
     },
   );
 
+  test('bearings_updated applies the re-evaluated gate', () async {
+    final api = FakeApi()
+      ..snapshotData = snapshotJson(
+        bearings: [bearingJson('b1'), bearingJson('b2')],
+      );
+    await start(api: api);
+    expect(env.state.bearings['b1']!.gateCounts, isTrue);
+    env.channel.push('bearings_updated', {
+      'bearings': [
+        {...bearingJson('b1'), 'gate_state': 'outside'},
+        {...bearingJson('b2'), 'gate_state': 'outside', 'gate_override': true},
+      ],
+    });
+    await env.settle();
+    expect(env.state.bearings['b1']!.gateState, 'outside');
+    expect(env.state.bearings['b1']!.gateCounts, isFalse);
+    expect(env.state.bearings['b2']!.gateCounts, isTrue);
+  });
+
   test('a mission_ended event ends the mission for members', () async {
     await start();
     expect(env.state.mission!.isActive, isTrue);

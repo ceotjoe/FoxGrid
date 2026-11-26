@@ -348,6 +348,9 @@ async def list_bearings(
     return [bearing_out(b) for b in rows]
 
 
+_FLAGS = {"is_outlier", "is_active", "gate_override"}
+
+
 def _jsonable(value: object) -> object:
     """UUIDs go into the JSON revision and audit detail as strings."""
     return str(value) if isinstance(value, uuid.UUID) else value
@@ -398,19 +401,24 @@ async def patch_bearing(
     redis: Redis = Depends(get_redis),
     scheduler: RecomputeScheduler = Depends(get_scheduler),
 ) -> BearingOut:
-    """Flag/deactivate a bearing or edit its note. Bearings can never be deleted."""
+    """Flag/deactivate a bearing, decide whether a sensor bearing counts, edit its note.
+
+    Bearings can never be deleted.
+    """
     bearing = await _bearing_or_404(session, mission_id, bearing_id)
+    edits = set(body.model_dump(exclude_unset=True))
+    if "gate_override" in edits and bearing.sensor_id is None:
+        raise HTTPException(422, "only sensor bearings have a gate decision")
     own = bearing.participant_id == actor.id and has_permission(actor, Permission.BEARING_CREATE)
     if not own:
-        # Others: flags need `bearing.flag`, any other edit `bearing.edit_any`.
-        # Reassigning to another interferer needs `interferer.manage`.
-        edits = set(body.model_dump(exclude_unset=True))
+        # Others: flags (and the gate decision) need `bearing.flag`, any other edit
+        # `bearing.edit_any`. Reassigning to another interferer needs `interferer.manage`.
         needed: set[Permission] = set()
-        if edits - {"is_outlier", "is_active", "interferer_id"}:
+        if edits - _FLAGS - {"interferer_id"}:
             needed.add(Permission.BEARING_EDIT_ANY)
         if "interferer_id" in edits:
             needed.add(Permission.INTERFERER_MANAGE)
-        if edits & {"is_outlier", "is_active"} or not needed:
+        if edits & _FLAGS or not needed:
             needed.add(Permission.BEARING_FLAG)
         for permission in sorted(needed):
             if not has_permission(actor, permission):
@@ -436,7 +444,7 @@ async def patch_bearing(
         await session.commit()
         out = bearing_out(bearing)
         await events.publish(redis, mission_id, "bearing_updated", event_json(out))
-        if changes.keys() & {"is_outlier", "is_active", "interferer_id"}:
+        if changes.keys() & (_FLAGS | {"interferer_id"}):
             scheduler.schedule(mission_id)
         return out
     return bearing_out(bearing)

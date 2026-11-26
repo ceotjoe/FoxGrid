@@ -195,7 +195,7 @@ async def test_sensor_weight_and_grouping_reach_the_engine(
     for station in STATIONS:
         r = await client.post(m.url("/bearings"), json=bearing_payload(station, TARGET), headers=h)
         assert r.status_code == 201
-    s = await make_sensor(client, m, "Kraken Auto")
+    s = await make_sensor(client, m, "Kraken Auto", gated=False)  # count without transmissions
     spot = offset(-2000, 6000)
     biased = (azimuth(spot, TARGET) + 25.0) % 360.0
     for i in range(20):  # a long stop with a consistent multipath error

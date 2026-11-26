@@ -26,6 +26,11 @@ backend/
   Observers are excluded in `trusted_only`; their chat and positions are withheld in the snapshot, REST and the WebSocket
   (`ws/router.py` filters per event and closes the socket with 4409 when the own authority changes). See
   [ADR 0007](../adr/0007-roles-and-permissions.md).
+- **Manual gate.** `domain.trusted_only(stmt, Bearing)` also applies `domain.gate_counts()`: the manual `gate_override`
+  if set, else everything whose `gate_state` is not `outside`. `domain.evaluate_gate` recomputes `gate_state` in one UPDATE
+  (whole window inside one transmission, `ASSIGN_SLACK` at both ends) and is called on MQTT bearing ingest, transmission
+  start/stop and when a sensor's `gated` changes; `domain.publish_bearings` sends the changed ones as `bearings_updated`.
+  The exporter marks such bearings "nicht in Schätzung".
 - **External points.** `api/points.py` (`point.manage`); `domain.trusted_only(stmt, Bearing)` also drops bearings whose point is switched off or inactive.
 - **Interferers.** `api/interferers.py` (`interferer.manage`). New bearings and readings resolve their interferer through
   `domain.resolve_interferer` (explicit id, else the transmission's, else `default_interferer_id`); read endpoints use

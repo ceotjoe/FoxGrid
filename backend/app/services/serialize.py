@@ -105,6 +105,10 @@ def bearing_out(b: Bearing) -> BearingOut:
         entry_mode=b.entry_mode,
         point_id=b.point_id,
         interferer_id=b.interferer_id,
+        window_start=b.window_start,
+        window_end=b.window_end,
+        gate_state=b.gate_state,  # type: ignore[arg-type]
+        gate_override=b.gate_override,
     )
 
 

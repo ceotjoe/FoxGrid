@@ -128,6 +128,38 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  /// The button was pressed late: start the transmission a few seconds back, so the bearings
+  /// that automatic stations took meanwhile count (ADR 0010).
+  Future<void> _startBackdated() async {
+    final since = await showModalBottomSheet<Duration>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('Aussendung rückwirkend starten'),
+              subtitle: Text(
+                'Der Störer sendet schon länger? Peilungen automatischer '
+                'Stationen aus dieser Zeit zählen dann mit.',
+              ),
+            ),
+            for (final seconds in const [5, 10, 30])
+              ListTile(
+                key: Key('backdate-$seconds'),
+                leading: const Icon(Icons.history),
+                title: Text('Sendet seit $seconds s'),
+                onTap: () =>
+                    Navigator.of(context).pop(Duration(seconds: seconds)),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (since == null || !mounted) return;
+    await ref.read(missionProvider.notifier).toggleTransmission(since: since);
+  }
+
   void _openCapture({bool retroactive = false}) {
     showModalBottomSheet<bool>(
       context: context,
@@ -1034,6 +1066,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   running != null ? 'Aussendung Ende' : 'Aussendung Start',
                 ),
               ),
+              if (running == null &&
+                  (state.mission?.isActive ?? false) &&
+                  canToggleTx) ...[
+                const SizedBox(width: 8),
+                FloatingActionButton.small(
+                  key: const Key('backdate-transmission'),
+                  heroTag: 'tx-backdate',
+                  tooltip: 'Aussendung rückwirkend starten',
+                  onPressed: _startBackdated,
+                  child: const Icon(Icons.history),
+                ),
+              ],
               const SizedBox(width: 12),
               FloatingActionButton.large(
                 key: const Key('open-capture'),
@@ -1428,6 +1472,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// False for bearings of an external point that is off or deactivated.
   bool _counts(MissionState state, Bearing b) {
+    if (!b.gateCounts) return false; // a gated sensor outside a transmission
     final id = b.pointId;
     if (id == null) return true;
     final point = state.points[id];

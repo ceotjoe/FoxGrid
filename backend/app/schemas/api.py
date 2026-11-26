@@ -286,6 +286,8 @@ class BearingPatch(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
     # Reassign to another interferer (cannot be cleared: every bearing has one).
     interferer_id: uuid.UUID | None = None
+    # Manual gate decision: true counts, false does not, explicit null back to automatic.
+    gate_override: bool | None = None
 
 
 class BearingOut(ORM):
@@ -313,6 +315,10 @@ class BearingOut(ORM):
     entry_mode: str = "live"
     point_id: uuid.UUID | None = None
     interferer_id: uuid.UUID
+    window_start: datetime | None = None  # sensors: span of the averaged readings
+    window_end: datetime | None = None
+    gate_state: Literal["inside", "outside"] | None = None  # gated sensors only
+    gate_override: bool | None = None  # manual decision; null = automatic
 
 
 class InterfererIn(BaseModel):
@@ -608,6 +614,9 @@ class SensorCreate(BaseModel):
     lon: float | None = Field(default=None, ge=-180, le=180)
     weight: float = Field(default=1.0, ge=0, le=2)
     interferer_id: uuid.UUID | None = None
+    # Count bearings only while the interferer transmits. Omitted: on for a station without a
+    # fixed position (a vehicle), off otherwise.
+    gated: bool | None = None
 
     @field_validator("name")
     @classmethod
@@ -623,6 +632,7 @@ class SensorPatch(BaseModel):
     lon: float | None = Field(default=None, ge=-180, le=180)
     weight: float | None = Field(default=None, ge=0, le=2)
     interferer_id: uuid.UUID | None = None  # explicit null: back to transmission / default
+    gated: bool | None = None
 
 
 class SensorOut(BaseModel):
@@ -638,6 +648,7 @@ class SensorOut(BaseModel):
     topic_prefix: str
     weight: float  # scales the sensor's bearings in the estimate (0-2)
     interferer_id: uuid.UUID | None  # default interferer for the sensor's data
+    gated: bool  # bearings count only while the interferer transmits
 
 
 class SensorCreated(SensorOut):

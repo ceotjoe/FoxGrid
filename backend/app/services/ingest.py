@@ -45,6 +45,8 @@ log = logging.getLogger(__name__)
 
 MAX_PAYLOAD = 64 * 1024
 SEEN_WRITE_INTERVAL = timedelta(seconds=10)
+MAX_WINDOW = timedelta(minutes=10)  # longest averaging window of a sensor bearing
+WINDOW_TOLERANCE = timedelta(seconds=1)  # rounding between measured_at and the window
 
 
 class BearingMsg(BaseModel):
@@ -60,6 +62,21 @@ class BearingMsg(BaseModel):
     polarization: str = Field(default="unknown", pattern="^(h|v|unknown)$")
     note: str | None = Field(default=None, max_length=500)
     interferer: uuid.UUID | None = None  # else the sensor's default, the transmission's, mission's
+    # Span of the readings averaged into the bearing; the manual gate checks it against the
+    # transmissions (ADR 0010). Without it the measurement time is used.
+    window_start: AwareDatetime | None = None
+    window_end: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def _window(self) -> BearingMsg:
+        if (self.window_start is None) != (self.window_end is None):
+            raise ValueError("window_start and window_end go together")
+        start, end = self.window_start, self.window_end
+        if start is not None and end is not None:
+            fits = start - WINDOW_TOLERANCE <= self.measured_at <= end + WINDOW_TOLERANCE
+            if not (start <= end and end - start <= MAX_WINDOW and fits):
+                raise ValueError("window must contain measured_at and span at most 10 min")
+        return self
 
 
 class RssiItem(BaseModel):
@@ -305,8 +322,13 @@ async def _bearing(
         source="sensor",
         sensor_id=sensor.id,
         interferer_id=interferer_id,
+        window_start=msg.window_start,
+        window_end=msg.window_end,
     )
     session.add(bearing)
+    await session.flush()
+    if await domain.evaluate_gate(session, sensor.mission_id, [bearing.id]):
+        await session.refresh(bearing, ["gate_state"])
     await session.commit()
     await events.publish(
         ctx.redis, sensor.mission_id, "bearing_created", event_json(bearing_out(bearing))

@@ -31,6 +31,8 @@ link) or Beobachter (read-only). See [Roles and permissions](roles.md).
 1. The map shows participants, rays of all bearings, the most likely location and its error ellipse, live.
 2. When the interferer transmits, start a transmission (banner on all devices, push to those in the background); stop it afterwards.
    Only the starter, the lead, a deputy and an analyst can stop it.
+   Pressed late? The clock button next to *Aussendung Start* starts it 5, 10 or 30 s back ("Sendet seit …"). This matters
+   for automatic stations in a vehicle: by default their bearings count only during a transmission.
 3. Capture a bearing at your position: azimuth, whether it is **true or magnetic** (the app converts using the declination for your
    position and shows the value used), and the **uncertainty** (mandatory): sharp ±5°, medium ±15°, poor ±30°, or custom. Optionally
    add a signal strength and a note.

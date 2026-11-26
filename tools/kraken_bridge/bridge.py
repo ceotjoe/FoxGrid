@@ -62,6 +62,7 @@ class BridgeConfig:
     max_reading_age_s: float = 5.0  # older readings (e.g. the file after a restart) are ignored
     polarization: str = "unknown"
     interferer: str | None = None  # interferer id; else the sensor default applies
+    gap_s: float = 1.5  # a pause in the readings longer than this starts a new window
     heading: HeadingParams = field(default_factory=HeadingParams)
     aggregation: AggregationParams | None = None
 
@@ -119,7 +120,9 @@ class Bridge:
         self.outbox = outbox
         self.clock = clock
         self.tracker = HeadingTracker(config.heading)
-        params = config.aggregation or AggregationParams(sigma_env=ENVIRONMENTS[config.environment])
+        params = config.aggregation or AggregationParams(
+            sigma_env=ENVIRONMENTS[config.environment], gap_s=config.gap_s
+        )
         self.aggregator = Aggregator(params)
         self.counters = Counters()
         self._last_timestamp_ms: int | None = None
@@ -227,6 +230,8 @@ class Bridge:
             "azimuth_true_deg": round(e.azimuth_true_deg, 2),
             "sigma_deg": round(e.sigma_deg, 1),
             "measured_at": iso(e.t),
+            "window_start": iso(e.window_start),
+            "window_end": iso(e.window_end),
             "lat": round(e.lat, 7),
             "lon": round(e.lon, 7),
             "polarization": self.config.polarization,
@@ -370,6 +375,7 @@ def make_config(args: argparse.Namespace) -> BridgeConfig:
         min_power_db=args.min_power,
         polarization=args.polarization,
         interferer=args.interferer,
+        gap_s=args.gap,
     )
 
 
@@ -467,6 +473,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-confidence", type=float, default=2.0, help="minimum Kraken confidence (dB)"
     )
     df.add_argument("--min-power", type=float, help="minimum Kraken power (dB, uncalibrated)")
+    df.add_argument(
+        "--gap",
+        type=float,
+        default=1.5,
+        help="pause in the readings (s) that ends a window, e.g. the squelch between two overs",
+    )
     df.add_argument("--polarization", choices=["h", "v", "unknown"], default="unknown")
     sim = ap.add_argument_group("Simulation")
     sim.add_argument(

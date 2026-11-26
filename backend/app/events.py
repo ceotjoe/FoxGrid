@@ -17,6 +17,7 @@ EVENT_TYPES = frozenset(
         "participant_updated",
         "bearing_created",
         "bearing_updated",
+        "bearings_updated",
         "point_created",
         "point_updated",
         "interferer_created",
