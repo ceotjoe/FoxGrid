@@ -456,8 +456,15 @@ class Sensor(Base):
     created_at: Mapped[datetime] = mapped_column(_TS, default=utcnow)
     last_seen_at: Mapped[datetime | None] = mapped_column(_TS, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Scales the sensor's bearings in the estimate (ADR 0010); the lead lowers it e.g. in town.
+    weight: Mapped[float] = mapped_column(Float, default=1.0, server_default="1")
+    # Interferer for the sensor's data unless a message names one (else transmission, default).
+    interferer_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("interferers.id"), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint("kind in ('station','relay')", name="ck_sensor_kind"),
+        CheckConstraint("weight >= 0 and weight <= 2", name="ck_sensor_weight"),
         UniqueConstraint("mission_id", "name", name="uq_sensor_name"),
     )

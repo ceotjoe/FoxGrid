@@ -20,7 +20,7 @@ autogenerate. Database triggers forbid `DELETE` on `bearings`, `bearing_revision
 | `bearing_revisions` | append-only change history of bearings |
 | `rssi_samples` | signal readings: client UUID, position, `rssi_dbm`, `attenuation_db`, `receiver` (`mobile`/`omni`), `is_calibration`, `is_active`, `interferer_id` (NOT NULL); never deleted |
 | `estimates` | computed results per `interferer_id` and `scope` (`current`/`all`): MLE point, covariance, 1σ/2σ ellipses, `contours` (GeoJSON keyed `"50"`/`"80"`/`"95"`), `params` incl. `rssi_fit`, `input_hash` |
-| `sensors` | MQTT stations and relays: name, kind, fixed position, API-key **hash**, `last_seen_at`; each owns a virtual participant (role `fixed`) |
+| `sensors` | MQTT stations and relays: name, kind, fixed position, API-key **hash**, `last_seen_at`, `weight` (0–2), optional default `interferer_id`; each owns a virtual participant (role `fixed`) |
 | `messages` | chat (client UUID); `team_id` null = mission channel |
 | `tasks`, `task_events` | tasks with status, assignee (team or participant) and history |
 | `push_tokens` | FCM tokens per participant (registered with an atomic upsert) |

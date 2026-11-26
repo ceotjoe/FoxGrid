@@ -132,6 +132,7 @@ def test_status_message_carries_the_position_while_fresh() -> None:
     warm_up(bridge, now)
     status = bridge.status_message()
     assert status["lat"] == 48.1 and status["speed"] == 10.0 and status["heading"] == 90.0
+    assert status["at"] == "1970-01-01T00:16:49+00:00"
     now[0] += 60
     assert bridge.status_message() == {"key": "fgs_test"}
 
@@ -185,9 +186,19 @@ def test_outbox_survives_a_lost_connection(tmp_path: Path) -> None:
     assert len(reopened) == 0
 
 
+def test_interferer_is_named_when_configured() -> None:
+    now = [1_800_000_000.0]
+    bridge = make_bridge(now, interferer="7f1c0000-0000-0000-0000-000000000001")
+    messages = run_drive(bridge, now)
+    assert messages and all(m["interferer"].startswith("7f1c") for m in messages)
+    plain = run_drive(make_bridge([1_800_000_000.0]), [1_800_000_000.0])
+    assert all("interferer" not in m for m in plain)
+
+
 def test_parser_defaults() -> None:
     args = build_parser().parse_args(["--mission", "m", "--sensor", "s", "--key", "k"])
     assert args.kraken_url == "http://127.0.0.1:8081/DOA_value.html"
     assert args.gpsd_port == 2947
     assert args.environment == "mixed"
     assert not args.tls
+    assert args.heartbeat == 10.0 and args.interferer is None

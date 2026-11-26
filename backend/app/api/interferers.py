@@ -20,6 +20,7 @@ from app.models import (
     Mission,
     Participant,
     RssiSample,
+    Sensor,
     Transmission,
 )
 from app.schemas.api import InterfererIn, InterfererMerge, InterfererOut, InterfererPatch
@@ -204,6 +205,9 @@ async def merge_interferer(
         update(Transmission)
         .where(Transmission.interferer_id == source.id)
         .values(interferer_id=target.id)
+    )
+    await session.execute(
+        update(Sensor).where(Sensor.interferer_id == source.id).values(interferer_id=target.id)
     )
     source.is_active = False
     await domain.audit(

@@ -60,9 +60,13 @@ is recognised and ignored.
 are omitted for fixed stations: the registered position applies then. Without either, the message is
 rejected. `rssi_dbm`, `attenuation_db`, `polarization` (`h`, `v`, `unknown`) and `note` are optional.
 
+`interferer` (optional) names the interferer the bearing belongs to. Without it the sensor's default interferer applies
+(set by the lead), then the running transmission's, then the mission's default. An unknown or deactivated interferer in the
+message rejects it; a sensor default that was deactivated meanwhile is skipped.
+
 ### `foxgrid/<mission>/<sensor>/rssi`
 
-A single reading, or up to 100 collected:
+A single reading, or up to 100 collected. An optional `interferer` applies to all samples of the message:
 
 ```json
 {"key": "fgs_…", "id": "…", "rssi_dbm": -90.5, "attenuation_db": 10, "measured_at": "…"}
@@ -73,6 +77,15 @@ A single reading, or up to 100 collected:
 
 Heartbeat, for example every 30 s: `{"key": "fgs_…"}`. A station counts as *online* if it has sent
 anything in the last two minutes (every valid message counts).
+
+Mobile stations add their position; it is stored as the station's track (shown on the map, purged with all tracks):
+
+```json
+{"key": "fgs_…", "lat": 48.10, "lon": 11.50, "speed": 12.5, "heading": 91.0, "at": "2026-10-16T21:15:00Z"}
+```
+
+`lat` and `lon` come together; `speed` (m/s, 0–100), `heading` (true north, 0 ≤ h < 360) and `at` (time of the fix, default
+time of receipt) are optional.
 
 ### `foxgrid/<mission>/<sensor>/transmission` (sensors of kind `relay` only)
 
@@ -89,7 +102,7 @@ transmission are harmless and ignored. `at` is optional (default: time of receip
 
 There is no reply to the device. The service logs `ok`, `duplicate` or `rejected:<reason>` per message
 (`auth`, `topic`, `payload`, `invalid`, `too_large`, `rate_limited`, `no_position`,
-`id_conflict`, `not_relay`, `mission`, `kind`).
+`id_conflict`, `not_relay`, `mission`, `kind`, `interferer`).
 
 ## KrakenSDR in a vehicle
 
@@ -127,7 +140,9 @@ What it does with the Kraken results:
   uncalibrated power. The power is not sent as `rssi_dbm`.
 * **Outbox:** messages are stored in `--outbox` (SQLite) and removed only after the broker acknowledged them, so they
   survive a lost connection or a reboot.
-* **Heartbeat:** `status` also carries `lat`, `lon`, `speed` and `heading`. The server ignores these fields for now.
+* **Heartbeat:** every 10 s (`--heartbeat`) with position, speed, heading and fix time, so the car moves on the map.
+* **Interferer:** the sensor's default interferer applies (set by the lead); `--interferer <id>` names one in every
+  bearing instead.
 
 Without hardware: `--simulate` drives a simulated car past a hidden emitter, and `--dry-run` prints the messages instead of
 sending them. Tests: `uv run --with pytest --with aiomqtt pytest tools/kraken_bridge`.

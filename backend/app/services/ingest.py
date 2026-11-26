@@ -26,7 +26,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import events
 from app.config import Settings
-from app.models import Bearing, Mission, Participant, RssiSample, Sensor, Transmission
+from app.models import (
+    Bearing,
+    Interferer,
+    Mission,
+    Participant,
+    RssiSample,
+    Sensor,
+    Transmission,
+)
+from app.schemas.api import PositionIn
 from app.security import hash_token
 from app.services import domain, push, transmissions
 from app.services.recompute import RecomputeScheduler
@@ -50,6 +59,7 @@ class BearingMsg(BaseModel):
     attenuation_db: float = Field(default=0.0, ge=0, le=100)
     polarization: str = Field(default="unknown", pattern="^(h|v|unknown)$")
     note: str | None = Field(default=None, max_length=500)
+    interferer: uuid.UUID | None = None  # else the sensor's default, the transmission's, mission's
 
 
 class RssiItem(BaseModel):
@@ -72,6 +82,7 @@ class RssiMsg(BaseModel):
     measured_at: AwareDatetime | None = None
     lat: float | None = Field(default=None, ge=-90, le=90)
     lon: float | None = Field(default=None, ge=-180, le=180)
+    interferer: uuid.UUID | None = None  # for all samples of the message
 
     @model_validator(mode="after")
     def _normalise(self) -> RssiMsg:
@@ -92,7 +103,20 @@ class RssiMsg(BaseModel):
 
 
 class StatusMsg(BaseModel):
+    """Heartbeat. Mobile stations add their position, which becomes the sensor's track."""
+
     key: str
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+    speed: float | None = Field(default=None, ge=0, le=100)  # m/s
+    heading: float | None = Field(default=None, ge=0, lt=360)  # true north
+    at: AwareDatetime | None = None  # time of the fix (default: time of receipt)
+
+    @model_validator(mode="after")
+    def _both_or_neither(self) -> StatusMsg:
+        if (self.lat is None) != (self.lon is None):
+            raise ValueError("send lat and lon together")
+        return self
 
 
 class TransmissionMsg(BaseModel):
@@ -183,8 +207,7 @@ async def handle_message(ctx: IngestContext, topic: str, payload: bytes | str) -
                 sensor.last_seen_at = now
                 await session.commit()
             if kind == "status":
-                StatusMsg.model_validate(doc)
-                return "ok"
+                return await _status(ctx, session, sensor, StatusMsg.model_validate(doc))
             if kind == "bearing":
                 return await _bearing(ctx, session, sensor, BearingMsg.model_validate(doc))
             if kind == "rssi":
@@ -200,6 +223,46 @@ async def handle_message(ctx: IngestContext, topic: str, payload: bytes | str) -
     except ValidationError as exc:
         log.warning("invalid sensor payload on %s: %s", topic, exc.errors()[:2])
         return "rejected:invalid"
+
+
+async def _interferer(
+    session: AsyncSession,
+    sensor: Sensor,
+    requested: uuid.UUID | None,
+    tx: Transmission | None,
+) -> uuid.UUID:
+    """Message > sensor default > transmission > mission default.
+
+    A named interferer that is unknown or inactive rejects the message. A sensor default that was
+    deactivated meanwhile is skipped, so the station keeps reporting.
+    """
+    if requested is None and sensor.interferer_id is not None:
+        default = await session.get(Interferer, sensor.interferer_id)
+        if default is not None and default.is_active:
+            requested = default.id
+    try:
+        return await domain.resolve_interferer(session, sensor.mission_id, requested, tx)
+    except ValueError:
+        raise RejectedError("interferer") from None
+
+
+async def _status(ctx: IngestContext, session: AsyncSession, sensor: Sensor, msg: StatusMsg) -> str:
+    if msg.lat is None or msg.lon is None:
+        return "ok"
+    participant = await session.get(Participant, sensor.participant_id)
+    if participant is None:
+        raise RejectedError("mission")
+    position = PositionIn(
+        lat=msg.lat,
+        lon=msg.lon,
+        heading_deg=msg.heading,
+        speed_mps=msg.speed,
+        recorded_at=msg.at or datetime.now(UTC),
+    )
+    await domain.record_positions(
+        session, ctx.redis, ctx.settings, participant, [position], store_all=True
+    )
+    return "ok"
 
 
 def _position(sensor: Sensor, lat: float | None, lon: float | None) -> tuple[float, float]:
@@ -223,7 +286,7 @@ async def _bearing(
         raise RejectedError("mission")
     tx_id = await domain.assign_transmission(session, sensor.mission_id, msg.measured_at)
     tx = await session.get(Transmission, tx_id) if tx_id is not None else None
-    interferer_id = await domain.resolve_interferer(session, sensor.mission_id, None, tx)
+    interferer_id = await _interferer(session, sensor, msg.interferer, tx)
     bearing = Bearing(
         id=msg.id,
         mission_id=sensor.mission_id,
@@ -268,7 +331,7 @@ async def _rssi(ctx: IngestContext, session: AsyncSession, sensor: Sensor, msg: 
                 mission_id=sensor.mission_id,
                 participant_id=sensor.participant_id,
                 transmission_id=tx_id,
-                interferer_id=await domain.resolve_interferer(session, sensor.mission_id, None, tx),
+                interferer_id=await _interferer(session, sensor, msg.interferer, tx),
                 lat=lat,
                 lon=lon,
                 rssi_dbm=item.rssi_dbm,

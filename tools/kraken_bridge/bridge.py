@@ -61,6 +61,7 @@ class BridgeConfig:
     max_fix_age_s: float = 2.0  # reading and GNSS fix must be this close in time
     max_reading_age_s: float = 5.0  # older readings (e.g. the file after a restart) are ignored
     polarization: str = "unknown"
+    interferer: str | None = None  # interferer id; else the sensor default applies
     heading: HeadingParams = field(default_factory=HeadingParams)
     aggregation: AggregationParams | None = None
 
@@ -220,7 +221,7 @@ class Bridge:
             f"Streuung {e.spread_deg:.1f}°, Konfidenz {e.confidence:.1f} dB, "
             f"Pegel {e.power_db:.1f} dB"
         )
-        return {
+        message: dict[str, Any] = {
             "key": self.config.key,
             "id": str(uuid.uuid4()),  # stored with the message, so retries keep it
             "azimuth_true_deg": round(e.azimuth_true_deg, 2),
@@ -231,14 +232,20 @@ class Bridge:
             "polarization": self.config.polarization,
             "note": note,
         }
+        if self.config.interferer:
+            message["interferer"] = self.config.interferer
+        return message
 
     def status_message(self) -> dict[str, Any]:
-        """Heartbeat; with a fresh fix also the vehicle position (older servers ignore it)."""
+        """Heartbeat; with a fresh fix also the vehicle position, which becomes its track."""
         message: dict[str, Any] = {"key": self.config.key}
         fix = self.tracker.last_fix
         if fix is not None and self.clock() - fix.t <= 10.0:
             message.update(
-                lat=round(fix.lat, 7), lon=round(fix.lon, 7), speed=round(fix.speed_mps, 1)
+                lat=round(fix.lat, 7),
+                lon=round(fix.lon, 7),
+                speed=round(min(fix.speed_mps, 100.0), 1),
+                at=iso(fix.t),
             )
             heading = self.tracker.current
             if heading is not None:
@@ -362,6 +369,7 @@ def make_config(args: argparse.Namespace) -> BridgeConfig:
         min_confidence=args.min_confidence,
         min_power_db=args.min_power,
         polarization=args.polarization,
+        interferer=args.interferer,
     )
 
 
@@ -434,7 +442,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--sensor", required=True, help="id of the sensor registered with kind=station"
     )
     mqtt.add_argument("--key", required=True, help="the sensor's API key (fgs_...)")
-    mqtt.add_argument("--heartbeat", type=float, default=30.0)
+    mqtt.add_argument(
+        "--heartbeat", type=float, default=10.0, help="seconds between heartbeats with position"
+    )
+    mqtt.add_argument("--interferer", help="interferer id for every bearing (else sensor default)")
     mqtt.add_argument("--outbox", default="kraken_outbox.sqlite", help="persistent message queue")
     src = ap.add_argument_group("Inputs")
     src.add_argument("--kraken-url", default="http://127.0.0.1:8081/DOA_value.html")

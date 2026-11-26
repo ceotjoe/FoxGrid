@@ -602,6 +602,8 @@ class SensorCreate(BaseModel):
     kind: Literal["station", "relay"] = "station"
     lat: float | None = Field(default=None, ge=-90, le=90)
     lon: float | None = Field(default=None, ge=-180, le=180)
+    weight: float = Field(default=1.0, ge=0, le=2)
+    interferer_id: uuid.UUID | None = None
 
     @field_validator("name")
     @classmethod
@@ -615,6 +617,8 @@ class SensorPatch(BaseModel):
     is_active: bool | None = None
     lat: float | None = Field(default=None, ge=-90, le=90)
     lon: float | None = Field(default=None, ge=-180, le=180)
+    weight: float | None = Field(default=None, ge=0, le=2)
+    interferer_id: uuid.UUID | None = None  # explicit null: back to transmission / default
 
 
 class SensorOut(BaseModel):
@@ -628,6 +632,8 @@ class SensorOut(BaseModel):
     last_seen_at: datetime | None
     online: bool  # heard from within the last two minutes
     topic_prefix: str
+    weight: float  # scales the sensor's bearings in the estimate (0-2)
+    interferer_id: uuid.UUID | None  # default interferer for the sensor's data
 
 
 class SensorCreated(SensorOut):

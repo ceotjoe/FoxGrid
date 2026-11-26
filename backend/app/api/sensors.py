@@ -56,7 +56,21 @@ def sensor_out(sensor: Sensor, callsign: str, now: datetime | None = None) -> Se
         last_seen_at=seen,
         online=sensor.is_active and seen is not None and now - seen <= ONLINE_WINDOW,
         topic_prefix=topic_prefix(sensor.mission_id, sensor.id),
+        weight=sensor.weight,
+        interferer_id=sensor.interferer_id,
     )
+
+
+async def _check_interferer(
+    session: AsyncSession, mission_id: uuid.UUID, interferer_id: uuid.UUID | None
+) -> None:
+    """A sensor's default interferer must be an active interferer of the mission."""
+    if interferer_id is None:
+        return
+    try:
+        await domain.resolve_interferer(session, mission_id, interferer_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def _callsign_for(name: str, taken: set[str]) -> str:
@@ -82,6 +96,7 @@ async def create_sensor(
             select(Participant.callsign).where(Participant.mission_id == mission_id)
         )
     )
+    await _check_interferer(session, mission_id, body.interferer_id)
     callsign = _callsign_for(body.name, taken)
     virtual = Participant(
         mission_id=mission_id, callsign=callsign, role="fixed", authority="station"
@@ -96,6 +111,8 @@ async def create_sensor(
         kind=body.kind,
         lat=body.lat,
         lon=body.lon,
+        weight=body.weight,
+        interferer_id=body.interferer_id,
         api_key_hash=hash_token(key),
     )
     session.add(sensor)
@@ -145,15 +162,22 @@ async def patch_sensor(
     actor: Participant = Depends(require(Permission.SENSOR_MANAGE)),
     session: AsyncSession = Depends(get_session),
 ) -> SensorOut:
-    """Deactivate a sensor (its data stays in the log) or move a fixed station."""
+    """Deactivate a sensor (its data stays in the log), move a fixed station, or change its
+    weight or default interferer."""
     sensor = await session.get(Sensor, sensor_id)
     if sensor is None or sensor.mission_id != mission_id:
         raise HTTPException(404, "sensor not found")
     changes = body.model_dump(exclude_unset=True)
+    for field in ("is_active", "weight"):
+        if field in changes and changes[field] is None:
+            raise HTTPException(422, f"{field} must not be null")
+    if "interferer_id" in changes:
+        await _check_interferer(session, mission_id, changes["interferer_id"])
     for field, value in changes.items():
         setattr(sensor, field, value)
     if changes:
-        await domain.audit(session, mission_id, actor.id, "update", "sensor", sensor_id, **changes)
+        detail = body.model_dump(mode="json", exclude_unset=True)
+        await domain.audit(session, mission_id, actor.id, "update", "sensor", sensor_id, **detail)
         await session.commit()
     callsign = await session.scalar(
         select(Participant.callsign).where(Participant.id == sensor.participant_id)
