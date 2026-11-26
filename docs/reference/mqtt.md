@@ -155,8 +155,10 @@ What it does with the Kraken results:
 * **Interferer:** the sensor's default interferer applies (set by the lead); `--interferer <id>` names one in every
   bearing instead.
 
-Without hardware: `--simulate` drives a simulated car past a hidden emitter, and `--dry-run` prints the messages instead of
-sending them. Tests: `uv run --with pytest --with aiomqtt pytest tools/kraken_bridge`.
+Without hardware: `--simulate` drives a simulated car past a hidden emitter (`--sim-users N` adds repeater users who take turns
+with it), and `--dry-run` prints the messages instead of sending them. `tools/kraken_bridge/calibrate.py` determines
+`--mount-offset` from a drive near a transmitter at a known position. Setup, calibration and operation:
+[KrakenSDR in a vehicle](../user-guide/kraken-vehicle.md). Tests: `uv run --with pytest --with aiomqtt pytest tools/kraken_bridge`.
 
 ## Relay hook
 

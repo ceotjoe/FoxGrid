@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["httpx>=0.27", "pyproj>=3.6"]
+# dependencies = ["httpx>=0.27", "pyproj>=3.6", "aiomqtt>=2.0"]
 # ///
 """Replay a FoxGrid mission with simulated bearers against a running API.
 
@@ -11,18 +11,27 @@ The script creates a mission, lets N simulated bearers join, starts a transmissi
 every bearer post a (noisy) bearing towards a hidden emitter. After each bearing it prints how
 far the live estimate is from the true position. It exits non-zero if the final error exceeds
 ``--max-error-m``. Real participants can join the printed invite while it runs.
+
+``--kraken`` instead drives a car with a KrakenSDR past the emitter (ADR 0010). Repeater users
+(``--kraken-users``) take turns with the interferer; transmissions are started only for the
+interferer's overs, a little late, as a person would. The bearings go through the real bridge code
+and MQTT (needs ``docker compose --profile mqtt up -d``), and the script compares the estimate with
+the gate on and off.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import math
+import os
 import random
 import sys
 import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -141,6 +150,130 @@ def second_interferer(
     return truth, est
 
 
+def _poll(fn: Callable[[], Any], timeout_s: float = 20.0) -> Any:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if (value := fn()) is not None:
+            return value
+        time.sleep(0.2)
+    return None
+
+
+def kraken_vehicle(
+    http: httpx.Client,
+    base: str,
+    lead: dict[str, str],
+    args: argparse.Namespace,
+    rng: random.Random,
+) -> int:
+    """A Kraken car drives towards the emitter while repeater users share the frequency."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kraken_bridge"))
+    from bridge import Bridge, BridgeConfig, flush  # type: ignore[import-not-found]
+    from outbox import Outbox  # type: ignore[import-not-found]
+    from simulate import (  # type: ignore[import-not-found]
+        FOX,
+        default_overs,
+        drive,
+        place_users,
+        route_duration,
+    )
+
+    truth = (args.lat, args.lon)
+    created = http.post(f"{base}/sensors", json={"name": "Kraken Auto"}, headers=lead)
+    created.raise_for_status()
+    sensor = created.json()
+    print(f"sensor {sensor['id']} (gated: {sensor['gated']})")
+
+    start = offset(*truth, 225.0, 2500.0)  # the drive starts 2.5 km south-west
+    users = place_users(start, args.kraken_users)
+    overs = default_overs(route_duration(), args.kraken_users)
+    t0 = time.time() - route_duration() - 30.0  # the whole drive lies in the recent past
+
+    def iso(t: float) -> str:
+        return datetime.fromtimestamp(t, UTC).isoformat()
+
+    for over in overs:
+        if over.source != FOX:
+            continue
+        late = rng.uniform(0.0, 3.0)  # the button is pressed a little late
+        http.post(
+            f"{base}/transmissions/start", json={"at": iso(t0 + over.start_s + late)}, headers=lead
+        ).raise_for_status()
+        http.post(
+            f"{base}/transmissions/stop", json={"at": iso(t0 + over.end_s + 1.0)}, headers=lead
+        ).raise_for_status()
+    fox = sum(o.source == FOX for o in overs)
+    print(f"{fox} interferer overs as transmissions, {len(overs) - fox} overs of repeater users")
+
+    now = [t0]
+    config = BridgeConfig(
+        mission=str(sensor["topic_prefix"]).split("/")[1],
+        sensor=sensor["id"],
+        key=sensor["api_key"],
+        freq_mhz=433.5,
+    )
+    outbox = Outbox(":memory:")
+    bridge = Bridge(config, outbox, clock=lambda: now[0])
+    for step in drive(t0, start, truth, freq_hz=433.5e6, users=users, overs=overs, seed=args.seed):
+        now[0] = step.t
+        if step.fix is not None:
+            bridge.on_fix(step.fix)
+        if step.kraken_text is not None:
+            bridge.on_kraken_output(step.kraken_text)
+    total = bridge.counters.bearings
+
+    async def publish() -> None:
+        import aiomqtt
+
+        async with aiomqtt.Client(
+            hostname=args.mqtt_host,
+            port=args.mqtt_port,
+            username=args.mqtt_user,
+            password=args.mqtt_password,
+        ) as client:
+            await flush(outbox, client)
+
+    asyncio.run(publish())
+    print(f"bridge sent {total} bearings over MQTT ({args.mqtt_host}:{args.mqtt_port})")
+
+    def count(**params: Any) -> int | None:
+        r = http.get(
+            f"{base}/bearings", params={"sensors_only": True, "limit": 1, **params}, headers=lead
+        )
+        return int(r.headers["X-Total-Count"]) if r.status_code == 200 else None
+
+    if _poll(lambda: True if count() == total else None) is None:
+        print(
+            f"only {count()} of {total} bearings arrived: is the ingest running?", file=sys.stderr
+        )
+        return 2
+    counted, stored = count(state="counted") or 0, count(state="stored") or 0
+    print(f"stored {total}: {counted} count (interferer on air), {stored} only stored")
+
+    def estimate(n: int) -> dict[str, Any] | None:
+        def get() -> dict[str, Any] | None:
+            e = http.get(f"{base}/estimate?scope=all", headers=lead)
+            return e.json() if e.status_code == 200 and e.json()["n_bearings"] == n else None
+
+        return _poll(get)  # type: ignore[no-any-return]
+
+    gated = estimate(counted)
+    http.patch(f"{base}/sensors/{sensor['id']}", json={"gated": False}, headers=lead)
+    ungated = estimate(total)
+    http.patch(f"{base}/sensors/{sensor['id']}", json={"gated": True}, headers=lead)
+    if gated is None:
+        print("no estimate from the counted bearings", file=sys.stderr)
+        return 2
+    err = error_m((gated["lat"], gated["lon"]), truth)
+    print(f"\ngate on  ({counted} bearings): error {err:6.0f} m")
+    if ungated is not None:
+        err_all = error_m((ungated["lat"], ungated["lon"]), truth)
+        print(f"gate off ({total} bearings): error {err_all:6.0f} m (repeater users mixed in)")
+    verdict = "OK" if err <= args.max_error_m else "TOO FAR"
+    print(f"limit {args.max_error_m:.0f} m: {verdict}")
+    return 0 if err <= args.max_error_m else 1
+
+
 def wait_for_rssi_estimate(
     http: httpx.Client, base: str, headers: dict[str, str], n: int
 ) -> dict | None:
@@ -178,6 +311,20 @@ def main() -> int:
         action="store_true",
         help="a second emitter 4 km east of the first, tracked as its own interferer",
     )
+    ap.add_argument(
+        "--kraken",
+        action="store_true",
+        help="instead of hand bearers: a KrakenSDR car with repeater users (needs MQTT)",
+    )
+    ap.add_argument("--kraken-users", type=int, default=2, help="repeater users on the frequency")
+    ap.add_argument("--mqtt-host", default="localhost")
+    ap.add_argument("--mqtt-port", type=int, default=int(os.environ.get("FOXGRID_MQTT_PORT", 1883)))
+    ap.add_argument("--mqtt-user", default=os.environ.get("FOXGRID_MQTT_USERNAME", "foxgrid"))
+    ap.add_argument(
+        "--mqtt-password",
+        default=os.environ.get("FOXGRID_MQTT_PASSWORD"),
+        help="broker password (default: $FOXGRID_MQTT_PASSWORD)",
+    )
     ap.add_argument("--rssi-samples", type=int, default=40)
     ap.add_argument("--rssi-noise-db", type=float, default=3.0, help="fading scatter (1 sigma)")
     ap.add_argument("--path-loss-n", type=float, default=3.0, help="true path loss exponent")
@@ -204,6 +351,14 @@ def main() -> int:
         invite = created["invite_token"]
         tokens = [created["token"]]
         print(f"mission {mission_id}\ninvite  {invite}  (join in the app to watch live)")
+        if args.kraken:
+            return kraken_vehicle(
+                http,
+                f"{api}/missions/{mission_id}",
+                {"Authorization": f"Bearer {tokens[0]}"},
+                args,
+                rng,
+            )
         for i in range(2, args.bearers + 1):
             j = http.post(
                 f"{api}/join",

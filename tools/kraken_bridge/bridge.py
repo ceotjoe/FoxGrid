@@ -402,15 +402,27 @@ async def run_live(args: argparse.Namespace) -> None:
 
 
 async def run_simulation(args: argparse.Namespace) -> None:
-    from simulate import drive, route_duration
+    from simulate import FOX, default_overs, drive, place_users, route_duration
 
     start = (args.sim_lat, args.sim_lon)
     emitter = (args.sim_lat + 0.015, args.sim_lon + 0.012)  # about 2 km north-east
     t0 = time.time() - route_duration() - 5.0  # the whole drive lies in the recent past
+    users = place_users(start, args.sim_users)
+    overs = default_overs(route_duration(), args.sim_users) if args.sim_users else None
+    for over in overs or []:
+        if over.source == FOX:
+            log.info("interferer on air %s .. %s", iso(t0 + over.start_s), iso(t0 + over.end_s))
     now = [t0]
     outbox = Outbox(":memory:")
     bridge = Bridge(make_config(args), outbox, clock=lambda: now[0])
-    for step in drive(t0, start, emitter, freq_hz=(args.freq_mhz or 145.5) * 1e6):
+    for step in drive(
+        t0,
+        start,
+        emitter,
+        freq_hz=(args.freq_mhz or 145.5) * 1e6,
+        users=users,
+        overs=overs,
+    ):
         now[0] = step.t
         if step.fix is not None:
             bridge.on_fix(step.fix)
@@ -483,6 +495,12 @@ def build_parser() -> argparse.ArgumentParser:
     sim = ap.add_argument_group("Simulation")
     sim.add_argument(
         "--simulate", action="store_true", help="drive a simulated car past a hidden emitter"
+    )
+    sim.add_argument(
+        "--sim-users",
+        type=int,
+        default=0,
+        help="repeater users taking turns with the interferer (squelch gaps in between)",
     )
     sim.add_argument("--sim-lat", type=float, default=48.10)
     sim.add_argument("--sim-lon", type=float, default=11.50)

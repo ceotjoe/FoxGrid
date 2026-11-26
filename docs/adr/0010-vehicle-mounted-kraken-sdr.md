@@ -1,7 +1,7 @@
 # 0010 – Vehicle-mounted KrakenSDR as a mobile bearing station
 
-**Status:** proposed; steps 1 (bridge), 2 (backend: track, weight, default interferer), 3 (engine), 4 (manual gate), 5
-(bulk management) and 6 (app: sensor settings, vehicle, ray display) implemented
+**Status:** proposed; all seven steps implemented. The initial values (75 m, ε 0.2, σ presets, signal gate, 1.5 s gap) still
+need checking against real drives.
 
 **Context.** A KrakenSDR with a circular antenna array (UCA) on a car roof yields an unambiguous 360° bearing several times per
 second, both while driving and while parked. The MQTT interface ([0006](0006-mqtt-ingest-separate-process.md),
@@ -110,7 +110,9 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
   - **Map:** for sensors, only counted rays are shown by default; stored-only ones can be shown dimmed. Sensor rays are
     thinner and their fans fainter than hand bearings, because they come in dozens.
 - **Mount calibration.** A tool compares measured and geodesic azimuth to a known transmitter from several vehicle headings
-  and stores the median offset in the bridge configuration.
+  and gives the offset for the bridge configuration. It averages per 45° heading sector (each sector one vote, multipath
+  readings beyond 25° dropped), so the longest leg does not dominate, and warns when fewer than three sectors are covered or
+  the sectors disagree by more than 5° (the car body distorts the pattern, which one offset cannot correct).
 
 **Consequences.**
 
@@ -144,7 +146,7 @@ second, both while driving and while parked. The MQTT interface ([0006](0006-mqt
    - App: *Peilungen verwalten* with timeline, selection, bulk actions and map preview.
 6. App, sensors: weight, default interferer and gate in the sensor settings; vehicle marker with track; reduced ray display.
    *Done.*
-7. Simulator vehicle with repeater users, calibration tool, user guide.
+7. Simulator vehicle with repeater users, calibration tool, user guide. *Done.*
 
 **Alternatives considered.**
 

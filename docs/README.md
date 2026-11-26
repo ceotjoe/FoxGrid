@@ -2,7 +2,7 @@
 
 | I want to … | Read |
 |---|---|
-| use the app | [Getting started](user-guide/getting-started.md), [Homing](user-guide/homing.md), [Fixed stations](user-guide/omni-stations.md), [External bearings](user-guide/external-bearings.md), [Coordination and export](user-guide/coordination.md) |
+| use the app | [Getting started](user-guide/getting-started.md), [Homing](user-guide/homing.md), [Fixed stations](user-guide/omni-stations.md), [KrakenSDR in a vehicle](user-guide/kraken-vehicle.md), [External bearings](user-guide/external-bearings.md), [Coordination and export](user-guide/coordination.md) |
 | hand out a quick reference to bearers | [Cheat sheet, 2 pages with screenshots (DE)](user-guide/bearer-cheat-sheet-screens.de.pdf), [EN](user-guide/bearer-cheat-sheet-screens.pdf); [1-page text version](user-guide/bearer-cheat-sheet.md) |
 | run a mission safely | [Roles and permissions](user-guide/roles.md), [Access control and security](user-guide/mission-lead-security.md) |
 | understand how it works | [Domain rules](concepts/domain-rules.md), [Engine](concepts/engine.md), [Architecture](concepts/architecture.md) |

@@ -68,12 +68,19 @@ The generated PostGIS `geom` columns are ignored by autogenerate. Review every g
 ```bash
 uv run tools/simulator/run.py --interval-s 8
 uv run tools/simulator/run.py --two-interferers   # a second emitter 4 km east, its own interferer
+uv run tools/simulator/run.py --kraken            # a KrakenSDR car with repeater users (needs --profile mqtt)
 ```
 
 Creates a mission, lets five simulated bearers join (one with a grossly wrong bearing), starts a transmission and, after every
 bearing, reports the distance of the estimate to the true position. The invite it prints can be entered in the app to watch live.
 The exit code is non-zero if the error exceeds `--max-error-m` (default 600 m). Useful options: `--bearers`, `--outliers`,
 `--noise-deg`, `--sigma-deg`, `--seed`, `--homing` (a homing walk with attenuator), `--rssi-samples`, `--path-loss-n`.
+`--kraken` replaces the hand bearers with a KrakenSDR car (ADR 0010): the real bridge code turns a simulated drive into bearings
+and sends them over MQTT (`--mqtt-host`, `--mqtt-port`, `--mqtt-user`, `--mqtt-password`, defaults from `FOXGRID_MQTT_*`), while
+`--kraken-users` repeater users (default 2) take turns with the interferer. Transmissions cover only the interferer's overs, a
+little late; the script prints how many bearings count and the estimate error with the gate on and off.
+`uv run tools/kraken_bridge/calibrate.py --simulate --tx-lat 48.12 --tx-lon 11.55` shows the mount calibration on a simulated
+loop with a known offset.
 `uv run tools/simulator/omni_eval.py` evaluates the accuracy of the fixed-station model (`--trials`, `--stations`, `--fading`).
 
 ## Generated files

@@ -55,6 +55,7 @@ link) or Beobachter (read-only). See [Roles and permissions](roles.md).
 
 - [Homing](homing.md): close-range search with signal strength.
 - [Fixed stations](omni-stations.md): omnidirectional stations on the repeater input.
+- [KrakenSDR in a vehicle](kraken-vehicle.md): an automatic bearing station on a car roof.
 - [Roles and permissions](roles.md): who may do what.
 - [External bearings](external-bearings.md): the lead or an analyst enters bearings received from outside, e.g. from the BNetzA.
 - [Coordination and export](coordination.md): chat, tasks, offline behaviour, export.
