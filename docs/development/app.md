@@ -7,7 +7,7 @@ Flutter app for Android, iOS and the web control room. Stack: `flutter_map` (OSM
 app/lib/
   core/    api (Dio), models, session, live (WebSocket), outbox + sync (offline queue), database (Drift), geo, homing,
            signal (S-meter), tile_cache, push, device_secret, recent_missions, radio/ (CAT protocols)
-  state/   Riverpod providers: providers, filter, settings, tiles, push, deep_link
+  state/   Riverpod providers: providers, filter, settings, tiles, push, deep_link, app_info
   ui/      screens and sheets: join, pending, map, capture, bearings, homing, station, chat, tasks, participants,
            sensors, audit, suggestions, filter, sync, settings
 ```
@@ -136,6 +136,13 @@ Building blocks are in `ui/app_dialogs.dart`:
 - `ActionBar` with `AppAction`s: all buttons equal width and height, labels never wrap. When the labels do not fit side by side the
   buttons stack (main action on top). Keep labels short; at most one main action, "Abbrechen" first.
 - `FieldRow` / `CoordinateFields` for paired inputs (equal width, stacked on narrow widths).
+
+## Version and about
+
+The single source of version and build is `version:` in `app/pubspec.yaml` (`x.y.z+build`). `appVersionProvider`
+(`state/app_info.dart`, via `package_info_plus`) reads it at runtime. *Einstellungen* ends with "Über FoxGrid" showing
+"Version x.y.z (Build n)"; a tap opens Flutter's `AboutDialog` (the one exception to `AppDialog`, because it links the
+open-source licence page).
 
 ## Push
 

@@ -5,6 +5,7 @@ All notable changes. Versions follow the app's `pubspec.yaml`; dates are from th
 
 ## Unreleased
 
+- App: *Einstellungen* now ends with "Über FoxGrid", which shows version and build (from `pubspec.yaml`) and opens the about dialog with the open-source licences. New dependency `package_info_plus`.
 - KrakenSDR in a vehicle (step 1 of 7, [ADR 0010](docs/adr/0010-vehicle-mounted-kraken-sdr.md)): `tools/kraken_bridge` runs on the Kraken's Raspberry Pi, reads the DSP software's "Kraken App" output and gpsd, and sends averaged, thinned true bearings with their own sigma to the MQTT ingest through a persistent outbox. The heading comes from the GNSS course and is frozen while parked. `--simulate` drives a simulated car past a hidden emitter. No backend changes in this step.
 - Mobile stations (step 2 of 7): the MQTT heartbeat (`status`) may carry `lat`, `lon`, `speed`, `heading` and `at`, which become the station's track on the map. Sensors get a `weight` (0–2, used by the engine since step 3) and an optional default interferer; bearing and RSSI messages may name an `interferer`. Merging interferers moves sensor defaults. The Kraken bridge sends its heartbeat with position every 10 s and takes `--interferer`.
 - Backend: one new migration (0015); run `alembic upgrade head` when deploying.

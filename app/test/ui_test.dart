@@ -17,6 +17,7 @@ import 'package:foxgrid/ui/settings_screen.dart';
 import 'package:foxgrid/ui/sync_sheet.dart';
 import 'package:foxgrid/ui/tasks_screen.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'helpers.dart';
 
@@ -365,6 +366,31 @@ void main() {
         c.read(settingsProvider).tileUrl,
         'https://tiles.example.org/{z}/{x}/{y}.png',
       );
+      await _unmount(tester);
+    });
+
+    testWidgets('shows version and build and opens the about dialog', (
+      tester,
+    ) async {
+      PackageInfo.setMockInitialValues(
+        appName: 'FoxGrid',
+        packageName: 'com.itwebservice.foxgrid',
+        version: '1.2.3',
+        buildNumber: '45',
+        buildSignature: '',
+      );
+      await pumpWith(tester, const SettingsScreen());
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('about')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Version 1.2.3 (Build 45)'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('about')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AboutDialog), findsOneWidget);
+      expect(find.text('Version 1.2.3 (Build 45)'), findsNWidgets(2));
       await _unmount(tester);
     });
 

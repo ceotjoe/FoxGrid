@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/radio/protocols.dart';
+import '../state/app_info.dart';
 import '../state/providers.dart';
 import '../state/settings.dart';
 import '../state/tiles.dart';
@@ -76,10 +77,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             segments: const [
               ButtonSegment(value: BaseMap.osm, label: Text('OSM')),
               ButtonSegment(value: BaseMap.topo, label: Text('Topo')),
-              ButtonSegment(
-                value: BaseMap.custom,
-                label: Text('Eigener'),
-              ),
+              ButtonSegment(value: BaseMap.custom, label: Text('Eigener')),
             ],
             selected: {settings.baseMap},
             onSelectionChanged: (s) => notifier.setBaseMap(s.first),
@@ -197,7 +195,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 : 'Zuletzt abgerufen: ${declination.toStringAsFixed(1)}° '
                       '(WMM, positiv = magnetisch Nord liegt östlich)',
           ),
+          const Divider(height: 32),
+          const _AboutTile(),
         ],
+      ),
+    );
+  }
+}
+
+/// Shows version and build; tapping opens the about dialog with the open-source licences.
+class _AboutTile extends ConsumerWidget {
+  const _AboutTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final version = ref.watch(appVersionProvider).value;
+    final label = version?.label ?? 'Version wird ermittelt …';
+    return ListTile(
+      key: const Key('about'),
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.info_outline),
+      title: const Text('Über FoxGrid'),
+      subtitle: Text(label, key: const Key('app-version')),
+      onTap: () => showAboutDialog(
+        context: context,
+        applicationName: 'FoxGrid',
+        applicationVersion: label,
+        applicationLegalese: 'Open Source unter der MIT-Lizenz',
       ),
     );
   }
